@@ -1,0 +1,7 @@
+{
+  "name": "atelier-marketing",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24" },
+  "scripts": { "start": "node --disable-warning=ExperimentalWarning src/server.js" }
+}

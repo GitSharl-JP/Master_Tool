@@ -1,0 +1,76 @@
+{
+  "date": "2026-10-08T04:36:15.270Z",
+  "seconds": 50,
+  "passed": 111,
+  "failed": [],
+  "steps": [
+    {
+      "step": "0. Démarrage de l’atelier sur des données vierges",
+      "time": 0.431
+    },
+    {
+      "step": "1. Projet prêt : fiche approuvée, assets originaux",
+      "time": 1.842
+    },
+    {
+      "step": "2. Design : enregistrer, modifier, retrouver l’ancien",
+      "time": 3.153
+    },
+    {
+      "step": "3. Campagne Meta reliée à la main (déclarée ACTIVE) — configuration et brief séparés",
+      "time": 0.075
+    },
+    {
+      "step": "4. Variantes guidées : intention obligatoire, pas de quasi-doublon",
+      "time": 0.055
+    },
+    {
+      "step": "4b. Parcours court d’une personne seule : 3 actions de la création à l’association",
+      "time": 4.342
+    },
+    {
+      "step": "4c. Le site du projet : un site, son domaine, ses identifiants",
+      "time": 0.098
+    },
+    {
+      "step": "5. Corriger textes, cadrage et sous-titres",
+      "time": 0.323
+    },
+    {
+      "step": "6. Prévisualiser puis approuver (seul(e), contrôles automatiques à la place d’un relecteur)",
+      "time": 0.065
+    },
+    {
+      "step": "7. Exporter la version approuvée — sans doublon",
+      "time": 18.383
+    },
+    {
+      "step": "8. Un changement ne modifie JAMAIS une version approuvée",
+      "time": 0.439
+    },
+    {
+      "step": "9. Associer à la campagne ACTIVE : version diffusée figée, nouvelle variante possible",
+      "time": 3.754
+    },
+    {
+      "step": "10. Calendrier de production",
+      "time": 0.068
+    },
+    {
+      "step": "11. Reprise après erreur sans doublon (vidéo)",
+      "time": 5.376
+    },
+    {
+      "step": "12. Sauvegarde externe et vérification d’intégrité",
+      "time": 0.947
+    },
+    {
+      "step": "13. Restauration complète dans une installation VIERGE",
+      "time": 1.585
+    },
+    {
+      "step": "14. Pages dans un vrai navigateur (assistant, éditeur de variante, suivi, sauvegardes)",
+      "time": 8.747
+    }
+  ]
+}

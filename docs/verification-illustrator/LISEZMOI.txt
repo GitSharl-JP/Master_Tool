@@ -1,0 +1,3 @@
+Fichiers représentatifs pour tester l’export Illustrator.
+Suivez VERIFICATION-ILLUSTRATOR.txt (30 minutes). svg/ et pdf/ : à ouvrir dans Illustrator ; apercus/ : le rendu attendu.
+Ce dossier est généré par : node tests/illustrator-sample.mjs

@@ -1,0 +1,211 @@
+{
+  "name": "Design représentatif (test Illustrator)",
+  "version": 1,
+  "notes": "",
+  "schema": 1,
+  "savedAt": "2026-10-08T04:36:22.556Z",
+  "projectLabel": "Fichier test Illustrator",
+  "brand": {
+    "color_primary": "#1b1b2f",
+    "color_secondary": "#c8a24a",
+    "color_text": "#f5f1e8",
+    "font_title": "Georgia",
+    "font_body": "Segoe UI",
+    "brand_rules": ""
+  },
+  "sample": {
+    "venue_status": "à confirmer",
+    "timezone": "",
+    "color_primary": "#1b1b2f",
+    "color_secondary": "#c8a24a",
+    "color_text": "#f5f1e8",
+    "font_title": "Georgia",
+    "font_body": "Segoe UI",
+    "title_en": "NIGHT SHOW",
+    "tagline_en": "An after-dark walk through light and sound",
+    "description_en": "",
+    "hero_title_en": "",
+    "highlights_en": "",
+    "duration_min": "",
+    "route_en": "",
+    "accessibility_en": "",
+    "dress_code_en": "",
+    "audio_languages": "",
+    "weather_policy_en": "",
+    "session_first": "",
+    "session_last": "",
+    "slot_minutes": "",
+    "tickets": "",
+    "cta_book_en": "Book your tickets",
+    "top_line_en": "Every evening from sunset",
+    "audiences_en": "",
+    "addons": "",
+    "faq_en": "",
+    "show_highlights": "0",
+    "show_route": "0",
+    "show_tickets": "0",
+    "show_gallery": "0",
+    "show_faq": "0",
+    "show_map": "0",
+    "hero_layout": "",
+    "provisional": "0",
+    "show_code": "",
+    "edition_code": "",
+    "venue_name_en": "",
+    "venue_city_en": "",
+    "venue_address_en": "",
+    "date_start": "2027-03-02",
+    "date_end": "2027-05-20",
+    "practical_en": "",
+    "brand_rules": "",
+    "booking_url": "https://tickets.example.com/night-show",
+    "contact_email": "",
+    "contact_phone": "",
+    "social_instagram": "",
+    "social_facebook": "",
+    "social_tiktok": ""
+  },
+  "formats": {
+    "4x5": {
+      "hero": "1",
+      "logo": "2",
+      "gradient": 65,
+      "posx": 50,
+      "posy": 50,
+      "zoom": 100,
+      "title_scale": 100,
+      "text_pos": "bas",
+      "style": "bandeau",
+      "partners": "1",
+      "els": {
+        "top": {
+          "s": 110
+        },
+        "title": {
+          "dx": 10,
+          "dy": -20,
+          "s": 108,
+          "color": "#ffd166"
+        }
+      }
+    },
+    "1x1": {
+      "hero": "1",
+      "logo": "2",
+      "gradient": 65,
+      "posx": 50,
+      "posy": 50,
+      "zoom": 100,
+      "title_scale": 100,
+      "text_pos": "bas",
+      "style": "classique",
+      "partners": "1",
+      "els": {}
+    },
+    "9x16": {
+      "hero": "1",
+      "logo": "2",
+      "gradient": 65,
+      "posx": 50,
+      "posy": 50,
+      "zoom": 100,
+      "title_scale": 100,
+      "text_pos": "bas",
+      "style": "classique",
+      "partners": "1",
+      "els": {}
+    },
+    "tiktok": {
+      "hero": "1",
+      "logo": "2",
+      "gradient": 65,
+      "posx": 50,
+      "posy": 50,
+      "zoom": 100,
+      "title_scale": 100,
+      "text_pos": "bas",
+      "style": "classique",
+      "partners": "1",
+      "els": {}
+    },
+    "16x9": {
+      "hero": "1",
+      "logo": "2",
+      "gradient": 65,
+      "posx": 50,
+      "posy": 50,
+      "zoom": 100,
+      "title_scale": 100,
+      "text_pos": "bas",
+      "style": "classique",
+      "partners": "1",
+      "els": {
+        "title": {
+          "dy": -10
+        }
+      }
+    },
+    "link": {
+      "hero": "1",
+      "logo": "2",
+      "gradient": 65,
+      "posx": 50,
+      "posy": 50,
+      "zoom": 100,
+      "title_scale": 100,
+      "text_pos": "bas",
+      "style": "classique",
+      "partners": "1",
+      "els": {}
+    },
+    "banner": {
+      "hero": "1",
+      "logo": "2",
+      "gradient": 65,
+      "posx": 50,
+      "posy": 50,
+      "zoom": 100,
+      "title_scale": 100,
+      "text_pos": "bas",
+      "style": "classique",
+      "partners": "1",
+      "els": {}
+    }
+  },
+  "video": {
+    "logo": {
+      "corner": "tr",
+      "size": 14,
+      "margin": 4,
+      "asset": ""
+    },
+    "endcard": {
+      "on": true,
+      "seconds": 3
+    },
+    "subs": {
+      "on": true,
+      "size": 100
+    }
+  },
+  "assets": {
+    "1": {
+      "key": "designs/t1/v1/1_photo-de-fond.png",
+      "name": "photo-de-fond.png",
+      "role": "hero",
+      "file": "assets/1_photo-de-fond.png"
+    },
+    "2": {
+      "key": "designs/t1/v1/2_logo.png",
+      "name": "logo.png",
+      "role": "logo",
+      "file": "assets/2_logo.png"
+    },
+    "3": {
+      "key": "designs/t1/v1/3_partenaire.png",
+      "name": "partenaire.png",
+      "role": "partner",
+      "file": "assets/3_partenaire.png"
+    }
+  }
+}
