@@ -98,7 +98,7 @@ code{background:var(--bg);padding:1px 6px;border-radius:4px;font-size:.85em}
   body:has(#lockpage){overflow:hidden}
   main:has(#lockpage){max-width:none;height:calc(100vh - var(--nav-h));padding-bottom:12px;display:flex;flex-direction:column}
   main:has(#lockpage) h1{font-size:1.25rem;margin:0 0 .3em}
-  main:has(#lockpage) .tabs{margin-bottom:8px}
+  main:has(#lockpage) .pmenu{margin-bottom:6px}
   .studio{flex:1;min-height:0;align-items:stretch}
   .studio .stack{overflow-y:auto;padding-right:6px;max-height:100%}
   .studio .preview{height:100%}
@@ -164,3 +164,38 @@ table.cal{table-layout:fixed}table.cal td{height:96px;vertical-align:top;padding
 .next{background:var(--acc-lt);border-left:4px solid var(--acc);padding:12px 16px;border-radius:var(--radius);margin:12px 0;display:flex;flex-wrap:wrap;gap:10px;align-items:center}.next b{color:var(--acc-dk)}
 .todo li{padding:6px 0}.todo li.urgent a{color:var(--acc-dk);font-weight:600}.todo a{text-decoration:none;color:var(--ink)}.todo a:hover{color:var(--acc)}
 .checks li.bloquant{border-left:3px solid var(--acc);padding-left:8px}.checks li.conseil{border-left:3px solid #d9922b;padding-left:8px}
+
+/* ===== Menus déroulants (bandeau + menu du projet) ===== */
+nav{gap:8px}
+nav a,.ddb{font:inherit;font-size:.9rem;font-weight:500;color:var(--charcoal);background:none;border:0;border-radius:6px;padding:8px 12px;text-decoration:none;cursor:pointer;box-shadow:none;transform:none;transition:background var(--t),color var(--t)}
+nav a{border-bottom:0}
+nav a:hover,.ddb:hover,.dd:focus-within>.ddb{background:var(--acc-lt);color:var(--acc);box-shadow:none;transform:none}
+.ddb::after{content:"";display:inline-block;margin-left:8px;width:6px;height:6px;border:solid currentColor;border-width:0 2px 2px 0;transform:rotate(45deg) translateY(-2px)}
+.dd{position:relative}
+.ddm{display:none;position:absolute;top:100%;left:0;min-width:260px;padding:8px;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow-lg);z-index:30}
+.ddm.right{left:auto;right:0;min-width:180px}
+.dd:hover>.ddm,.dd:focus-within>.ddm{display:block}
+.ddi{display:flex;flex-direction:column;gap:1px;width:100%;text-align:left;padding:9px 12px;border-radius:6px;color:var(--ink);text-decoration:none;font:inherit;font-size:.9rem;background:none;border:0;cursor:pointer;box-shadow:none;transform:none}
+.ddi b{font-weight:600}.ddi small{font-size:.78rem}
+.ddi:hover,.ddi.on{background:var(--acc-lt);color:var(--acc-dk);box-shadow:none;transform:none}
+.ddm form{margin:0}
+
+.pmenu{display:flex;gap:6px;flex-wrap:wrap;padding:6px;margin:0 0 8px;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}
+.pmenu .ddb{padding:8px 16px;font-weight:600}
+.pmenu .dd.on>.ddb{background:var(--acc);color:#fff}
+.pmenu .dd.on>.ddb:hover,.pmenu .dd.on:focus-within>.ddb{background:var(--acc-dk);color:#fff}
+.where{margin:0 0 16px;font-size:.85rem;color:var(--mute)}.where b{color:var(--ink)}
+main:has(#lockpage) .where{margin-bottom:6px}
+
+/* ===== Normes de mise en page (espacements et champs) ===== */
+:root{--gap:20px;--pad:24px}
+h2{margin:0 0 16px;padding-bottom:10px;border-bottom:1px solid var(--line)}
+.card{padding:var(--pad);margin:var(--gap) 0}
+.grid{gap:var(--gap)}
+label{gap:6px}
+input,textarea,select{min-height:40px;padding:9px 12px}
+textarea{line-height:1.5;resize:vertical}
+label>small{font-size:.78rem;line-height:1.4}
+.validate{margin-top:var(--gap);padding-top:16px;border-top:1px solid var(--line)}
+.studio form.card,.studio .card{padding:18px}
+.studio h2{margin-bottom:12px}

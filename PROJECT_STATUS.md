@@ -4,6 +4,7 @@
 Local, fonctionnel, **conçu pour une personne seule** (un seul compte suffit ; relecteur/responsable facultatifs et masqués). Parcours testé de bout en bout (`tests/parcours.mjs` : 111 contrôles, ~50 s dont étape navigateur).
 
 ## Recently completed
+- **Refonte visuelle de la navigation** : bandeau unifié (Projets, Réglages, menu utilisateur), menu du projet en 4 menus déroulants (Projet, Bibliothèque, Création, Meta) avec description par entrée et fil d'Ariane, normes d'espacement/champs en fin de `public/style.css`. Non vérifié dans le navigateur ni par `tests/parcours.mjs` (à relancer) ; sections de fiche repliables envisagées, non faites.
 - Parcours court en solo : **3 actions** de la création de la variante à son association (créer → « Approuver et exporter » → « Associer à la campagne »), mesuré par le test.
 - Contrôles automatiques avant approbation (à la place d'une relecture extérieure : « à corriger » bloquant, « à savoir » informatif) ; « Prochaine étape » avec son bouton sur chaque variante ; « À faire maintenant » en tête du projet et du calendrier ; assistant préremplí depuis les formats manquants d'un ensemble.
 - **Un site WordPress par projet, sur son domaine** : onglet Site web (domaine, environnement, état, plan de construction), identifiants WordPress propres au projet (plus de réglage global). Décision confirmée : les autres sites ne sont que des exemples. Documentation : `docs/wordpress.md`.

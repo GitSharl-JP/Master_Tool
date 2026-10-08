@@ -10,7 +10,7 @@ export function layout(title, body, user, flash) {
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&family=Noto+Serif+JP:wght@400;600;700&display=swap">
 <link rel="icon" href="/brand/logo.png"><link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script></head><body>
 <header><a class="brand" href="/"><img src="/brand/logo.png" alt="Acoustiguide Japan"><span>Atelier marketing</span></a>${user ? `<nav><a href="/">Projets</a><a href="/settings">Réglages</a>
-<form method="post" action="/logout"><span>${esc(user.name)}</span><button class="link">Quitter</button></form></nav>` : ''}</header>
+<div class="dd"><button type="button" class="ddb">${esc(user.name)}</button><div class="ddm right"><form method="post" action="/logout"><button class="ddi">Se déconnecter</button></form></div></div></nav>` : ''}</header>
 <main>${flash ? `<p class="flash">${esc(flash)}</p>` : ''}${body}</main></body></html>`;
 }
 
@@ -101,12 +101,15 @@ import { CHANNELS, channelsOf } from './formats.js';
 // la création sert à produire ; les campagnes (créées dans Meta) puisent dans la bibliothèque.
 export const tabs = (ed, active) => {
   const groups = [
-    ['Projet', [['fiche', 'Fiche', `/edition/${ed.id}`], ['site', 'Site web', `/edition/${ed.id}/site`], ['calendrier', 'Calendrier', `/edition/${ed.id}/calendar`]]],
-    ['Bibliothèque', [['assets', 'Assets', `/edition/${ed.id}/assets`], ['designs', 'Designs', `/edition/${ed.id}/designs`], ['contenus', 'Contenus', `/edition/${ed.id}/contents`]]],
-    ['Création', [['variantes', 'Variantes', `/edition/${ed.id}/variants`], ['affiches', 'Affiches', `/edition/${ed.id}/poster/4x5`], ['videos', 'Vidéos', `/edition/${ed.id}/video`]]],
-    ['Meta', [['campagnes', 'Campagnes', `/edition/${ed.id}/campaigns`]]],
+    ['Projet', [['fiche', 'Fiche spectacle', 'Les informations de référence', `/edition/${ed.id}`], ['site', 'Site web', 'Pages du site du projet', `/edition/${ed.id}/site`], ['calendrier', 'Calendrier', 'Planning des publications', `/edition/${ed.id}/calendar`]]],
+    ['Bibliothèque', [['assets', 'Assets', 'Photos, vidéos, audio, sources', `/edition/${ed.id}/assets`], ['designs', 'Designs', 'Modèles d’affiches et de vidéos', `/edition/${ed.id}/designs`], ['contenus', 'Contenus', 'Textes et légendes', `/edition/${ed.id}/contents`]]],
+    ['Création', [['variantes', 'Variantes', 'Déclinaisons guidées', `/edition/${ed.id}/variants`], ['affiches', 'Affiches', 'Éditeur d’affiche', `/edition/${ed.id}/poster/4x5`], ['videos', 'Vidéos', 'Montage et sous-titres', `/edition/${ed.id}/video`]]],
+    ['Meta', [['campagnes', 'Campagnes', 'Préparer et suivre', `/edition/${ed.id}/campaigns`]]],
   ];
-  return `<h1>${esc(ed.label)} <small class="crumb">projet</small></h1><div class="tabs">${groups.map(([g, items]) => `<span class="tgroup"><small>${g}</small>${items.map(([k, n, h, blank]) => `<a href="${h}"${k === active ? ' class="on"' : ''}${blank ? ' target="_blank"' : ''}>${n}</a>`).join('')}</span>`).join('')}</div>`;
+  const cur = groups.find(([, items]) => items.some(([k]) => k === active));
+  const curItem = cur && cur[1].find(([k]) => k === active);
+  return `<h1>${esc(ed.label)} <small class="crumb">projet</small></h1><div class="pmenu">${groups.map(([g, items]) => `<div class="dd${cur && cur[0] === g ? ' on' : ''}"><button type="button" class="ddb">${g}</button><div class="ddm">${items.map(([k, n, d, h]) => `<a href="${h}" class="ddi${k === active ? ' on' : ''}"><b>${n}</b><small>${d}</small></a>`).join('')}</div></div>`).join('')}</div>
+${curItem ? `<p class="where">${cur[0]} › <b>${curItem[1]}</b></p>` : ''}`;
 };
 
 const kb = (n) => (n > 1048576 ? `${(n / 1048576).toFixed(1)} Mo` : `${Math.max(1, Math.round(n / 1024))} Ko`);
