@@ -220,6 +220,7 @@ export function restoreApproved(id, version, who) {
 export function archive(id, who) { const v = getVariant(id); if (v) { db.prepare("UPDATE variants SET status='archivé', updated=? WHERE id=?").run(now(), id); log(who, `Variante archivée : « ${v.name} »`); } }
 
 // --- export officiel : toujours depuis la version APPROUVÉE
+db.exec('CREATE TABLE IF NOT EXISTS export_errors(variant_id INTEGER NOT NULL, version INTEGER NOT NULL, fmt TEXT NOT NULL, message TEXT NOT NULL, at TEXT NOT NULL, PRIMARY KEY(variant_id,version,fmt))');
 export async function exportApproved(id, who) {
   const v = getVariant(id);
   if (!v) return { ok: false, error: 'Contenu introuvable.' };
@@ -231,10 +232,14 @@ export async function exportApproved(id, who) {
     const design = snap.designs[fmt];
     const key = sha({ id, version: ver.version, fmt, design, fiche: snap.fiche, refs, draft: snap.blockers });
     const hit = db.prepare("SELECT * FROM exports WHERE variant_id=? AND fmt=? AND content_key=? AND kind='affiche'").get(id, fmt, key);
-    if (hit && existsSync(EXPORT_PATH + hit.file)) { out.push({ fmt, state: 'déjà produit (réutilisé)', exportId: hit.id }); continue; }
+    if (hit && existsSync(EXPORT_PATH + hit.file)) { db.prepare('DELETE FROM export_errors WHERE variant_id=? AND version=? AND fmt=?').run(id, ver.version, fmt); out.push({ fmt, state: 'déjà produit (réutilisé)', exportId: hit.id }); continue; }
     const { html, draft } = buildPosterHtml(edSnap, fmt, snap.blockers, { design });
     const file = `variante-${id}-v${ver.version}-${fmt}-${new Date().toISOString().replace(/[:.]/g, '-')}${draft ? '-DRAFT' : ''}.png`;
-    if (!(await htmlToPng(html, fmt, EXPORT_PATH + file))) { out.push({ fmt, state: 'échec : réessayez, rien n’a été enregistré' }); continue; }
+    if (!(await htmlToPng(html, fmt, EXPORT_PATH + file))) {
+      db.prepare('INSERT OR REPLACE INTO export_errors VALUES(?,?,?,?,?)').run(id, ver.version, fmt, 'Le navigateur (Edge ou Chrome) n’a produit aucune image. Réessayez ; si cela se répète, fermez les fenêtres Edge ouvertes puis relancez l’export.', now());
+      out.push({ fmt, state: 'échec : réessayez, rien n’a été enregistré', failed: true }); continue;
+    }
+    db.prepare('DELETE FROM export_errors WHERE variant_id=? AND version=? AND fmt=?').run(id, ver.version, fmt);
     const res = db.prepare('INSERT INTO exports(edition_id,kind,label,file,draft,source_ids,created,created_by,variant_id,variant_version,fmt,content_key) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)')
       .run(v.project_id, 'affiche', `Variante « ${v.name} » v${ver.version} — Affiche ${FORMATS[fmt].label}`, file, draft ? 1 : 0, JSON.stringify([design.ext || design.hero, design.logo].filter(Boolean)), now(), who, id, ver.version, fmt, key);
     out.push({ fmt, state: draft ? 'créé (BROUILLON)' : 'créé', exportId: Number(res.lastInsertRowid) });
@@ -243,7 +248,8 @@ export async function exportApproved(id, who) {
   if (snap.video?.design.asset) {
     video = planExports(ed, who, { state: { design: { ...snap.video.design, formats: snap.video.design.formats?.length ? snap.video.design.formats : ['9x16'] }, cues: snap.video.cues, fiche: snap.fiche, posterDesigns: snap.designs, draft: snap.draft, variant: { id, version: ver.version } } });
   }
-  log(who, `Variante « ${v.name} » v${ver.version} : export (${out.map((o) => o.fmt).join(', ')}${video?.ok ? ' + vidéo' : ''})`);
+  const okFmts = out.filter((o) => !o.failed).map((o) => o.fmt), koFmts = out.filter((o) => o.failed).map((o) => o.fmt);
+  log(who, `Variante « ${v.name} » v${ver.version} : export ${koFmts.length ? (okFmts.length ? 'PARTIEL' : 'ÉCHOUÉ') : 'terminé'} — affiches produites : ${okFmts.join(', ') || 'aucune'}${koFmts.length ? ` ; en échec : ${koFmts.join(', ')}` : ''}${video?.ok ? ' ; vidéo : tâche lancée (résultat à vérifier)' : ''}`);
   syncContents(id, who);
   return { ok: true, out, video };
 }
@@ -269,6 +275,46 @@ export function linkOutputs(id, target, who) {
   const res = { ok: 0, skipped: [] };
   for (const c of contentsOf(id)) { const r = linkContent(c.id, target, who); if (r.ok) res.ok++; else res.skipped.push(`${FORMATS[c.format]?.ratio || ''} : ${r.error}`); }
   return res;
+}
+
+// État compact et vérifiable d'un contenu : création / exports / préparation à la diffusion / diffusion (jamais confondus).
+export function exportStatus(id) {
+  const v = getVariant(id);
+  if (!v) return null;
+  const approved = v.approved_version > 0, pristine = isPristine(v);
+  const ver = approved ? versionRow(id, v.approved_version) : null;
+  const outs = approved ? outputsOf(id) : [];
+  const vfmts = ver?.snapshot.video?.design.asset ? (ver.snapshot.video.design.formats?.length ? ver.snapshot.video.design.formats : ['9x16']) : [];
+  let total = 0, have = 0, draftFiles = 0;
+  const missing = [];
+  for (const o of outs) {
+    if (o.kind === 'video') {
+      for (const f of vfmts) { total++; if (o.exports.some((e) => e.fmt === f)) have++; else missing.push(f); }
+    } else { total++; if (o.exports.length) have++; else missing.push(o.fmt); }
+    if (o.exports.some((e) => e.draft)) draftFiles++;
+  }
+  const jobs = approved ? db.prepare("SELECT * FROM jobs WHERE variant_id=? AND variant_version=? ORDER BY id DESC").all(id, v.approved_version) : [];
+  const lastJob = {}; for (const j of jobs) if (!(j.fmt in lastJob)) lastJob[j.fmt] = j;
+  const running = missing.filter((f) => ['queued', 'running'].includes(lastJob[f]?.status)).length;
+  const errors = [];
+  for (const f of missing) {
+    const j = lastJob[f];
+    if (j?.status === 'error') errors.push({ fmt: f, message: j.message || 'La vidéo n’a pas pu être produite.' });
+    else if (!j) {
+      const e = approved ? db.prepare('SELECT message FROM export_errors WHERE variant_id=? AND version=? AND fmt=?').get(id, v.approved_version, f) : null;
+      if (e) errors.push({ fmt: f, message: e.message });
+    }
+  }
+  const state = !approved ? 'non produits' : total === 0 ? 'rien à produire' : have === total ? 'disponibles' : running ? 'en cours' : have > 0 ? 'partiels' : errors.length ? 'en erreur' : 'non produits';
+  const blockers = ver?.snapshot.blockers || [];
+  const links = outs.flatMap((o) => o.links);
+  const prep = !approved || have === 0 ? 'après les exports' : blockers.length || draftFiles ? 'informations manquantes' : 'prête';
+  const diff = links.some((l) => l.state === 'publié') ? 'publiée (déclaré à la main)' : links.some((l) => l.state === 'transmis') ? 'transmise (déclaré à la main)' : links.length ? 'préparée (associée en brouillon)' : 'pas encore associée';
+  const creation = approved && pristine ? `approuvée (v${v.approved_version})` : approved ? `modifiée depuis la v${v.approved_version}` : v.status === 'à relire' ? 'à relire' : 'brouillon';
+  const fileText = !approved ? 'aucun export (rien d’approuvé)' : `${have}/${total} fichier${total > 1 ? 's' : ''} disponible${have > 1 ? 's' : ''}${running ? ` · ${running} en cours` : ''}${errors.length ? ` · ${errors.length} en erreur` : ''}`;
+  const diffText = prep === 'prête' ? `Diffusion ${diff}` : prep === 'informations manquantes' ? 'Diffusion bloquée : informations manquantes' : 'Diffusion : après les exports';
+  return { creation, state, have, total, running, errors, missing, blockers, draftFiles, prep, diff, complete: total > 0 && have === total,
+    summary: `Création ${creation} · ${fileText} · ${diffText}` };
 }
 
 // --- suivi des sorties : brouillon → à relire → approuvé → exporté → transmis → publié (jamais confondus)
@@ -355,7 +401,9 @@ export function nextStep(id) {
     return { text: 'Vérifiez les aperçus et les textes. Quand c’est bon, une seule action suffit.', action: 'approve-export', label: 'Approuver et exporter' };
   }
   const outs = outputsOf(id);
-  if (!outs.some((o) => o.exports.length)) return { text: 'Version approuvée : il reste à produire les fichiers.', action: 'export', label: 'Exporter la version approuvée' };
+  const es = exportStatus(id);
+  if (es.running) return { text: `Export en cours (${es.running} fichier(s)) : patientez, la page se met à jour à chaque ouverture.`, href: `/edition/${v.project_id}/variants/${id}?step=verification`, label: 'Actualiser' };
+  if (!es.complete) return { text: es.have ? `Export incomplet : ${es.have}/${es.total} fichiers. Reprenez l’export : ce qui existe déjà n’est pas refait.` : (es.errors.length ? 'L’export a échoué : voir le détail ci-dessous, puis reprenez-le.' : 'Version approuvée : il reste à produire les fichiers.'), action: 'export', label: es.have || es.errors.length ? 'Reprendre l’export' : 'Exporter la version approuvée' };
   const links = outs.flatMap((o) => o.links);
   if (!links.length) return v.campaign_id
     ? { text: 'Fichiers prêts. Associez-les à la campagne (en brouillon, rien n’est transmis).', action: 'link-auto', label: 'Associer à la campagne' }
@@ -436,10 +484,11 @@ export function applyMaterial(id, b, who) {
 export function workspaceInfo(id) {
   const v = getVariant(id), st = workingState(v), blocking = checks(id).filter((c) => c.level === 'bloquant').length, outs = outputsOf(id);
   const material = Object.values(st.designs).some((d) => d.ext || d.hero) || !!st.video?.design.asset;
-  return { type: variantType(v), steps: [
+  const es = exportStatus(id);
+  return { type: variantType(v), summary: es.summary, status: es, steps: [
     { key: 'materiel', label: 'Matériel', done: material, note: material ? '' : 'à choisir' },
     { key: 'creation', label: 'Création', done: v.approved_version > 0 || v.status === 'à relire', note: '' },
-    { key: 'verification', label: 'Vérification et exports', done: v.status === 'approuvé' && outs.some((o) => o.exports.length), note: blocking ? `${blocking} à corriger` : '' },
-    { key: 'diffusion', label: 'Diffusion', done: outs.some((o) => o.links.length), note: '' },
+    { key: 'verification', label: 'Vérification et exports', done: v.status === 'approuvé' && es.complete, note: blocking ? `${blocking} à corriger` : v.approved_version && !es.complete ? `${es.have}/${es.total} fichiers` : '' },
+    { key: 'diffusion', label: 'Diffusion', done: outs.some((o) => o.links.some((l) => ['approuvé', 'transmis', 'publié'].includes(l.state))), note: '' },
   ] };
 }

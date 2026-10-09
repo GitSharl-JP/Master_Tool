@@ -113,6 +113,17 @@ ${solo ? '' : `<label>Responsable<select name="owner">${userOpts(users, v.owner)
 <label>Titre<input name="msg_title" value="${esc(v.msg_title)}"></label><label>Accroche<input name="msg_tagline" value="${esc(v.msg_tagline)}"></label>
 <label>Phrase du haut<input name="msg_top" value="${esc(v.msg_top)}"></label><label>Bouton<input name="msg_cta" value="${esc(v.msg_cta)}"></label>
 <div><button>Appliquer aux formats</button></div></form></div>`;
+  const es = ws.status;
+  const fmtLabel = (f) => FORMATS[f]?.label || f;
+  const P_ETATS = es ? `<div class="card"><h2>Où en est ce contenu ?</h2><p><b>${esc(es.summary)}</b></p>
+<details${es.errors.length || (v.approved_version && !es.complete) ? ' open' : ''}><summary>Détail des états</summary><ul class="etats">
+<li><b>Création</b><span>${esc(es.creation)}</span></li>
+<li><b>Exports</b><span>${esc(es.state)}${es.total ? ` — ${es.have}/${es.total} fichier(s)` : ''}</span></li>
+<li><b>Préparation à la diffusion</b><span>${es.prep === 'informations manquantes' ? 'informations manquantes : ' + esc(es.blockers.join(' ; ') || 'des fichiers sont en BROUILLON') : esc(es.prep)}</span></li>
+<li><b>Diffusion</b><span>${esc(es.diff)}</span></li></ul>
+<small>Une approbation ne prouve ni la réussite d’un export ni une publication : chaque ligne est calculée à part.</small></details>
+${es.errors.map((e) => `<p class="status warn ko">⚠ ${esc(fmtLabel(e.fmt))} : ${esc(e.message)}</p>`).join('')}
+${v.approved_version && !es.complete && !es.running ? `<form method="post" action="/edition/${ed.id}/variants/${v.id}/export" class="inline"><button class="primary"${exportable ? '' : ' disabled'}>Reprendre l’export (${es.missing.length} fichier(s) manquant(s))</button><small>Seuls les fichiers manquants sont refaits : pas de doublon.</small></form>` : ''}</div>` : '';
   const P_SORTIES = `<div class="card"><h2>Sorties</h2>
 ${outputs.map((o) => `<div class="out">${o.kind === 'video' ? '<div class="vthumb vid"><span>vidéo</span></div>' : thumb(ed, o.fmt, v.id)}
 <div class="outm"><b>${o.kind === 'video' ? 'Vidéo' : esc(FORMATS[o.fmt].label)}</b> ${stepper(o.stage)}
@@ -202,9 +213,9 @@ ${P_PLAN}
 ${v.status !== 'archivé' ? `<form method="post" action="${base}/archive" class="inline"><button class="link">Archiver ce contenu</button></form>` : ''}
 <details><summary>Dupliquer pour un nouveau test marketing</summary>${P_DUP}</details></details>`;
   const brief = `<details class="card brief"><summary><b>Brief marketing</b> <small>(angle, audience, hypothèse — facultatif)</small></summary>${P_INTENT}</details>`;
-  const bodies = { materiel, creation, verification: `${P_VALID}\n${P_SORTIES}\n${P_EXP}`, diffusion };
+  const bodies = { materiel, creation, verification: `${P_ETATS}\n${P_VALID}\n${P_SORTIES}\n${P_EXP}`, diffusion };
   return `${tabs(ed, 'variantes')}${flash(msg)}
-${workspaceHeader(ed, { name: v.name, type: ws.type, status: v.status, version: v.approved_version, base, backHref: `/edition/${ed.id}/variants`, steps: ws.steps, step, note: v.status === 'approuvé' ? '' : '' })}
+${workspaceHeader(ed, { name: v.name, type: ws.type, status: v.status, version: v.approved_version, base, backHref: `/edition/${ed.id}/variants`, steps: ws.steps, summary: ws.summary, step, note: v.status === 'approuvé' ? '' : '' })}
 ${nextBanner}
 ${brief}
 ${bodies[step]}`;

@@ -107,6 +107,7 @@ code{background:var(--bg);padding:1px 6px;border-radius:4px;font-size:.85em}
   body.big main:has(#lockpage){height:100vh;padding-top:6px}
   body.big main:has(#lockpage)>*:not(.ws):not(.tabs):not(.studio):not(#lockpage):not(.flash){display:none}
   body.big main:has(#lockpage) .ws-top{margin-bottom:6px}
+  body.big main:has(#lockpage) .ws-sum{display:none}
   body.big main:has(#lockpage) .ws .steps{margin:0}
   main:has(#lockpage) .ws{padding:8px 14px;margin:2px 0 8px}main:has(#lockpage) .ws-note{display:none}
   main:has(#lockpage) .fmtnote small{display:none}main:has(#lockpage) .fmtnote{margin:4px 0 8px}
@@ -268,6 +269,9 @@ details.mini summary{cursor:pointer;font-size:.8rem;opacity:.7}details.mini[open
 .steps span{display:flex;flex-direction:column;font-weight:600;font-size:.9rem;line-height:1.25}.steps small{font-weight:400;opacity:.75;font-size:.75rem}
 .steps li.done b{background:#2e7d32;color:#fff}.steps li.here a{border-color:var(--acc);box-shadow:0 0 0 2px var(--acc) inset}
 .ws-note{display:block;margin-top:8px;opacity:.75}
+.ws-sum{margin:8px 0 0;font-size:.9rem;color:var(--ink)}
+.etats{list-style:none;padding:0;margin:8px 0}.etats li{display:flex;gap:10px;padding:5px 0;border-bottom:1px solid var(--line)}.etats li b{min-width:170px}
+.etats .ko{color:#b3261e}
 .stepnext{margin:18px 0}
 .fgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:16px}.fcell{display:flex;flex-direction:column;gap:8px;align-items:flex-start}
 .typepick{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin:12px 0}

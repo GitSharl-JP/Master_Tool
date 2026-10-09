@@ -209,7 +209,7 @@ const wsChip = (st) => `<span class="tag ${st === 'approuvé' ? 'st-2' : st === 
 export function workspaceHeader(ed, w) {
   return `<div class="ws"><div class="ws-top"><a href="${w.backHref}">← Contenus</a> <b>${esc(w.name)}</b> <span class="tag">${esc(w.type)}</span> ${wsChip(w.status)}${w.version ? ` <span class="tag">version ${w.version} approuvée</span>` : ''}</div>
 <ol class="steps">${w.steps.map((st, i) => `<li class="${st.done ? 'done' : ''}${st.key === w.step ? ' here' : ''}"><a href="${w.base}?step=${st.key}"><b>${st.done ? '✓' : i + 1}</b><span>${esc(st.label)}${st.note ? `<small>${esc(st.note)}</small>` : ''}</span></a></li>`).join('')}</ol>
-${w.note ? `<small class="ws-note">${esc(w.note)}</small>` : ''}</div>`;
+${w.summary ? `<p class="ws-sum">${esc(w.summary)}</p>` : ''}${w.note ? `<small class="ws-note">${esc(w.note)}</small>` : ''}</div>`;
 }
 
 // Panneau d'une affiche reçue : seuls le cadrage et l'ajustement au format ont un sens, les textes sont dans l'image.
@@ -237,7 +237,7 @@ export function posterPage(ed, fmt, design, assets, exports, msg, blockers, hist
   const range = (k, label, lo, hi) => `<label>${label}<span class="rng"><input type="range" name="${k}" min="${lo}" max="${hi}" value="${design[k]}"></span></label>`;
   const f = POSTER_FORMATS[fmt];
   return `<span id="lockpage"></span>${tabs(ed, variant ? 'variantes' : 'affiches')}${msg ? `<p class="flash">${esc(msg)}</p>` : ''}
-${variant ? workspaceHeader(ed, { name: variant.name, type: extra.ws?.type || 'Affiche', status: variant.status, version: variant.approved_version, base: `/edition/${ed.id}/variants/${variant.id}`, backHref: `/edition/${ed.id}/variants`, steps: extra.ws?.steps || [], step: 'creation', note: 'Ici « Exporter » produit un essai ; l’export officiel se fait à l’étape Vérification et exports.' }) : ''}
+${variant ? workspaceHeader(ed, { name: variant.name, type: extra.ws?.type || 'Affiche', status: variant.status, version: variant.approved_version, base: `/edition/${ed.id}/variants/${variant.id}`, backHref: `/edition/${ed.id}/variants`, steps: extra.ws?.steps || [], summary: extra.ws?.summary, step: 'creation', note: 'Ici « Exporter » produit un essai ; l’export officiel se fait à l’étape Vérification et exports.' }) : ''}
 ${design.ext || variant ? '' : entryCards(ed, 'svg')}
 <div class="tabs sub">${Object.entries(POSTER_FORMATS).filter(([k]) => !variant || variant.formats.includes(k)).map(([k, v]) => `<a href="/edition/${ed.id}/poster/${k}${qs}"${k === fmt ? ' class="on"' : ''}>${v.label}</a>`).join('')}<button type="button" id="bigtoggle" class="link bigtoggle" title="Masque le menu du haut pour donner toute la hauteur à l’affiche">Agrandir l’aperçu</button></div>
 <p class="fmtnote"><b>${esc(f.ratio)} · ${f.w}×${f.h}</b> — utilisé pour : ${esc(channelsOf(fmt).join(', ') || '—')}. Zones de sécurité (haut / bas) : ${f.safe.top} / ${f.safe.bottom} px. <small>Tailles courantes recommandées par les plateformes : à re-vérifier avant campagne.</small></p>
@@ -291,7 +291,7 @@ export function videoPage(ed, c) {
   const opt = (list, cur, none = '— aucun —') => `<option value="">${none}</option>${list.map((a) => `<option value="${a.id}"${String(a.id) === String(cur) ? ' selected' : ''}>${esc(a.name)}${a.provisional ? ' (provisoire)' : ''}</option>`).join('')}`;
   const rng = (id, label, lo, hi, v, step = 1) => `<label>${label}<span class="rng"><input type="range" id="${id}" min="${lo}" max="${hi}" step="${step}" value="${v}"></span></label>`;
   const fm = Object.fromEntries(VIDEO_FORMATS.map((k) => [k, { w: FORMATS[k].w, h: FORMATS[k].h, safe: FORMATS[k].safe, label: FORMATS[k].label }]));
-  return `<span id="lockpage"></span>${tabs(ed, variant ? 'variantes' : 'videos')}${variant ? workspaceHeader(ed, { name: variant.name, type: c.ws?.type || 'Vidéo', status: variant.status, version: variant.approved_version, base: `/edition/${ed.id}/variants/${variant.id}`, backHref: `/edition/${ed.id}/variants`, steps: c.ws?.steps || [], step: 'creation', note: 'Ici « Lancer les exports » produit des essais ; l’export officiel se fait à l’étape Vérification et exports.' }) : ''}${msg ? `<p class="flash">${esc(msg)}</p>` : ''}
+  return `<span id="lockpage"></span>${tabs(ed, variant ? 'variantes' : 'videos')}${variant ? workspaceHeader(ed, { name: variant.name, type: c.ws?.type || 'Vidéo', status: variant.status, version: variant.approved_version, base: `/edition/${ed.id}/variants/${variant.id}`, backHref: `/edition/${ed.id}/variants`, steps: c.ws?.steps || [], summary: c.ws?.summary, step: 'creation', note: 'Ici « Lancer les exports » produit des essais ; l’export officiel se fait à l’étape Vérification et exports.' }) : ''}${msg ? `<p class="flash">${esc(msg)}</p>` : ''}
 ${ready ? '' : '<p class="status warn"><b>ffmpeg est introuvable</b> : les exports vidéo sont impossibles. Il doit se trouver dans <code>tools/ffmpeg/</code>.</p>'}
 <div class="studio"><div class="stack">
 <form id="vform" method="post" action="/edition/${ed.id}/video/save${qs}" class="card" data-edition="${ed.id}" data-draft="${draft ? 1 : 0}"

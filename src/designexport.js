@@ -9,7 +9,7 @@
 //       (ombres, certains espacements) ne sont pas restitués.
 import { spawn } from 'node:child_process';
 import { writeFileSync, unlinkSync, existsSync } from 'node:fs';
-import { buildPosterHtml, browserPath, EXPORT_PATH } from './studio.js';
+import { buildPosterHtml, browserPath, isolatedProfile, EXPORT_PATH } from './studio.js';
 import { FORMATS } from './formats.js';
 import { gradientSpec, POSTER_ELEMENTS } from './render.js';
 
@@ -21,12 +21,13 @@ function run(args, { capture = false, timeout = 60000 } = {}) {
   return new Promise((resolve) => {
     const exe = browserPath();
     if (!exe) return resolve({ ok: false, error: 'Aucun navigateur (Edge ou Chrome) trouvé.' });
-    const p = spawn(exe, args, { stdio: ['ignore', capture ? 'pipe' : 'ignore', 'ignore'] });
+    const prof = isolatedProfile();
+    const p = spawn(exe, [...prof.args, ...args], { stdio: ['ignore', capture ? 'pipe' : 'ignore', 'ignore'] });
     let out = '';
     if (capture) p.stdout.on('data', (c) => { out += c; });
     const timer = setTimeout(() => p.kill(), timeout);
-    p.on('close', () => { clearTimeout(timer); resolve({ ok: true, out }); });
-    p.on('error', (e) => { clearTimeout(timer); resolve({ ok: false, error: e.message }); });
+    p.on('close', () => { clearTimeout(timer); prof.cleanup(); resolve({ ok: true, out }); });
+    p.on('error', (e) => { clearTimeout(timer); prof.cleanup(); resolve({ ok: false, error: e.message }); });
   });
 }
 const withFile = async (html, fn) => {

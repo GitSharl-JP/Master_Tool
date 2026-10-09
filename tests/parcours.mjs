@@ -576,6 +576,9 @@ await step('7. Exporter la version approuvée — sans doublon', async () => {
   const rows = () => A.text('/edition/1/contents');
   const html = await rows();
   check('les sorties deviennent des contenus de la bibliothèque', /Émerveillement · 4:5/.test(html) && /Familles · 1:1/.test(html) && /Émerveillement · 9:16 \(vidéo\)/.test(html));
+  const vp = await A.text(`/edition/1/variants/${ids.v1}?step=verification`);
+  check('état compact : création, fichiers disponibles, diffusion', /Création approuvée \(v\d+\) · (\d+)\/\1 fichiers? disponibles?/.test(vp), (/Création approuvée[^<]*/.exec(vp) || [''])[0]);
+  check('états détaillés distincts (création / exports / préparation / diffusion)', /Préparation à la diffusion/.test(vp) && /Une approbation ne prouve ni la réussite d’un export/.test(vp));
   const dl = (await A.text(`/edition/1/variants/${ids.v1}`)).match(/\/exports\/(\d+)\?dl=1/g) || [];
   exp1 = dl.map((x) => Number(/(\d+)/.exec(x)[1]));
   check('fichiers exportés présents et téléchargeables', exp1.length >= 2, `${exp1.length} lien(s)`);

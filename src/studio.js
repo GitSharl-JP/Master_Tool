@@ -1,7 +1,8 @@
 // Bibliothèque d'assets, réglages de design (affiches) et exports.
-import { mkdirSync, existsSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
+import { mkdirSync, existsSync, readFileSync, writeFileSync, unlinkSync, mkdtempSync, rmSync } from 'node:fs';
 import { spawnSync, spawn } from 'node:child_process';
-import { extname } from 'node:path';
+import { extname, join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { db, DATA_DIR, log } from './db.js';
 import { renderPoster, renderImportedPoster, POSTER_ELEMENTS, FONTS } from './render.js';
 import { cleanSvg } from './svgclean.js';
@@ -212,6 +213,12 @@ const BROWSERS = [
   'C:/Program Files/Google/Chrome/Application/chrome.exe',
 ];
 const browser = () => BROWSERS.find((p) => existsSync(p));
+// Le navigateur sans fenêtre doit avoir son PROPRE profil : si Edge est déjà ouvert avec le profil par défaut (cas courant : l'utilisateur
+// consulte l'atelier dans Edge), la commande est transmise à cette instance et AUCUN fichier n'est produit, sans message d'erreur.
+export function isolatedProfile() {
+  const dir = mkdtempSync(join(tmpdir(), 'atelier-nav-'));
+  return { args: [`--user-data-dir=${dir}`, '--no-first-run', '--no-default-browser-check', '--disable-extensions', '--disable-sync'], cleanup: () => { try { rmSync(dir, { recursive: true, force: true }); } catch { /* sera nettoyé plus tard */ } } };
+}
 
 function dataUri(a) {
   if (!a) return null;
@@ -244,10 +251,11 @@ export function htmlToPng(html, fmt, pngFile) {
     if (!exe || !f) return resolve(false);
     const htmlFile = pngFile.replace(/\.png$/, '.html');
     writeFileSync(htmlFile, html);
-    const p = spawn(exe, ['--headless=new', '--disable-gpu', '--hide-scrollbars', '--force-device-scale-factor=1',
+    const prof = isolatedProfile();
+    const p = spawn(exe, [...prof.args, '--headless=new', '--disable-gpu', '--hide-scrollbars', '--force-device-scale-factor=1',
       `--window-size=${f.w},${f.h}`, `--screenshot=${pngFile}`, 'file:///' + htmlFile.replace(/\\/g, '/')], { stdio: 'ignore' });
     const timer = setTimeout(() => p.kill(), 60000);
-    p.on('close', () => { clearTimeout(timer); try { unlinkSync(htmlFile); } catch {} resolve(existsSync(pngFile)); });
+    p.on('close', () => { clearTimeout(timer); prof.cleanup(); try { unlinkSync(htmlFile); } catch {} resolve(existsSync(pngFile)); });
     p.on('error', () => { clearTimeout(timer); resolve(false); });
   });
 }
@@ -264,8 +272,10 @@ export function exportPoster(ed, fmt, who, draftReasons, opts = {}) {
   const htmlFile = EXPORT_DIR + base + '.html';
   const pngFile = EXPORT_DIR + base + '.png';
   writeFileSync(htmlFile, html);
-  spawnSync(exe, ['--headless=new', '--disable-gpu', '--hide-scrollbars', '--force-device-scale-factor=1',
+  const prof = isolatedProfile();
+  spawnSync(exe, [...prof.args, '--headless=new', '--disable-gpu', '--hide-scrollbars', '--force-device-scale-factor=1',
     `--window-size=${f.w},${f.h}`, `--screenshot=${pngFile}`, 'file:///' + htmlFile.replace(/\\/g, '/')], { timeout: 60000 });
+  prof.cleanup();
   try { unlinkSync(htmlFile); } catch {}
   if (!existsSync(pngFile)) return { ok: false, error: 'La génération de l’image a échoué. Réessayez ; rien n’a été enregistré.' };
   const res = db.prepare('INSERT INTO exports(edition_id,kind,label,file,draft,source_ids,created,created_by,variant_id,fmt) VALUES(?,?,?,?,?,?,?,?,?,?)')
