@@ -204,9 +204,14 @@ if (pform) {
     if (e.target.name === 'gradient' || e.target.name === 'posx' || e.target.name === 'posy' || e.target.name === 'zoom') { post({ type: 'bg', posx: Number(pform.elements.posx.value), posy: Number(pform.elements.posy.value), zoom: Number(pform.elements.zoom.value) }); }
     clearTimeout(pform._t); pform._t = setTimeout(reload, e.target.type === 'range' ? 250 : 0);
   });
+  // aperçu agrandi : le menu du haut est masqué pour donner toute la hauteur à l'affiche (choix mémorisé)
+  const big = $('bigtoggle');
+  const setBig = (on) => { document.body.classList.toggle('big', on); big.textContent = on ? 'Afficher le menu' : 'Agrandir l’aperçu'; try { localStorage.setItem('atelier.big', on ? '1' : '0'); } catch {} fit(); };
+  big.addEventListener('click', () => setBig(!document.body.classList.contains('big')));
+  let wantBig = true; try { wantBig = localStorage.getItem('atelier.big') !== '0'; } catch {}
   frame.addEventListener('load', () => { cur = null; panel.hidden = true; renderList(); fit(); });
   window.addEventListener('resize', fit);
-  save(); renderList(); reload(); fit();
+  save(); renderList(); reload(); setBig(wantBig);
 }
 
 // Import d'une archive de design (.zip)
