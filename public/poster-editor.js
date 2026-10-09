@@ -17,7 +17,11 @@
   document.body.append(box, handle);
 
   let sel = null;
-  const val = (el) => ({ dx: Number(el.dataset.dx), dy: Number(el.dataset.dy), s: Number(el.dataset.s) });
+// cx, cy : centre de l'élément à sa place d'origine dans la composition (décalage retiré) ; la position affichée = cx + dx, cy + dy.
+  const val = (el) => {
+    const dx = Number(el.dataset.dx), dy = Number(el.dataset.dy), r = el.getBoundingClientRect();
+    return { dx, dy, s: Number(el.dataset.s), cx: Math.round(r.left + r.width / 2 - dx), cy: Math.round(r.top + r.height / 2 - dy) };
+  };
   const apply = (el, v) => {
     el.dataset.dx = Math.round(v.dx); el.dataset.dy = Math.round(v.dy); el.dataset.s = Math.round(v.s);
     el.style.translate = v.dx || v.dy ? `${Math.round(v.dx)}px ${Math.round(v.dy)}px` : '';
@@ -133,6 +137,7 @@
       const el = document.querySelector(`[data-el="${m.id}"]`);
       if (!el) return;
       apply(el, { dx: m.dx, dy: m.dy, s: m.s });
+      if (m.align !== undefined) el.style.textAlign = m.align || '';
       if (m.color !== undefined) { if (m.color) { el.style.setProperty('--oc', m.color); el.dataset.oc = '1'; } else { el.style.removeProperty('--oc'); delete el.dataset.oc; } }
     }
     if (m.type === 'bg') setBg(m);

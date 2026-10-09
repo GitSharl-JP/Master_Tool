@@ -251,9 +251,11 @@ ${design.ext ? importedPanel(ed, design, assets, variant, extra) + '<div hidden>
 <small>Sur l’aperçu : <b>clic</b> pour sélectionner, <b>glisser</b> pour déplacer, <b>poignée</b> bleue pour la taille, <b>double-clic</b> pour modifier le texte, <b>flèches</b> pour ajuster (Maj = plus vite), <b>Suppr</b> pour masquer. Glisser dans le vide recadre la photo, la molette la zoome.</small>
 <ul id="ellist" class="ellist"></ul>
 <div id="elsel" hidden><h3 id="elname"></h3>
-<label>Position horizontale<span class="rng"><input type="range" id="el_dx" min="-1500" max="1500" value="0"></span></label>
-<label>Position verticale<span class="rng"><input type="range" id="el_dy" min="-2000" max="2000" value="0"></span></label>
+<label>Position X (px depuis la gauche, centre de l’élément)<span class="rng"><input type="range" id="el_dx" min="0" max="${f.w}" value="0"></span></label>
+<label>Position Y (px depuis le haut, centre de l’élément)<span class="rng"><input type="range" id="el_dy" min="0" max="${f.h}" value="0"></span></label>
+<span class="inline"><button type="button" id="el_cx" class="link">Centrer horizontalement</button><button type="button" id="el_cy" class="link">Centrer verticalement</button></span>
 <label>Taille (%)<span class="rng"><input type="range" id="el_s" min="20" max="400" value="100"></span></label>
+<label id="el_alignl">Alignement du texte<select id="el_align"><option value="">Par défaut</option><option value="left">À gauche</option><option value="center">Centré</option><option value="right">À droite</option></select></label>
 <label>Couleur<span class="inline"><input type="color" id="el_color" value="#ffffff"><button type="button" id="el_color_reset" class="link">Couleur d’origine</button></span></label>
 <label>Texte (cette affiche seulement)<textarea id="el_text" rows="2"></textarea><small>Vide = texte de la fiche. La fiche n’est pas modifiée.</small></label>
 <span class="inline"><button type="button" id="el_text_reset" class="link">Texte de la fiche</button><button type="button" id="el_reset" class="link">Réinitialiser l’élément</button><button type="button" id="el_hide" class="link">Masquer</button></span></div>

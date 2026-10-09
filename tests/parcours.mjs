@@ -767,6 +767,14 @@ await step('14. Pages dans un vrai navigateur (assistant, éditeur de variante, 
     await br.sleep(1500);
     check('éditeur : bandeau « variante » et aperçu de la variante', await br.ev(`document.body.innerText.includes('Émerveillement') && !!document.querySelector('.ws .steps') && document.getElementById('pframe').src.includes('variant=${ids.v1}')`));
     check('éditeur : le formulaire édite bien la variante', await br.ev(`document.getElementById('pform').dataset.variant === '${ids.v1}' && document.getElementById('pform').action.includes('variant=${ids.v1}')`));
+    await br.ev(String.raw`document.getElementById('pframe').contentWindow.postMessage({ type: 'select', id: 'title' }, location.origin)`);
+    await br.sleep(600);
+    const X0 = await br.ev(String.raw`Number(document.getElementById('el_dx').value)`);
+    check('position : le curseur affiche la position réelle sur l’affiche (pas 0)', X0 > 100, String(X0));
+    await br.ev(String.raw`(() => { const r = document.getElementById('el_dx'); r.value = 456; r.dispatchEvent(new Event('input', { bubbles: true })); const y = document.getElementById('el_dy'); y.value = 345; y.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+    await br.sleep(500);
+    const c = await br.ev(String.raw`(() => { const e = document.getElementById('pframe').contentDocument.querySelector('[data-el=title]').getBoundingClientRect(); return [Math.round(e.left + e.width / 2), Math.round(e.top + e.height / 2)]; })()`);
+    check('position : centre de l’élément placé à 456 × 345 px', Math.abs(c[0] - 456) <= 2 && Math.abs(c[1] - 345) <= 2, JSON.stringify(c));
     await shot('editeur-variante');
     for (const [p, n, re] of [['/edition/1/calendar?month=2027-01', 'calendrier', 'Réunion de lancement'], [`/edition/1/campaigns/${ids.c}`, 'campagne', 'Configuration Meta'], ['/edition/1/variants', 'variantes', 'Familles'], ['/settings', 'reglages', 'Sauvegardes'], ['/edition/1/contents', 'contenus', 'Associé']]) {
       await br.go(U + p);

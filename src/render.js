@@ -93,6 +93,7 @@ export function renderPoster(ed, fmt, g, { heroSrc, logoSrc, partnerSrcs = [], d
     if (o.dx || o.dy) st.push(`translate:${o.dx || 0}px ${o.dy || 0}px`);
     if (o.s && o.s !== 100) st.push(`scale:${o.s / 100}`);
     if (o.color) st.push(`--oc:${o.color}`);
+    if (o.align) st.push(`text-align:${o.align}`);
     return ` data-el="${id}" data-dx="${o.dx || 0}" data-dy="${o.dy || 0}" data-s="${o.s || 100}"${o.color ? ' data-oc="1"' : ''}${st.length ? ` style="${st.join(';')}"` : ''}`;
   };
   const text = (id, fallback) => (ov(id).text ? esc(ov(id).text).replace(/\n/g, '<br>') : fallback);

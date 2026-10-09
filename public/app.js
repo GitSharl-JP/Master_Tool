@@ -94,6 +94,7 @@ if (pform) {
   const labels = Object.fromEntries(ids);
   let els = {};
   try { els = JSON.parse(elsInput.value || '{}'); } catch { els = {}; }
+  const PW = Number(pform.dataset.w), PH = Number(pform.dataset.h), nat = {}; // nat : centre d'origine de chaque élément dans la composition
   let cur = null, present = null; // present : éléments réellement dessinés sur l'aperçu (null tant qu'il n'est pas chargé)
   const orig = {}; // texte d'origine de chaque élément (pour ne pas enregistrer un texte inchangé)
 
@@ -140,6 +141,7 @@ if (pform) {
     if (!e.s || e.s === 100) delete e.s;
     if (!e.hide) delete e.hide;
     if (!e.color) delete e.color;
+    if (!e.align) delete e.align;
     if (!e.text) delete e.text;
     if (Object.keys(e).length) els[id] = e; else delete els[id];
   }
@@ -153,20 +155,30 @@ if (pform) {
     panel.hidden = false;
     $('elname').textContent = labels[id] || id;
     const e = els[id] || {};
-    setV(f.dx, v.dx ?? e.dx ?? 0); setV(f.dy, v.dy ?? e.dy ?? 0); setV(f.s, v.s ?? e.s ?? 100);
+    if (v.cx !== undefined) nat[id] = { cx: v.cx, cy: v.cy };
+    const n = nat[id] || { cx: PW / 2, cy: PH / 2 };
+    setV(f.dx, Math.round(n.cx + (v.dx ?? e.dx ?? 0))); setV(f.dy, Math.round(n.cy + (v.dy ?? e.dy ?? 0))); setV(f.s, v.s ?? e.s ?? 100);
+    $('el_align').value = e.align || '';
+    $('el_alignl').hidden = id === 'logo' || id === 'partners';
     f.color.value = e.color || '#ffffff';
     f.text.value = e.text || '';
     f.text.placeholder = orig[id] ?? '';
     renderList();
   }
+  // le curseur affiche une position sur l'affiche ; on enregistre le décalage par rapport à la place d'origine
+  const offsets = () => { const n = nat[cur] || { cx: PW / 2, cy: PH / 2 }; return { dx: Math.round(Number(f.dx.value) - n.cx), dy: Math.round(Number(f.dy.value) - n.cy), s: Number(f.s.value) }; };
+  const center = (k, v) => { setV(f[k], v); f[k].dispatchEvent(new Event('input')); };
+  $('el_cx').addEventListener('click', () => cur && center('dx', PW / 2));
+  $('el_cy').addEventListener('click', () => cur && center('dy', PH / 2));
+  $('el_align').addEventListener('change', () => { if (!cur) return; setEl(cur, { align: $('el_align').value }); save(); post({ type: 'apply', id: cur, ...offsets(), align: $('el_align').value }); renderList(); });
   for (const k of ['dx', 'dy', 's']) {
     f[k].addEventListener('input', () => {
       if (!cur) return;
-      const v = { dx: Number(f.dx.value), dy: Number(f.dy.value), s: Number(f.s.value) };
+      const v = offsets();
       setEl(cur, v); save(); post({ type: 'apply', id: cur, ...v });
     });
   }
-  f.color.addEventListener('input', () => { if (!cur) return; setEl(cur, { color: f.color.value }); save(); post({ type: 'apply', id: cur, dx: Number(f.dx.value), dy: Number(f.dy.value), s: Number(f.s.value), color: f.color.value }); renderList(); });
+  f.color.addEventListener('input', () => { if (!cur) return; setEl(cur, { color: f.color.value }); save(); post({ type: 'apply', id: cur, ...offsets(), color: f.color.value }); renderList(); });
   $('el_color_reset').addEventListener('click', () => { if (!cur) return; setEl(cur, { color: '' }); save(); reload(); });
   let tt;
   f.text.addEventListener('input', () => { if (!cur) return; setEl(cur, { text: f.text.value }); save(); clearTimeout(tt); tt = setTimeout(reload, 600); });

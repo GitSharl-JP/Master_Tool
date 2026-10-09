@@ -115,6 +115,7 @@ export function cleanEls(raw) {
     if (e.s && Number(e.s) !== 100) r.s = num(e.s, 20, 400);
     if (e.hide) r.hide = true;
     if (/^#[0-9a-f]{6}$/i.test(e.color || '')) r.color = e.color;
+    if (['left', 'center', 'right'].includes(e.align)) r.align = e.align;
     if (typeof e.text === 'string' && e.text.trim()) r.text = e.text.slice(0, 500);
     if (Object.keys(r).length) out[id] = r;
   }
@@ -149,7 +150,7 @@ export function applyToOtherFormats(editionId, fromKey, toKeys, who) {
     const els = {};
     for (const id of new Set([...Object.keys(cur.els || {}), ...Object.keys(src.els || {})])) {
       const mine = cur.els?.[id] || {}, from = src.els?.[id] || {};
-      els[id] = { ...(mine.dx ? { dx: mine.dx } : {}), ...(mine.dy ? { dy: mine.dy } : {}), ...(mine.s ? { s: mine.s } : {}), ...(from.hide ? { hide: true } : {}), ...(from.color ? { color: from.color } : {}), ...(from.text ? { text: from.text } : {}) };
+      els[id] = { ...(mine.dx ? { dx: mine.dx } : {}), ...(mine.dy ? { dy: mine.dy } : {}), ...(mine.s ? { s: mine.s } : {}), ...(from.hide ? { hide: true } : {}), ...(from.color ? { color: from.color } : {}), ...(from.align ? { align: from.align } : {}), ...(from.text ? { text: from.text } : {}) };
     }
     const next = { ...cur, hero: src.hero, logo: src.logo, gradient: src.gradient, style: src.style, partners: src.partners, text_pos: src.text_pos, zoom: src.zoom, title_scale: src.title_scale, els };
     delete next.ft; delete next.fb;
