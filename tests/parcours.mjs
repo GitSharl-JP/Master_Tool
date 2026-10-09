@@ -583,6 +583,12 @@ await step('7. Exporter la version approuvée — sans doublon', async () => {
   const vp = await A.text(`/edition/1/variants/${ids.v1}?step=verification`);
   check('état compact : création, fichiers disponibles, diffusion', /Création approuvée \(v\d+\) · (\d+)\/\1 fichiers? disponibles?/.test(vp), (/Création approuvée[^<]*/.exec(vp) || [''])[0]);
   check('états détaillés distincts (création / exports / préparation / diffusion)', /Préparation à la diffusion/.test(vp) && /Une approbation ne prouve ni la réussite d’un export/.test(vp));
+  check('Vérification et exports : sélection des sorties et fichiers éditables de la version approuvée', /name="o_4x5"/.test(vp) && /Exporter les sorties cochées/.test(vp) && /approved=1/.test(vp));
+  const none = await A.post(`/edition/1/variants/${ids.v1}/export`, { sel: '1' });
+  check('export sans aucune sortie cochée : message clair, rien lancé', /Cochez au moins une sortie/.test(decodeURIComponent(A.loc(none))), A.loc(none));
+  const sv = await A.get(`/edition/1/poster/4x5/svg?variant=${ids.v1}&approved=1`);
+  check('SVG de la version approuvée : produit, avec la version dans le nom', sv.status === 200 && /-v1\.svg/.test(sv.headers.get('content-disposition') || '') && /<svg/.test(await sv.text()), String(sv.status));
+  check('le SVG éditable n’est pas servi pour un contenu sans version approuvée', (await A.get(`/edition/1/poster/4x5/svg?variant=999999&approved=1`)).status === 404);
   const dl = (await A.text(`/edition/1/variants/${ids.v1}`)).match(/\/exports\/(\d+)\?dl=1/g) || [];
   exp1 = dl.map((x) => Number(/(\d+)/.exec(x)[1]));
   check('fichiers exportés présents et téléchargeables', exp1.length >= 2, `${exp1.length} lien(s)`);

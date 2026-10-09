@@ -145,10 +145,14 @@ ${STAGE_LEGEND}</div>`;
 <form method="post" action="/edition/${ed.id}/variants/${v.id}/review"><button class="link"${v.status === 'approuvé' || v.status === 'archivé' ? ' disabled' : ''}>Mettre de côté pour relire plus tard</button></form></div>
 ${versions.length ? `<ul class="log">${versions.map((x) => `<li><b>v${x.version}</b> approuvée par ${esc(x.approved_by)} le ${fr(x.approved_at)}${x.note ? ' · ' + esc(x.note) : ''}
 <form method="post" action="/edition/${ed.id}/variants/${v.id}/restore" class="inline"><input type="hidden" name="version" value="${x.version}"><button class="link">Restaurer cette version</button></form></li>`).join('')}</ul>` : '<small>Aucune version approuvée.</small>'}</div>`;
-  const P_EXP = `<div class="card"><h2>Export</h2>
-<form method="post" action="/edition/${ed.id}/variants/${v.id}/export"><button class="primary"${exportable ? '' : ' disabled'}>Exporter la version approuvée${v.approved_version ? ' (v' + v.approved_version + ')' : ''}</button></form>
+  const hasPostersV = v.formats.length > 0;
+  const P_EXP = `<div class="card"><h2>Exports finaux de la version approuvée${v.approved_version ? ' (v' + v.approved_version + ')' : ''}</h2>
+<form method="post" action="/edition/${ed.id}/variants/${v.id}/export"><input type="hidden" name="sel" value="1">
+<div class="chanlist inline">${outputs.map((o) => `<label class="check"><input type="checkbox" name="o_${o.kind === 'video' ? 'video' : o.fmt}" value="1" checked${exportable ? '' : ' disabled'}> ${o.kind === 'video' ? 'Vidéo' : esc(FORMATS[o.fmt].label)}</label>`).join('')}</div>
+<button class="primary"${exportable ? '' : ' disabled'}>Exporter les sorties cochées${v.approved_version ? ' (v' + v.approved_version + ')' : ''}</button></form>
 ${exportable ? '<small>Un export identique à un export existant n’est pas refait : pas de doublon. Un nouvel export ne remplace jamais l’ancien ni une association à une campagne.</small>' : `<small>${esc(why)}</small>`}
-${exportResult ? `<ul class="log">${exportResult.map((o) => `<li>${esc(o.fmt)} : ${esc(o.state)}</li>`).join('')}</ul>` : ''}</div>`;
+${exportResult ? `<ul class="log">${exportResult.map((o) => `<li>${esc(o.fmt)} : ${esc(o.state)}</li>`).join('')}</ul>` : ''}
+${v.approved_version && hasPostersV ? `<p><b>Fichiers éditables (Illustrator)</b> de la version approuvée v${v.approved_version} : ${v.formats.map((f) => `${esc(FORMATS[f].ratio)} <a href="/edition/${ed.id}/poster/${f}/svg?variant=${v.id}&approved=1">SVG</a> · <a href="/edition/${ed.id}/poster/${f}/pdf?variant=${v.id}&approved=1">PDF</a>`).join(' &nbsp;|&nbsp; ')}<br><small>Produits depuis la version approuvée, jamais depuis le brouillon en cours.</small></p>` : ''}</div>`;
   const P_ASSOC = `<div class="card"><h2>Associer à une campagne</h2>
 <small>Associe les sorties <b>exportées</b> de la version approuvée à un niveau de la campagne. Chaque association est épinglée sur un export précis et démarre en <b>brouillon</b> : rien n’est transmis.</small>
 ${v.campaign_id && autoLabel ? `<form method="post" action="/edition/${ed.id}/variants/${v.id}/link" class="inline"><input type="hidden" name="target" value="auto"><button class="primary">Associer à ${esc(autoLabel)}</button></form><small>ou choisir un autre niveau :</small>` : ''}

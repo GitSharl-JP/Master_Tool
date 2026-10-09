@@ -215,10 +215,12 @@ const server = createServer(async (req, res) => {
       if (vid && (!variant || variant.project_id !== ed.id)) return send(res, 404, layout('Introuvable', '<h1>Contenu introuvable</h1>', user));
       const dkey = vid ? `v${vid}_${fmt}` : `poster_${fmt}`, pq = vid ? `variant=${vid}&` : '';
       blockers = studio.posterBlockers(ed, [[fmt, studio.getDesign(ed.id, dkey)]]);
-      const builder = vid ? (fl) => studio.buildPosterHtml(ed, fmt, [], { noDraft: true, designKey: dkey, ...fl }) : undefined;
+      const asrc = vid && url.searchParams.get('approved') === '1' ? variants.approvedSource(vid) : null; // fichiers éditables de la version APPROUVÉE
+      if (vid && url.searchParams.get('approved') === '1' && (!asrc || !asrc.designs[fmt])) return send(res, 404, layout('Introuvable', '<h1>Aucune version approuvée pour ce format</h1><p>Approuvez le contenu avant de produire des fichiers éditables.</p>', user));
+      const builder = asrc ? (fl) => studio.buildPosterHtml(asrc.ed, fmt, [], { noDraft: true, design: asrc.designs[fmt], ...fl }) : vid ? (fl) => studio.buildPosterHtml(ed, fmt, [], { noDraft: true, designKey: dkey, ...fl }) : undefined;
       if (req.method === 'GET' && (r[3] === 'svg' || r[3] === 'pdf')) { // exports éditables pour Illustrator
-        const base = `projet-${ed.id}-${fmt}`;
-        const cur = studio.getDesign(ed.id, dkey), orig = cur.ext ? studio.getAsset(Number(cur.ext)) : null;
+        const base = `projet-${ed.id}-${fmt}${asrc ? `-v${asrc.version}` : ''}`;
+        const cur = asrc ? asrc.designs[fmt] : studio.getDesign(ed.id, dkey), orig = cur.ext ? studio.getAsset(Number(cur.ext)) : null;
         if (r[3] === 'svg' && orig) { // affiche reçue : il n'y a rien à recomposer, on rend le fichier d'origine
           if (!/\.svg$/i.test(orig.stored)) return send(res, 400, layout('Erreur', '<h1>Pas de SVG pour cette affiche</h1><p>L’affiche reçue est une image (PNG/JPG) : téléchargez-la depuis l’onglet Assets.</p>', user));
           res.writeHead(200, { 'Content-Type': 'image/svg+xml; charset=utf-8', 'Content-Disposition': `attachment; filename="${orig.name}"` });
@@ -528,7 +530,9 @@ const server = createServer(async (req, res) => {
           if (r[4] === 'approve') { const o = variants.approve(v.id, user.name, b.note); plan.syncVariant(v.id); return back(o.ok ? `Version ${o.version} approuvée et figée.${o.draft ? ' Les exports seront marqués BROUILLON tant que la fiche n’est pas prête ou que les sources sont provisoires.' : ''}` : o.error); }
           if (r[4] === 'restore') { const o = variants.restoreApproved(v.id, Number(b.version), user.name); return back(o.ok ? `Retour à la version approuvée v${b.version}.` : o.error); }
           if (r[4] === 'export') {
-            const o = await variants.exportApproved(v.id, user.name); plan.syncVariant(v.id);
+            const only = b.sel ? Object.keys(b).filter((k) => k.startsWith('o_')).map((k) => k.slice(2)) : null;
+            if (only && !only.length) return back('Cochez au moins une sortie à exporter.');
+            const o = await variants.exportApproved(v.id, user.name, only); plan.syncVariant(v.id);
             return back(o.ok ? 'Export de la version approuvée : ' + o.out.map((x) => `${studio.POSTER_FORMATS[x.fmt].ratio} ${x.state}`).join(' · ') + (o.video?.ok ? ' · vidéo : ' + o.video.out.map(([f, s]) => `${studio.POSTER_FORMATS[f].ratio} ${s}`).join(', ') : '') : o.error);
           }
           if (r[4] === 'link') {

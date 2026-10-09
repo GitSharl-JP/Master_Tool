@@ -221,7 +221,7 @@ export function archive(id, who) { const v = getVariant(id); if (v) { db.prepare
 
 // --- export officiel : toujours depuis la version APPROUVÉE
 db.exec('CREATE TABLE IF NOT EXISTS export_errors(variant_id INTEGER NOT NULL, version INTEGER NOT NULL, fmt TEXT NOT NULL, message TEXT NOT NULL, at TEXT NOT NULL, PRIMARY KEY(variant_id,version,fmt))');
-export async function exportApproved(id, who) {
+export async function exportApproved(id, who, only = null) {
   const v = getVariant(id);
   if (!v) return { ok: false, error: 'Contenu introuvable.' };
   if (v.status !== 'approuvé' || !isPristine(v)) return { ok: false, error: v.status === 'approuvé' ? 'Le contenu a changé depuis son approbation : relisez et approuvez à nouveau.' : 'Le contenu doit d’abord être approuvé.' };
@@ -229,6 +229,7 @@ export async function exportApproved(id, who) {
   const refs = listAssets(v.project_id).filter((a) => ['hero', 'logo', 'partner', 'poster'].includes(a.role)).map((a) => [a.id, a.stored, a.size]).sort();
   const out = [];
   for (const fmt of v.formats) {
+    if (only && !only.includes(fmt)) continue;
     const design = snap.designs[fmt];
     const key = sha({ id, version: ver.version, fmt, design, fiche: snap.fiche, refs, draft: snap.blockers });
     const hit = db.prepare("SELECT * FROM exports WHERE variant_id=? AND fmt=? AND content_key=? AND kind='affiche'").get(id, fmt, key);
@@ -245,13 +246,21 @@ export async function exportApproved(id, who) {
     out.push({ fmt, state: draft ? 'créé (BROUILLON)' : 'créé', exportId: Number(res.lastInsertRowid) });
   }
   let video = null;
-  if (snap.video?.design.asset) {
+  if (snap.video?.design.asset && (!only || only.includes('video'))) {
     video = planExports(ed, who, { state: { design: { ...snap.video.design, formats: snap.video.design.formats?.length ? snap.video.design.formats : ['9x16'] }, cues: snap.video.cues, fiche: snap.fiche, posterDesigns: snap.designs, draft: snap.draft, variant: { id, version: ver.version } } });
   }
   const okFmts = out.filter((o) => !o.failed).map((o) => o.fmt), koFmts = out.filter((o) => o.failed).map((o) => o.fmt);
   log(who, `Variante « ${v.name} » v${ver.version} : export ${koFmts.length ? (okFmts.length ? 'PARTIEL' : 'ÉCHOUÉ') : 'terminé'} — affiches produites : ${okFmts.join(', ') || 'aucune'}${koFmts.length ? ` ; en échec : ${koFmts.join(', ')}` : ''}${video?.ok ? ' ; vidéo : tâche lancée (résultat à vérifier)' : ''}`);
   syncContents(id, who);
   return { ok: true, out, video };
+}
+
+// Source de la version APPROUVÉE (affiches) : sert aux fichiers éditables (SVG, PDF), qui ne doivent jamais refléter un brouillon.
+export function approvedSource(id) {
+  const v = getVariant(id);
+  if (!v || !v.approved_version) return null;
+  const ver = versionRow(id, v.approved_version);
+  return ver ? { version: ver.version, ed: { ...getEdition(v.project_id), data: ver.snapshot.fiche }, designs: ver.snapshot.designs } : null;
 }
 
 // Les sorties officielles de la version approuvée deviennent des contenus de la bibliothèque (associables aux campagnes).
