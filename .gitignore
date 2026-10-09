@@ -7,3 +7,5 @@ tools/
 
 # exécutable construit localement (node launcher/build.mjs) : ne se versionne pas
 Atelier.exe
+dist/
+installer/obj/
