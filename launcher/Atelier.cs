@@ -5,8 +5,10 @@
 // Compilé avec le compilateur fourni par Windows (csc.exe) : voir Construire-exe.bat. Pas de dépendance à installer.
 // Variables facultatives : ATELIER_PORT (défaut 3000), ATELIER_PROFILE (dossier du profil de la fenêtre). ATELIER_DATA est transmis au serveur.
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Management;
 using System.Net;
 using System.Reflection;
 using System.Text.RegularExpressions;
@@ -76,7 +78,8 @@ static class Atelier
         if (string.IsNullOrEmpty(profil))
             profil = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), Titre, "profil");
         Directory.CreateDirectory(profil);
-        string args = "--app=" + url + " --user-data-dir=\"" + profil + "\" --no-first-run --no-default-browser-check --window-size=1400,950";
+        string args = "--app=" + url + " --user-data-dir=\"" + profil + "\" --no-first-run --no-default-browser-check --window-size=1400,950"
+            + " --edge-skip-compat-layer-relaunch --disable-sync --disable-features=Translate,msImplicitSignin --disable-background-mode";
 
         // Une autre fenêtre de l'atelier est déjà ouverte (serveur lancé par ailleurs) : on ouvre simplement une fenêtre de plus.
         if (!proprietaire)
@@ -88,7 +91,7 @@ static class Atelier
         while (true)
         {
             Process fenetre = Process.Start(navigateur, args);
-            fenetre.WaitForExit();
+            AttendreFermeture(profil, fenetre);
             int occupe = Occupe(url);
             if (occupe > 0)
             {
@@ -101,6 +104,42 @@ static class Atelier
         }
         Arreter(serveur);
         return 0;
+    }
+
+    // La fenêtre est fermée quand plus aucun processus du navigateur de CE profil n'a de fenêtre visible, pendant 4 secondes de suite.
+    // On ne se fie pas au premier processus lancé : Edge peut se relancer lui-même (il se termine, la fenêtre continue sous un autre processus).
+    static void AttendreFermeture(string profil, Process premier)
+    {
+        premier.WaitForExit();
+        int calmes = 0;
+        while (calmes < 4)
+        {
+            Thread.Sleep(1000);
+            if (FenetreOuverte(profil)) calmes = 0; else calmes++;
+        }
+    }
+
+    static bool FenetreOuverte(string profil)
+    {
+        try
+        {
+            using (ManagementObjectSearcher q = new ManagementObjectSearcher("SELECT ProcessId, CommandLine FROM Win32_Process WHERE Name='msedge.exe' OR Name='chrome.exe'"))
+            {
+                foreach (ManagementObject o in q.Get())
+                {
+                    string cmd = o["CommandLine"] as string;
+                    if (cmd == null || cmd.IndexOf(profil, StringComparison.OrdinalIgnoreCase) < 0 || cmd.IndexOf("--type=", StringComparison.Ordinal) >= 0) continue;
+                    try
+                    {
+                        Process p = Process.GetProcessById(Convert.ToInt32(o["ProcessId"]));
+                        if (p.MainWindowHandle != IntPtr.Zero) return true;
+                    }
+                    catch { }
+                }
+            }
+        }
+        catch { return true; } // en cas de doute, on ne coupe pas le serveur
+        return false;
     }
 
     static bool Repond(string url)

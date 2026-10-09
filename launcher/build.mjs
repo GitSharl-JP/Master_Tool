@@ -46,7 +46,7 @@ const fw = join(process.env.SystemRoot || 'C:/Windows', 'Microsoft.NET', 'Framew
 const versions = existsSync(fw) ? readdirSync(fw).filter((d) => existsSync(join(fw, d, 'csc.exe'))).sort() : [];
 if (!versions.length) fail('Le compilateur C# de Windows (csc.exe) est introuvable : .NET Framework 4 est normalement fourni avec Windows.');
 const CSC = join(fw, versions.at(-1), 'csc.exe'), EXE = join(ROOT, 'Atelier.exe');
-const r = spawnSync(CSC, ['/nologo', '/codepage:65001', '/target:winexe', '/optimize+', `/out:${EXE}`, `/win32icon:${ICO}`, '/r:System.dll', '/r:System.Windows.Forms.dll', join(ROOT, 'launcher', 'Atelier.cs')], { encoding: 'utf8' });
+const r = spawnSync(CSC, ['/nologo', '/codepage:65001', '/target:winexe', '/optimize+', `/out:${EXE}`, `/win32icon:${ICO}`, '/r:System.dll', '/r:System.Windows.Forms.dll', '/r:System.Management.dll', join(ROOT, 'launcher', 'Atelier.cs')], { encoding: 'utf8' });
 if (r.status !== 0 || !existsSync(EXE)) fail('Compilation échouée :\n' + (r.stdout || '') + (r.stderr || ''));
 say('✓ Atelier.exe construit (' + Math.round(readFileSync(EXE).length / 1024) + ' Ko)');
 say('\nDouble-cliquez sur Atelier.exe pour lancer l’atelier. Pour un raccourci avec l’icône : clic droit › Envoyer vers › Bureau (créer un raccourci).');
