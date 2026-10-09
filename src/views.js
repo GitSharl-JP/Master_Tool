@@ -8,7 +8,7 @@ export function layout(title, body, user, flash) {
   return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)} · Atelier</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&family=Noto+Serif+JP:wght@400;600;700&display=swap">
-<link rel="icon" href="/brand/logo.png"><link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script></head><body>
+<link rel="icon" type="image/png" href="/brand/icon.png"><link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script></head><body>
 <header><a class="brand" href="/"><img src="/brand/logo.png" alt="Acoustiguide Japan"><span>Atelier marketing</span></a>${user ? `<nav><a href="/">Projets</a><a href="/settings">Réglages</a>
 <div class="dd"><button type="button" class="ddb">${esc(user.name)}</button><div class="ddm right"><form method="post" action="/logout"><button class="ddi">Se déconnecter</button></form></div></div></nav>` : ''}</header>
 <main>${flash ? `<p class="flash">${esc(flash)}</p>` : ''}${body}</main></body></html>`;

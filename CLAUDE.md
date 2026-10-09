@@ -26,7 +26,7 @@ Node 25, zéro dépendance npm (http natif, `node:sqlite`), HTML rendu côté se
 - Un projet = un site ; les campagnes ne créent ni ne pilotent le site.
 
 ## Workflow
-- Lancer : `Demarrer.bat` ou `npm start` (http://localhost:3000). Pas de build ni de suite de tests.
+- Lancer : **`Atelier.exe`** (application Windows : serveur en arrière-plan + fenêtre dédiée Edge/Chrome ; se construit avec `Construire-exe.bat` ou `node launcher/build.mjs`, icône `public/brand/icon.png`, source `launcher/Atelier.cs`), ou `Demarrer.bat` / `npm start` (http://localhost:3000). Pas de build pour le serveur lui-même.
 - Les connecteurs non branchés (billetterie, Buffer, Meta) doivent être étiquetés SIMULATION dans l'UI ; ne jamais présenter une simulation comme réelle. Aucune dépense pub automatique.
 - Secrets : saisis par l'utilisateur dans Réglages (écriture seule). Ne jamais lire `data/secrets.json` ni demander de secret dans le chat.
 

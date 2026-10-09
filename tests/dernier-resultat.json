@@ -1,100 +1,100 @@
 {
-  "date": "2026-10-09T02:40:44.294Z",
-  "seconds": 131,
+  "date": "2026-10-09T04:11:20.669Z",
+  "seconds": 108,
   "passed": 289,
   "failed": [],
   "steps": [
     {
       "step": "0. Démarrage de l’atelier sur des données vierges",
-      "time": 0.835
+      "time": 0.401
     },
     {
       "step": "1. Projet prêt : fiche approuvée, assets originaux",
-      "time": 2.019
+      "time": 1.606
     },
     {
       "step": "2. Design : enregistrer, modifier, retrouver l’ancien",
-      "time": 4.177
+      "time": 3.248
     },
     {
       "step": "3. Campagne Meta reliée à la main (déclarée ACTIVE) — configuration et brief séparés",
-      "time": 0.084
+      "time": 0.043
     },
     {
       "step": "4. Variantes guidées : intention obligatoire, pas de quasi-doublon",
-      "time": 0.092
+      "time": 0.043
     },
     {
       "step": "4b. Parcours court d’une personne seule : 3 actions de la création à l’association",
-      "time": 4.574
+      "time": 3.83
     },
     {
       "step": "4c. Le site du projet : un site, son domaine, ses identifiants",
-      "time": 0.107
+      "time": 0.124
     },
     {
       "step": "4d. Points d’entrée libres : affiche reçue (SVG / image) et documents, dans un ordre quelconque",
-      "time": 4.305
+      "time": 3.226
     },
     {
       "step": "4e. Gestionnaire de projets : essai, renommer, archiver, supprimer",
-      "time": 2.266
+      "time": 1.976
     },
     {
       "step": "4f. Navigation simplifiée : Accueil de travail, cinq destinations, paramètres à part",
-      "time": 0.071
+      "time": 0.033
     },
     {
       "step": "4g. Espace de contenu : créer, matériel, création, vérification, diffusion (affiche, vidéo, texte)",
-      "time": 6.083
+      "time": 4.539
     },
     {
       "step": "4h. Campagnes, bibliothèque et calendrier reliés au parcours de contenu",
-      "time": 0.615
+      "time": 0.319
     },
     {
       "step": "4i. Validations ciblées, modèles de contenu et kit graphique",
-      "time": 18.907
+      "time": 16.241
     },
     {
       "step": "5. Corriger textes, cadrage et sous-titres",
-      "time": 0.363
+      "time": 0.253
     },
     {
       "step": "6. Prévisualiser puis approuver (seul(e), contrôles automatiques à la place d’un relecteur)",
-      "time": 0.076
+      "time": 0.085
     },
     {
       "step": "7. Exporter la version approuvée — sans doublon",
-      "time": 24.611
+      "time": 21.899
     },
     {
       "step": "8. Un changement ne modifie JAMAIS une version approuvée",
-      "time": 0.377
+      "time": 0.12
     },
     {
       "step": "9. Associer à la campagne ACTIVE : version diffusée figée, nouvelle variante possible",
-      "time": 4.858
+      "time": 3.928
     },
     {
       "step": "10. Calendrier de production",
-      "time": 0.096
+      "time": 0.052
     },
     {
       "step": "11. Reprise après erreur sans doublon (vidéo)",
-      "time": 6.141
+      "time": 6.105
     },
     {
       "step": "12. Sauvegarde externe et vérification d’intégrité",
-      "time": 2.82
+      "time": 1.591
     },
     {
       "step": "13. Restauration complète dans une installation VIERGE",
-      "time": 2.566
+      "time": 1.406
     },
     {
       "step": "14. Pages dans un vrai navigateur (assistant, éditeur de variante, suivi, sauvegardes)",
-      "time": 44.534
+      "time": 36.347
     }
   ]
 }

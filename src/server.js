@@ -67,6 +67,9 @@ const server = createServer(async (req, res) => {
     const url = new URL(req.url, 'http://x');
     const path = url.pathname;
     if (path === '/brand/logo.png') { res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'max-age=86400' }); return res.end(readFileSync(new URL('../public/brand/logo.png', import.meta.url))); }
+    if (path === '/brand/icon.png') { res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'max-age=86400' }); return res.end(readFileSync(new URL('../public/brand/icon.png', import.meta.url))); }
+    // Santé du serveur, pour le lanceur Atelier.exe : démarré ? des exports vidéo en cours ? (aucune donnée du projet)
+    if (path === '/health') { res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); return res.end(JSON.stringify({ ok: true, busy: db.db.prepare("SELECT COUNT(*) c FROM jobs WHERE status IN ('queued','running')").get().c })); }
     if (path === '/video.js') { res.writeHead(200, { 'Content-Type': 'text/javascript' }); return res.end(readFileSync(new URL('../public/video.js', import.meta.url))); }
     if (path === '/poster-editor.js') { res.writeHead(200, { 'Content-Type': 'text/javascript' }); return res.end(readFileSync(new URL('../public/poster-editor.js', import.meta.url))); }
     if (path === '/app.js') { res.writeHead(200, { 'Content-Type': 'text/javascript' }); return res.end(readFileSync(new URL('../public/app.js', import.meta.url))); }
