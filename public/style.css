@@ -107,7 +107,8 @@ code{background:var(--bg);padding:1px 6px;border-radius:4px;font-size:.85em}
   body.big main:has(#lockpage){height:100vh;padding-top:6px}
   body.big main:has(#lockpage)>*:not(.ws):not(.tabs):not(.studio):not(#lockpage):not(.flash){display:none}
   body.big main:has(#lockpage) .ws-top{margin-bottom:6px}
-  body.big main:has(#lockpage) .ws-sum{display:none}
+  body.big main:has(#lockpage) section.card:target{outline:3px solid var(--acc);outline-offset:2px}
+.ws-sum{display:none}
   body.big main:has(#lockpage) .ws .steps{margin:0}
   main:has(#lockpage) .ws{padding:8px 14px;margin:2px 0 8px}main:has(#lockpage) .ws-note{display:none}
   main:has(#lockpage) .fmtnote small{display:none}main:has(#lockpage) .fmtnote{margin:4px 0 8px}

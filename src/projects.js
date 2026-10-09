@@ -3,7 +3,7 @@
 // et ses fichiers ; la bibliothèque de designs (modèles partagés entre projets) n'est pas touchée.
 import { existsSync, unlinkSync } from 'node:fs';
 import { db, log, createEdition, saveEdition, getEdition, backup } from './db.js';
-import { defaults, publishBlockers } from './schema.js';
+import { defaults, publishBlockers, SECTIONS } from './schema.js';
 import './studio.js'; import './video.js'; import './variants.js'; import './campaigns.js'; import './plan.js'; import './site.js'; import './library.js';
 import { storage } from './storage.js';
 import { EXPORT_PATH } from './studio.js';
@@ -89,11 +89,14 @@ export function pipeline(ed) {
   const approved = n("SELECT COUNT(*) c FROM variants WHERE project_id=? AND approved_version>0", id);
   const exported = n('SELECT COUNT(*) c FROM exports WHERE edition_id=? AND variant_id IS NOT NULL', id);
   const links = n('SELECT COUNT(*) c FROM content_links l JOIN contents c ON c.id=l.content_id WHERE c.project_id=?', id);
+  // « Y aller » doit mener là où l'on peut corriger : la première section des paramètres qui bloque, ou le contenu qui attend une action.
+  const sec = ed.data.venue_status !== 'confirmé' ? 'venue' : SECTIONS.find((s) => ed.validation[s.id]?.status !== 'approuvé')?.id;
+  const waiting = variantsMod.listVariants(id).filter((v) => v.status !== 'archivé').find((v) => { const ns = variantsMod.nextStep(v.id); return ns && (ns.action === 'approve-export' || ns.action === 'export' || /^À corriger/.test(ns.text)); });
   const steps = [
-    { n: 1, label: 'Décrire le spectacle', page: ['fiche'], done: blockers === 0, hint: blockers ? `${blockers} point(s) à compléter (surtout utiles pour le site)` : 'Infos complètes', href: `/edition/${id}` },
+    { n: 1, label: 'Décrire le spectacle', page: ['fiche'], done: blockers === 0, hint: blockers ? `${blockers} point(s) à compléter dans les paramètres du projet (surtout utiles pour le site)` : 'Infos complètes', href: `/edition/${id}/settings${sec ? '#sec-' + sec : ''}` },
     { n: 2, label: 'Ajouter le matériel', page: ['assets', 'designs', 'contenus'], done: c.assets > 0, hint: c.assets ? `${c.assets} fichier(s)` : 'Photos, affiche reçue ou document', href: `/edition/${id}/assets` },
-    { n: 3, label: 'Créer les pubs', page: ['variantes', 'affiches', 'videos'], done: c.variants > 0, hint: c.variants ? `${c.variants} creative(s)` : 'Une première creative', href: c.variants ? `/edition/${id}/variants` : `/edition/${id}/variants/new` },
-    { n: 4, label: 'Approuver et exporter', page: [], done: approved > 0 && exported > 0, hint: exported ? `${exported} fichier(s) exporté(s)` : 'Un clic sur la creative', href: `/edition/${id}/variants` },
+    { n: 3, label: 'Créer un contenu', page: ['variantes', 'affiches', 'videos'], done: c.variants > 0, hint: c.variants ? `${c.variants} contenu(s)` : 'Un premier contenu', href: c.variants ? `/edition/${id}/variants` : `/edition/${id}/variants/new` },
+    { n: 4, label: 'Approuver et exporter', page: [], done: approved > 0 && exported > 0, hint: exported ? `${exported} fichier(s) exporté(s)` : 'Un clic sur le contenu', href: waiting ? `/edition/${id}/variants/${waiting.id}?step=verification` : `/edition/${id}/variants` },
     { n: 5, label: 'Mettre en campagne', page: ['campagnes'], done: links > 0, hint: links ? `${links} association(s)` : 'Relier à une campagne Meta', href: `/edition/${id}/campaigns` },
   ];
   const next = steps.find((s) => !s.done) || null;

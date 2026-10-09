@@ -290,6 +290,8 @@ await step('4d. Points d’entrée libres : affiche reçue (SVG / image) et docu
 await step('4e. Gestionnaire de projets : essai, renommer, archiver, supprimer', async () => {
   const t = await A.post('/edition/test'); const T = Number(/edition\/(\d+)/.exec(t.headers.get('location'))?.[1]);
   check('projet d’essai créé avec une fiche d’exemple provisoire', !!T && /provisoire/.test(await A.text('/')) && /TEST SHOW/.test(await A.text(`/edition/${T}/settings`)));
+  const hp = await A.text(`/edition/${T}`);
+  check('« Y aller » mène aux paramètres, section concernée (pas à l’accueil lui-même)', new RegExp(`href="/edition/${T}/settings#sec-[a-z]+"[^>]*>Y aller`).test(hp), (/Prochaine étape[^]*?Y aller/.exec(hp) || [''])[0].slice(-200));
   const aid = await A.up(T, 'hero', 'essai.png', png(300, 300, 1));
   const ex = await A.post(`/edition/${T}/poster/4x5/export`, { hero: String(aid), partners: '0', style: 'classique', gradient: '50' });
   check('un export existe dans le projet d’essai', /export/i.test(A.loc(ex)));

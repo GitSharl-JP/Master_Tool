@@ -372,11 +372,11 @@ export function checks(id) {
   }
   if (!allImported && Object.values(st.designs).length && Object.values(st.designs).filter((g) => !g.ext).every((g) => !g.logo)) add('conseil', 'Aucun logo choisi sur les affiches.', posterHref(v.formats[0]));
   const title = (v.msg_title || d.title_en || '').trim();
-  if (!title && !allImported && hasPosters) add('bloquant', 'Le titre est vide (ni titre de variante, ni titre dans la fiche).', `/edition/${v.project_id}/variants/${id}`);
-  if (!allImported && hasPosters && title.length > 48) add('conseil', `Titre long (${title.length} caractères) : il risque de déborder sur les petits formats. Vérifiez les aperçus.`, `/edition/${v.project_id}/variants/${id}`);
+  if (!title && !allImported && hasPosters) add('bloquant', 'Le titre est vide (ni titre de variante, ni titre dans la fiche).', `/edition/${v.project_id}/variants/${id}?step=creation`);
+  if (!allImported && hasPosters && title.length > 48) add('conseil', `Titre long (${title.length} caractères) : il risque de déborder sur les petits formats. Vérifiez les aperçus.`, `/edition/${v.project_id}/variants/${id}?step=creation`);
   const shown = [title, v.msg_tagline || d.tagline_en, v.msg_top || d.top_line_en, v.msg_cta || d.cta_book_en].join(' ');
-  if (!allImported && hasPosters && /placeholder|provisoire|lorem/i.test(shown)) add('conseil', 'Un texte affiché contient encore « placeholder » ou « provisoire ».', `/edition/${v.project_id}/variants/${id}`);
-  if (!d.booking_url && !allImported && hasPosters) add('conseil', 'Aucune adresse de réservation dans la fiche : le bouton ou le lien ne mènera nulle part.', `/edition/${v.project_id}/settings`);
+  if (!allImported && hasPosters && /placeholder|provisoire|lorem/i.test(shown)) add('conseil', 'Un texte affiché contient encore « placeholder » ou « provisoire ».', `/edition/${v.project_id}/variants/${id}?step=creation`);
+  if (!d.booking_url && !allImported && hasPosters) add('conseil', 'Aucune adresse de réservation dans la fiche : le bouton ou le lien ne mènera nulle part.', `/edition/${v.project_id}/settings#sec-booking`);
   const why = explainNeeds(ed, contentNeeds(st, v));
   if (why.length) add('conseil', `Pour sortir du BROUILLON, il manque dans les infos du spectacle : ${why.slice(0, 3).map((w) => w.text.replace(/ \(.*\)\.?$/, '')).join(' ; ')}${why.length > 3 ? ` (+ ${why.length - 3})` : ''}. Sans cela, l’export est marqué BROUILLON et ne peut pas être transmis.`, `/edition/${v.project_id}/settings#sec-${why[0].section}`);
   else if ((allImported || (!hasPosters && st.video)) && ed.data.venue_status !== 'confirmé') add('conseil', 'Le lieu du spectacle n’est pas confirmé : vérifiez que ce contenu ne le cite pas avant de le diffuser.', `/edition/${v.project_id}/settings#sec-venue`);
