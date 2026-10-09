@@ -94,7 +94,7 @@ if (pform) {
   const labels = Object.fromEntries(ids);
   let els = {};
   try { els = JSON.parse(elsInput.value || '{}'); } catch { els = {}; }
-  let cur = null;
+  let cur = null, present = null; // present : éléments réellement dessinés sur l'aperçu (null tant qu'il n'est pas chargé)
   const orig = {}; // texte d'origine de chaque élément (pour ne pas enregistrer un texte inchangé)
 
   const save = () => { elsInput.value = JSON.stringify(els); };
@@ -123,6 +123,10 @@ if (pform) {
       const b = Object.assign(document.createElement('button'), { type: 'button', textContent: label, className: 'link' + (id === cur ? ' on' : '') });
       b.addEventListener('click', () => { post({ type: 'select', id }); if (els[id]?.hide) showPanel(id, {}); });
       li.append(cb, b);
+      if (present && !els[id]?.hide && !present.includes(id)) {
+        const why = { host: 'rien à afficher : ajoutez l’adresse de réservation dans les infos du spectacle', partners: 'rien à afficher : importez des assets « Logo partenaire »', logo: 'rien à afficher : choisissez un logo ci-dessous', cta: 'non disponible dans cette composition' }[id] || 'absent de cette composition';
+        cb.disabled = true; cb.checked = false; li.append(Object.assign(document.createElement('small'), { textContent: ' — ' + why }));
+      }
       if (els[id] && Object.keys(els[id]).some((k) => k !== 'hide')) li.append(Object.assign(document.createElement('small'), { textContent: ' modifié' }));
       list.append(li);
     }
@@ -175,7 +179,8 @@ if (pform) {
   window.addEventListener('message', (e) => {
     if (e.origin !== location.origin || e.source !== frame.contentWindow) return;
     const m = e.data || {};
-    if (m.type === 'select') {
+    if (m.type === 'ready') { present = m.present || []; renderList(); }
+    else if (m.type === 'select') {
       if (m.id && orig[m.id] === undefined) orig[m.id] = m.text;
       showPanel(m.id || null, m);
     } else if (m.type === 'els') {

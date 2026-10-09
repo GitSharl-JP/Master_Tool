@@ -84,7 +84,7 @@ code{background:var(--bg);padding:1px 6px;border-radius:4px;font-size:.85em}
 .exp{display:flex;gap:12px;align-items:center;margin:8px 0}.exp img{height:90px;border-radius:6px;border:1px solid var(--line)}
 
 /* Studio d'affiche : l'aperçu reste verrouillé, seule la colonne de gauche défile */
-.studio{display:grid;grid-template-columns:minmax(320px,400px) 1fr;gap:16px;align-items:start}
+.studio{display:grid;grid-template-columns:minmax(340px,36%) 1fr;gap:16px;align-items:start}
 .studio form.card{display:flex;flex-direction:column;gap:12px;margin:0}
 .preview{position:relative;overflow:hidden;border:1px solid var(--line);border-radius:var(--radius);background:#222;box-shadow:var(--shadow-lg)}
 .preview iframe{border:0;position:absolute;top:0;left:0;transform-origin:top left;display:block}
@@ -102,6 +102,8 @@ code{background:var(--bg);padding:1px 6px;border-radius:4px;font-size:.85em}
   .studio{flex:1;min-height:0;align-items:stretch}
   .studio .stack{overflow-y:auto;padding-right:6px;max-height:100%}
   .studio .preview{height:100%}
+  main:has(#lockpage) .ws{padding:8px 14px;margin:2px 0 8px}main:has(#lockpage) .ws-note{display:none}
+  main:has(#lockpage) .fmtnote small{display:none}main:has(#lockpage) .fmtnote{margin:4px 0 8px}
 }
 @media(max-width:900px){
   .studio{grid-template-columns:1fr}.preview{height:70vw;max-height:80vh}
