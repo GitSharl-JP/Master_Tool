@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS variants(
   created TEXT NOT NULL, created_by TEXT NOT NULL, updated TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS variant_versions(id INTEGER PRIMARY KEY, variant_id INTEGER NOT NULL, version INTEGER NOT NULL, snapshot TEXT NOT NULL, hash TEXT NOT NULL, approved_by TEXT NOT NULL, approved_at TEXT NOT NULL, note TEXT NOT NULL DEFAULT '');
 `);
+try { db.exec("ALTER TABLE variants ADD COLUMN due_date TEXT NOT NULL DEFAULT ''"); } catch { /* colonne déjà présente */ }
 const now = () => new Date().toISOString();
 const txt = (v, n = 300) => String(v ?? '').trim().slice(0, n);
 const norm = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
@@ -217,6 +218,22 @@ export function restoreApproved(id, version, who) {
   log(who, `Variante « ${v.name} » : retour à la version approuvée v${ver.version}`);
   return { ok: true };
 }
+// Qui fait quoi : un responsable du contenu, un relecteur FACULTATIF, une échéance. Rien n'oblige une validation à deux : sans relecteur,
+// le responsable approuve lui-même (les contrôles automatiques assistent la relecture, ils ne la remplacent pas).
+export function assign(id, b, who) {
+  const v = getVariant(id);
+  if (!v) return { ok: false, error: 'Contenu introuvable.' };
+  const due = /^\d{4}-\d{2}-\d{2}$/.test(b.due_date || '') ? b.due_date : '';
+  db.prepare('UPDATE variants SET owner=?, reviewer=?, due_date=?, updated=? WHERE id=?').run(txt(b.owner, 60), txt(b.reviewer, 60), due, now(), id);
+  log(who, `Variante « ${v.name} » : responsable ${txt(b.owner, 60) || '—'}, relecteur ${txt(b.reviewer, 60) || '—'}${due ? ', échéance ' + due : ''}`);
+  return { ok: true };
+}
+// Personne attendue pour la prochaine action (vide si personne n'est désigné ou si le contenu est terminé).
+export function waitingOn(v) {
+  if (v.status === 'archivé') return '';
+  if (v.status === 'à relire') return v.reviewer || v.owner || '';
+  return v.owner || '';
+}
 export function archive(id, who) { const v = getVariant(id); if (v) { db.prepare("UPDATE variants SET status='archivé', updated=? WHERE id=?").run(now(), id); log(who, `Variante archivée : « ${v.name} »`); } }
 
 // --- export officiel : toujours depuis la version APPROUVÉE
@@ -355,8 +372,9 @@ export function syncProject(pid, who = '') {
 }
 
 // ---------------------------------------------------------------------------------------------------------------
-// Travail en solo : à la place d'une relecture par une autre personne, des CONTRÔLES AUTOMATIQUES avant approbation.
-//   « bloquant » : on ne peut pas approuver ; « conseil » : signalé, on peut passer outre en connaissance de cause.
+// Contrôles automatiques avant approbation (en appui de la relecture humaine, facultative).
+//   « bloquant » : on ne peut pas approuver ; « transmission » : on approuve et on exporte (essai ou brouillon), mais la transmission/publication reste bloquée ;
+//   « conseil » : avertissement, on peut passer outre en connaissance de cause. Les contrôles assistent la relecture, ils ne garantissent ni la qualité artistique, ni la traduction, ni l'exactitude commerciale.
 export function checks(id) {
   const v = getVariant(id);
   if (!v) return [];
@@ -385,9 +403,10 @@ export function checks(id) {
   if (!allImported && hasPosters && title.length > 48) add('conseil', `Titre long (${title.length} caractères) : il risque de déborder sur les petits formats. Vérifiez les aperçus.`, `/edition/${v.project_id}/variants/${id}?step=creation`);
   const shown = [title, v.msg_tagline || d.tagline_en, v.msg_top || d.top_line_en, v.msg_cta || d.cta_book_en].join(' ');
   if (!allImported && hasPosters && /placeholder|provisoire|lorem/i.test(shown)) add('conseil', 'Un texte affiché contient encore « placeholder » ou « provisoire ».', `/edition/${v.project_id}/variants/${id}?step=creation`);
-  if (!d.booking_url && !allImported && hasPosters) add('conseil', 'Aucune adresse de réservation dans la fiche : le bouton ou le lien ne mènera nulle part.', `/edition/${v.project_id}/settings#sec-booking`);
+  const ctaShown = Object.entries(st.designs).some(([, g]) => !g.ext && !g.els?.cta?.hide && !g.els?.host?.hide);
+  if (!d.booking_url && ctaShown) add('conseil', 'Un bouton ou une adresse de réservation est affiché sans lien de réservation dans les infos du spectacle : il ne mènera nulle part (masquez-le dans l’éditeur ou renseignez l’adresse).', `/edition/${v.project_id}/settings#sec-booking`);
   const why = explainNeeds(ed, contentNeeds(st, v));
-  if (why.length) add('conseil', `Pour sortir du BROUILLON, il manque dans les infos du spectacle : ${why.slice(0, 3).map((w) => w.text.replace(/ \(.*\)\.?$/, '')).join(' ; ')}${why.length > 3 ? ` (+ ${why.length - 3})` : ''}. Sans cela, l’export est marqué BROUILLON et ne peut pas être transmis.`, `/edition/${v.project_id}/settings#sec-${why[0].section}`);
+  if (why.length) add('transmission', `Pour sortir du BROUILLON, il manque dans les infos du spectacle : ${why.slice(0, 3).map((w) => w.text.replace(/ \(.*\)\.?$/, '')).join(' ; ')}${why.length > 3 ? ` (+ ${why.length - 3})` : ''}. Sans cela, l’export est marqué BROUILLON et ne peut pas être transmis.`, `/edition/${v.project_id}/settings#sec-${why[0].section}`);
   else if ((allImported || (!hasPosters && st.video)) && ed.data.venue_status !== 'confirmé') add('conseil', 'Le lieu du spectacle n’est pas confirmé : vérifiez que ce contenu ne le cite pas avant de le diffuser.', `/edition/${v.project_id}/settings#sec-venue`);
   if (st.video) {
     const vd = st.video.design;
@@ -494,7 +513,8 @@ export function workspaceInfo(id) {
   const v = getVariant(id), st = workingState(v), blocking = checks(id).filter((c) => c.level === 'bloquant').length, outs = outputsOf(id);
   const material = Object.values(st.designs).some((d) => d.ext || d.hero) || !!st.video?.design.asset;
   const es = exportStatus(id);
-  return { type: variantType(v), summary: es.summary, status: es, steps: [
+  const who = waitingOn(v), people = [who && `attendu : ${who}`, v.due_date && `échéance ${v.due_date}`].filter(Boolean).join(' · ');
+  return { type: variantType(v), summary: es.summary + (people ? ' · ' + people : ''), status: es, steps: [
     { key: 'materiel', label: 'Matériel', done: material, note: material ? '' : 'à choisir' },
     { key: 'creation', label: 'Création', done: v.approved_version > 0 || v.status === 'à relire', note: '' },
     { key: 'verification', label: 'Vérification et exports', done: v.status === 'approuvé' && es.complete, note: blocking ? `${blocking} à corriger` : v.approved_version && !es.complete ? `${es.have}/${es.total} fichiers` : '' },

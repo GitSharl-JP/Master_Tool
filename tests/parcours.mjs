@@ -182,7 +182,7 @@ await step('4. Variantes guidées : intention obligatoire, pas de quasi-doublon'
 
 await step('4b. Parcours court d’une personne seule : 3 actions de la création à l’association', async () => {
   const wiz = await A.text('/edition/1/variants/new?mode=test');
-  check('assistant sans relecteur ni responsable (une seule personne)', !/Relecteur/.test(wiz) && !/Responsable/.test(wiz));
+  check('assistant détaillé : responsable et relecteur facultatif proposés', /Responsable/.test(wiz) && /Relecteur/.test(wiz));
   const pre = await A.text(`/edition/1/variants/new?mode=test&campaign=${ids.c}&adset=${ids.adset}&formats=1x1,16x9`);
   check('l’assistant se préremplit depuis les formats manquants d’une campagne', /name="fmt_1x1"[^>]*checked/.test(pre) && /name="fmt_16x9"[^>]*checked/.test(pre) && !/name="fmt_4x5"[^>]*checked/.test(pre));
   const fiche = await A.text('/edition/1');
@@ -600,6 +600,10 @@ await step('7. Exporter la version approuvée — sans doublon', async () => {
   const sv = await A.get(`/edition/1/poster/4x5/svg?variant=${ids.v1}&approved=1`);
   check('SVG de la version approuvée : produit, avec la version dans le nom', sv.status === 200 && /-v1\.svg/.test(sv.headers.get('content-disposition') || '') && /<svg/.test(await sv.text()), String(sv.status));
   check('le SVG éditable n’est pas servi pour un contenu sans version approuvée', (await A.get(`/edition/1/poster/4x5/svg?variant=999999&approved=1`)).status === 404);
+  const asg = await A.post(`/edition/1/variants/${ids.v1}/assign`, { owner: 'Alice', reviewer: 'Alice', due_date: '2027-01-15' });
+  check('responsable, relecteur facultatif et échéance enregistrés', /Responsable, relecteur et échéance enregistrés/.test(decodeURIComponent(A.loc(asg))), A.loc(asg));
+  const vp2 = await A.text(`/edition/1/variants/${ids.v1}?step=verification`);
+  check('personne attendue et échéance visibles dans le résumé', /attendu : Alice · échéance 2027-01-15/.test(vp2) && /Aucune validation à deux n’est obligatoire/.test(vp2) && !/Vous travaillez seul/.test(vp2));
   const dl = (await A.text(`/edition/1/variants/${ids.v1}`)).match(/\/exports\/(\d+)\?dl=1/g) || [];
   exp1 = dl.map((x) => Number(/(\d+)/.exec(x)[1]));
   check('fichiers exportés présents et téléchargeables', exp1.length >= 2, `${exp1.length} lien(s)`);

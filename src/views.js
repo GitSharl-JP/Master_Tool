@@ -18,7 +18,7 @@ export const loginPage = (err) => `<h1>Connexion</h1>${err ? `<p class="err">${e
 <form method="post" action="/login" class="card narrow"><label>Nom<input name="name" autofocus required></label>
 <label>Mot de passe<input type="password" name="password" required></label><button>Se connecter</button></form>`;
 
-export const setupPage = (err) => `<h1>Première utilisation</h1><p>Créez votre compte. Vous travaillez seul(e) : un second accès est facultatif (Réglages), jamais nécessaire.</p>
+export const setupPage = (err) => `<h1>Première utilisation</h1><p>Créez votre compte. Chaque personne de l’équipe pourra avoir son propre accès (Réglages) pour savoir qui s’occupe de quoi.</p>
 ${err ? `<p class="err">${esc(err)}</p>` : ''}<form method="post" action="/setup" class="card narrow">
 <label>Votre prénom<input name="name" required></label>
 <label>Mot de passe (10 caractères minimum)<input type="password" name="password" minlength="10" required></label><button>Créer le compte</button></form>`;
@@ -127,9 +127,9 @@ ${d.help ? `<small>${esc(d.help)}</small>` : ''}</label><button>Enregistrer</but
   return `<h1>Réglages</h1>${msg ? `<p class="flash">${esc(msg)}</p>` : ''}
 <div class="card"><h2>Connexions (champs sécurisés)</h2>
 <p>Ces valeurs sont stockées uniquement sur cet ordinateur (<code>data/secrets.json</code>, hors Git). Elles ne sont <b>jamais réaffichées</b> une fois enregistrées et ne doivent jamais être envoyées dans une conversation ou un e-mail.</p>${secrets}</div>
-<div class="card"><h2>Accès</h2><p><small>L’atelier fonctionne très bien avec un seul accès. Ajouter un second accès (facultatif) ne change rien à votre façon de travailler : tout reste faisable seul(e).</small></p><ul>${users.map((u) => `<li>${esc(u.name)}</li>`).join('')}</ul>
-${users.length < 2 ? `<form method="post" action="/settings/user" class="inline"><input name="name" placeholder="Prénom" required>
-<input type="password" name="password" placeholder="Mot de passe (10+ car.)" minlength="10" required><button>Ajouter</button></form>` : '<small>Second accès en place.</small>'}</div>`;
+<div class="card"><h2>Accès</h2><p><small>Un accès par personne : il sert à désigner le responsable et le relecteur d’un contenu. Le relecteur est facultatif et aucune validation à deux n’est obligatoire.</small></p><ul>${users.map((u) => `<li>${esc(u.name)}</li>`).join('')}</ul>
+${users.length < 6 ? `<form method="post" action="/settings/user" class="inline"><input name="name" placeholder="Prénom" required>
+<input type="password" name="password" placeholder="Mot de passe (10+ car.)" minlength="10" required><button>Ajouter</button></form>` : '<small>Nombre maximal d’accès atteint.</small>'}</div>`;
 }
 
 // ---------------------------------------------------------------- onglets / assets / affiches

@@ -2,9 +2,9 @@
 
 À consulter pour toute tâche touchant projets, designs, variantes, contenus, campagnes, calendrier, Meta, sauvegardes. Détails : `wordpress.md`, `sauvegarde-restauration.md`, `procedure-test-parcours.md`, `verification-illustrator/`.
 
-## Principe : une personne seule, peu de temps
+## Principe : peu de temps, une ou deux personnes
 
-L'atelier est conçu pour **une seule personne**. Rien ne suppose un relecteur ou un second compte (ils restent facultatifs). Les contrôles automatiques remplacent la relecture extérieure ; un parcours standard coûte **3 actions** (créer la variante, « Approuver et exporter », « Associer à la campagne ») ; « À faire maintenant » et « Prochaine étape » disent quoi faire sans chercher. Toute fonction doit réduire le temps ou les erreurs d'une personne qui n'a pas le temps.
+L'atelier est utilisé par **une ou deux personnes**. Chaque contenu peut avoir un **responsable**, un **relecteur facultatif** et une **échéance** (étape Vérification et exports) ; la personne attendue pour la prochaine action s'affiche dans le résumé. **Aucune validation à deux n'est obligatoire.** Les contrôles automatiques assistent la relecture (ils ne garantissent ni la qualité artistique, ni la traduction, ni l'exactitude commerciale) ; un parcours standard coûte **3 actions** (créer la variante, « Approuver et exporter », « Associer à la campagne ») ; « À faire maintenant » et « Prochaine étape » disent quoi faire sans chercher. Toute fonction doit réduire le temps ou les erreurs d'une personne qui n'a pas le temps.
 
 ## Nomenclature
 

@@ -465,14 +465,14 @@ const server = createServer(async (req, res) => {
     }
 
     // ---------- variantes guidées
-    if ((r = path.match(/^\/edition\/(\d+)\/variants(?:\/(new)|\/(\d+)(?:\/(update|messages|review|approve-export|approve|restore|export|link|plan|duplicate|archive|material|save-model))?)?$/))) {
+    if ((r = path.match(/^\/edition\/(\d+)\/variants(?:\/(new)|\/(\d+)(?:\/(update|messages|review|assign|approve-export|approve|restore|export|link|plan|duplicate|archive|material|save-model))?)?$/))) {
       const ed = db.getEdition(Number(r[1]));
       if (!ed) return send(res, 404, layout('Introuvable', '<h1>Projet introuvable</h1>', user));
       const camps = campaigns.listCampaigns(ed.id), users = db.listUsers().map((u) => u.name);
       const adsets = camps.flatMap((c) => campaigns.listAdsets(c.id).map((a) => ({ ...a, campaign_name: c.name })));
       const templates = library.listTemplates().filter((t) => t.kind !== 'kit').map((t) => ({ name: t.name, version: t.last_version, version_id: library.listVersions(t.id)[0]?.id })).filter((t) => t.version_id);
       const srcContent = campaigns.getContent(Number(url.searchParams.get('content'))), prefill = srcContent && srcContent.project_id === ed.id ? { name: srcContent.title, angle: srcContent.angle, audience: srcContent.audience, language: srcContent.language, source_text: srcContent.body, source_title: srcContent.title } : {};
-      const newForm = (values = {}, error = '') => page('Test détaillé', variantNewPage(ed, { prefill, campaigns: camps, adsets, assets: studio.listAssets(ed.id), templates, users, values, error, who: user.name, solo: users.length <= 1, preset: { campaign_id: Number(url.searchParams.get('campaign')) || '', adset_id: Number(url.searchParams.get('adset')) || '', formats: (url.searchParams.get('formats') || '').split(',').filter((k) => studio.POSTER_FORMATS[k]).length ? (url.searchParams.get('formats') || '').split(',').filter((k) => studio.POSTER_FORMATS[k]) : undefined } }));
+      const newForm = (values = {}, error = '') => page('Test détaillé', variantNewPage(ed, { prefill, campaigns: camps, adsets, assets: studio.listAssets(ed.id), templates, users, values, error, who: user.name, solo: false, preset: { campaign_id: Number(url.searchParams.get('campaign')) || '', adset_id: Number(url.searchParams.get('adset')) || '', formats: (url.searchParams.get('formats') || '').split(',').filter((k) => studio.POSTER_FORMATS[k]).length ? (url.searchParams.get('formats') || '').split(',').filter((k) => studio.POSTER_FORMATS[k]) : undefined } }));
       const presetL = { campaign_id: Number(url.searchParams.get('campaign')) || '', adset_id: Number(url.searchParams.get('adset')) || '', formats: (url.searchParams.get('formats') || '').split(',').filter((k) => studio.POSTER_FORMATS[k]) };
       const fromAsset = studio.getAsset(Number(url.searchParams.get('asset'))), fromDesign = Number(url.searchParams.get('design')) || '';
       const from = { asset: fromAsset && fromAsset.edition_id === ed.id ? fromAsset : null, design_version: fromDesign, type: fromAsset?.edition_id === ed.id ? (fromAsset.kind === 'video' ? 'video' : fromAsset.kind === 'image' ? 'affiche' : 'texte') : '' };
@@ -515,7 +515,7 @@ const server = createServer(async (req, res) => {
         const back = (m) => redirect(res, `/edition/${ed.id}/variants/${v.id}?m=${encodeURIComponent(m)}`);
         if (req.method === 'GET' && !r[4]) {
           const autoAdset = v.adset_id ? adsets.find((a) => a.id === v.adset_id) : null, autoCamp = v.campaign_id ? camps.find((c2) => c2.id === v.campaign_id) : null;
-          return page(v.name, variantPage(ed, { solo: users.length <= 1, next: variants.nextStep(v.id), checksList: variants.checks(v.id), autoLabel: autoAdset ? `ensemble « ${autoAdset.name} »` : autoCamp ? `campagne « ${autoCamp.name} »` : '', v, outputs: variants.outputsOf(v.id), versions: variants.listVersions(v.id), pristine: variants.isPristine(v), campaigns: camps, adsets, users, planItems: plan.listItems(ed.id, { variantId: v.id }), step: url.searchParams.get('step'), ws: variants.workspaceInfo(v.id), assets: studio.listAssets(ed.id), templates, models: library.listTemplates().filter((t) => t.kind === 'modele'), design0: v.formats.length ? studio.getDesign(ed.id, `v${v.id}_${v.formats[0]}`) : null, vdesign: v.with_video ? video.getVideoDesign(ed.id, `v${v.id}`) : null }), msgOf());
+          return page(v.name, variantPage(ed, { solo: false, next: variants.nextStep(v.id), checksList: variants.checks(v.id), autoLabel: autoAdset ? `ensemble « ${autoAdset.name} »` : autoCamp ? `campagne « ${autoCamp.name} »` : '', v, outputs: variants.outputsOf(v.id), versions: variants.listVersions(v.id), pristine: variants.isPristine(v), campaigns: camps, adsets, users, planItems: plan.listItems(ed.id, { variantId: v.id }), step: url.searchParams.get('step'), ws: variants.workspaceInfo(v.id), assets: studio.listAssets(ed.id), templates, models: library.listTemplates().filter((t) => t.kind === 'modele'), design0: v.formats.length ? studio.getDesign(ed.id, `v${v.id}_${v.formats[0]}`) : null, vdesign: v.with_video ? video.getVideoDesign(ed.id, `v${v.id}`) : null }), msgOf());
         }
         if (req.method === 'POST') {
           const b = await readBody(req);
@@ -523,6 +523,7 @@ const server = createServer(async (req, res) => {
           if (r[4] === 'material') { const o = variants.applyMaterial(v.id, b, user.name); return redirect(res, `/edition/${ed.id}/variants/${v.id}?step=materiel&m=${encodeURIComponent(o.ok ? o.msg : o.error)}`); }
           if (r[4] === 'update') { variants.updateVariant(v.id, b, user.name); return back('Intention enregistrée.'); }
           if (r[4] === 'messages') { variants.updateMessages(v.id, b, user.name); return back('Textes appliqués aux formats.'); }
+          if (r[4] === 'assign') { const o = variants.assign(v.id, b, user.name); return back(o.ok ? 'Responsable, relecteur et échéance enregistrés.' : o.error); }
           if (r[4] === 'review') { const o = variants.requestReview(v.id, user.name); plan.syncVariant(v.id); return back(o.ok ? 'Mise de côté « à relire » : revenez-y avec un regard neuf, puis approuvez.' : o.error); }
           if (r[4] === 'approve-export') {
             const o = await variants.approveAndExport(v.id, user.name, b.note); plan.syncVariant(v.id);
@@ -631,7 +632,7 @@ const server = createServer(async (req, res) => {
         if (b.clear) { clearSecret(b.key); db.log(user.name, `Réglage effacé : ${b.key}`); msg = 'Effacé.'; }
         else if (setSecret(b.key, (b.value || '').trim())) { db.log(user.name, `Réglage enregistré : ${b.key}`); msg = 'Enregistré.'; }
         else msg = 'Valeur vide : rien changé.';
-      } else if (path === '/settings/user' && db.listUsers().length < 2 && (b.password || '').length >= 10 && b.name?.trim()) {
+      } else if (path === '/settings/user' && db.listUsers().length < 6 && (b.password || '').length >= 10 && b.name?.trim()) {
         try { db.createUser(b.name.trim(), b.password); db.log(user.name, `Utilisateur ajouté : ${b.name.trim()}`); msg = 'Utilisateur ajouté.'; } catch { msg = 'Ce nom existe déjà.'; }
       } else if (path === '/settings/backup') { lastBackup = db.backup(); msg = 'Sauvegarde effectuée.'; }
       return redirect(res, `/settings?m=${encodeURIComponent(msg)}`);

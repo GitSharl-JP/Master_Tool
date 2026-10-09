@@ -97,7 +97,7 @@ ${next.action === 'export' ? `<form method="post" action="/edition/${ed.id}/vari
 ${next.action === 'link-auto' ? `<form method="post" action="/edition/${ed.id}/variants/${v.id}/link" class="inline"><input type="hidden" name="target" value="auto"><button class="primary">${esc(next.label)}${autoLabel ? ' : ' + esc(autoLabel) : ''}</button></form>` : ''}
 ${!next.action && next.href ? `<a class="btn" href="${esc(next.href)}">${esc(next.label || 'Ouvrir')}</a>` : ''}</div>` : '';
   const checksCard = `<div class="card"><h2>Contrôles automatiques avant approbation</h2>${checksList.length
-    ? `<ul class="log checks">${checksList.map((k) => `<li class="${k.level}">${k.level === 'bloquant' ? '🔴 <b>À corriger</b>' : '🟡 <b>À savoir</b>'} — ${esc(k.text)} ${k.href ? `<a href="${esc(k.href)}">corriger</a>` : ''}</li>`).join('')}</ul><small>« À corriger » empêche d’approuver ; « À savoir » se signale mais n’empêche rien.</small>`
+    ? `<ul class="log checks">${checksList.map((k) => `<li class="${k.level}">${k.level === 'bloquant' ? '🔴 <b>À corriger</b>' : k.level === 'transmission' ? '🟠 <b>Bloque la transmission</b>' : '🟡 <b>À savoir</b>'} — ${esc(k.text)} ${k.href ? `<a href="${esc(k.href)}">${k.level === 'conseil' ? 'voir' : 'corriger'}</a>` : ''}</li>`).join('')}</ul><small>« À corriger » empêche d’approuver · « Bloque la transmission » : on peut approuver et exporter (brouillon), pas transmettre ni publier · « À savoir » : avertissement. La préparation et les exports d’essai restent possibles.</small>`
     : '<p>✅ Aucun problème détecté : photo, titre, formats et vidéo sont en ordre.</p>'}</div>`;
   const why = v.status === 'archivé' ? 'Ce contenu est archivé.' : v.status !== 'approuvé' ? 'Le contenu doit d’abord être approuvé.' : !pristine ? 'Le contenu a changé depuis son approbation : relisez puis approuvez à nouveau.' : '';
   const P_INTENT = `<div class="card"><h2>${esc(v.name)} ${chip(v.status)} ${v.approved_version ? `<span class="tag">version approuvée : v${v.approved_version}</span>` : ''}</h2>
@@ -136,9 +136,18 @@ ${o.exports.map((e) => `<small>Export v${e.variant_version} du ${fr(e.created)} 
 ${o.trial ? `<small>Essai (non officiel) du ${fr(o.trial.created)} — <a href="/exports/${o.trial.id}" target="_blank">voir</a></small>` : ''}
 ${o.links.map((l) => `<small>${chip(l.state)} ${l.ad_name ? 'annonce « ' + esc(l.ad_name) + ' »' : l.adset_name ? 'ensemble « ' + esc(l.adset_name) + ' »' : 'campagne « ' + esc(l.campaign_name) + ' »'}</small>`).join('<br>')}</div></div>`).join('')}
 ${STAGE_LEGEND}</div>`;
+  const who = v.owner || v.reviewer ? '' : '';
+  const P_RESP = `<div class="card"><h2>Qui s’en occupe ?</h2>
+<form method="post" action="/edition/${ed.id}/variants/${v.id}/assign" class="grid">
+<label>Responsable du contenu<select name="owner">${userOpts(users, v.owner)}</select></label>
+<label>Relecteur <small>(facultatif)</small><select name="reviewer">${userOpts(users, v.reviewer)}</select></label>
+<label>Échéance<input type="date" name="due_date" value="${esc(v.due_date || '')}"></label>
+<div><button>Enregistrer</button></div></form>
+<small>${v.status === 'archivé' ? '' : (v.status === 'à relire' ? v.reviewer || v.owner : v.owner) ? `Prochaine action attendue : <b>${esc(v.status === 'à relire' ? v.reviewer || v.owner : v.owner)}</b>.` : 'Personne n’est désigné : n’importe qui peut approuver.'} Aucune validation à deux n’est obligatoire.</small></div>`;
   const P_VALID = `${checksCard}
+${P_RESP}
 <div class="card"><h2>Validation</h2>
-<p>« Approuver » <b>fige une version</b> (textes, cadrages, sous-titres, informations de la fiche à cet instant). Les exports officiels partent <b>toujours</b> de cette version. Si vous modifiez ensuite le contenu, il repasse « à relire » sans toucher à la version approuvée. Vous travaillez seul(e) : les contrôles ci-dessus remplacent une relecture extérieure ; « mettre de côté » sert à relire plus tard avec un regard neuf.</p>
+<p>« Approuver » <b>fige une version</b> (textes, cadrages, sous-titres, informations de la fiche à cet instant). Les exports officiels partent <b>toujours</b> de cette version. Si vous modifiez ensuite le contenu, il repasse « à relire » sans toucher à la version approuvée. Les contrôles ci-dessus assistent la relecture : ils ne garantissent ni la qualité artistique, ni la traduction, ni l’exactitude commerciale. Un relecteur est facultatif ; « mettre de côté » sert à relire plus tard avec un regard neuf.</p>
 <div class="inline">
 <form method="post" action="/edition/${ed.id}/variants/${v.id}/approve-export" class="inline"><input name="note" placeholder="Note de version (facultatif)"><button class="primary"${v.status === 'archivé' ? ' disabled' : ''}>Approuver et exporter</button></form>
 <form method="post" action="/edition/${ed.id}/variants/${v.id}/approve"><button${v.status === 'archivé' ? ' disabled' : ''}>Approuver seulement</button></form>
