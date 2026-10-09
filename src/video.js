@@ -6,7 +6,7 @@ import { db, log, DATA_DIR, getEdition } from './db.js';
 import { FFMPEG, probe, reframe, parseSubtitles, toAss } from './media.js';
 import { getAsset, assetPath, getDesign, buildPosterHtml, htmlToPng, EXPORT_PATH, fireDesignSaved } from './studio.js';
 import { FORMATS, VIDEO_FORMATS } from './formats.js';
-import { publishBlockers } from './schema.js';
+import { posterBlockers } from './schema.js';
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS subtitles(edition_id INTEGER PRIMARY KEY, json TEXT NOT NULL, source TEXT NOT NULL DEFAULT '', updated TEXT NOT NULL);
@@ -98,7 +98,7 @@ function jobKey(ed, fmt, d, cues, ctx = {}) {
   return createHash('sha1').update(JSON.stringify({
     e: ed.id, fmt, d, srcFile: src && [src.stored, src.size], logo: logo && logo.stored, edUpdated: ed.updated,
     cues: d.subs.on ? cues : null, poster: d.endcard.on ? (ctx.posterDesigns?.[fmt] || getDesign(ed.id, `poster_${fmt}`)) : null,
-    draft: ctx.draft ?? publishBlockers(ed).length > 0, variant: ctx.variant ? [ctx.variant.id, ctx.variant.version] : null,
+    draft: ctx.draft ?? (d.endcard.on ? posterBlockers(ed, [[fmt, getDesign(ed.id, `poster_${fmt}`)]]).length > 0 : false), variant: ctx.variant ? [ctx.variant.id, ctx.variant.version] : null,
   })).digest('hex');
 }
 
@@ -171,7 +171,7 @@ async function runJob(id) {
   const tmp = TMP + 'job' + id + '/';
   rmSync(tmp, { recursive: true, force: true });
   mkdirSync(tmp, { recursive: true });
-  const blockers = state ? (state.draft ? ['figé'] : []) : publishBlockers(ed0);
+  const blockers = state ? (state.draft ? ['figé'] : []) : (d.endcard.on ? posterBlockers(ed0, [[fmt, getDesign(ed0.id, `poster_${fmt}`)]]) : []);
   const draft = state ? state.draft : blockers.length > 0 || src.provisional === 1;
 
   // écran de fin = l'affiche de ce format (même direction artistique)

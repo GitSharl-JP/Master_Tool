@@ -24,6 +24,9 @@ CREATE TABLE IF NOT EXISTS design_templates(id INTEGER PRIMARY KEY, name TEXT NO
 CREATE TABLE IF NOT EXISTS design_versions(id INTEGER PRIMARY KEY, template_id INTEGER NOT NULL, version INTEGER NOT NULL, snapshot TEXT NOT NULL, note TEXT NOT NULL DEFAULT '', thumb TEXT NOT NULL DEFAULT '', created TEXT NOT NULL, created_by TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS design_applications(id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL, version_id INTEGER NOT NULL, applied_at TEXT NOT NULL, applied_by TEXT NOT NULL, summary TEXT NOT NULL DEFAULT '');
 `);
+if (!db.prepare('PRAGMA table_info(design_templates)').all().some((c) => c.name === 'kind')) db.exec("ALTER TABLE design_templates ADD COLUMN kind TEXT NOT NULL DEFAULT 'projet'");
+// projet = tout le travail graphique d'un projet (historique) · modele = la composition d'UN contenu et ses déclinaisons · kit = charte et styles communs
+export const KIND_LABELS = { projet: 'Design du projet', modele: 'Modèle de contenu', kit: 'Kit graphique' };
 const now = () => new Date().toISOString();
 const safe = (s) => String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\w.\-]+/g, '_').slice(-60);
 
@@ -38,22 +41,22 @@ export const listApplications = (projectId) => db.prepare('SELECT a.*, t.name, v
 const dataUriKey = (key) => `data:${MIME[extname(key).toLowerCase()] || 'application/octet-stream'};base64,${readFileSync(storage.path(key)).toString('base64')}`;
 
 // --- état courant d'un projet -> instantané
-export function buildSnapshot(ed) {
-  const formats = {}, used = new Set();
+export function buildSnapshot(ed, opts = {}) {
+  const formats = {}, used = new Set(), scope = opts.variantId ? `v${opts.variantId}` : '';
   let partners = false;
-  for (const fmt of Object.keys(FORMATS)) {
-    const d = getDesign(ed.id, `poster_${fmt}`);
+  for (const fmt of (opts.formats || Object.keys(FORMATS))) {
+    const d = getDesign(ed.id, scope ? `${scope}_${fmt}` : `poster_${fmt}`);
     formats[fmt] = d;
     if (d.hero) used.add(String(d.hero));
     if (d.logo) used.add(String(d.logo));
     if (d.partners === '1') partners = true;
   }
   if (partners) for (const a of assetsByRole(ed.id, 'partner')) if (a.kind === 'image') used.add(String(a.id));
-  const v = getVideoDesign(ed.id);
+  const v = getVideoDesign(ed.id, scope);
   if (v.logo.asset) used.add(String(v.logo.asset));
   const d = ed.data;
   return {
-    schema: 1, savedAt: now(), projectLabel: ed.label,
+    schema: 1, kind: opts.kind || 'projet', savedAt: now(), projectLabel: ed.label,
     brand: Object.fromEntries(['color_primary', 'color_secondary', 'color_text', 'font_title', 'font_body', 'brand_rules'].map((k) => [k, d[k] ?? ''])),
     sample: d, used: [...used], formats,
     video: { logo: { corner: v.logo.corner, size: v.logo.size, margin: v.logo.margin, asset: v.logo.asset }, endcard: v.endcard, subs: v.subs },
@@ -61,12 +64,13 @@ export function buildSnapshot(ed) {
 }
 
 // --- enregistrement : nouvelle version d'un design existant, ou nouveau design
-export async function saveToLibrary(ed, { templateId, name, note = '' }, who) {
-  const snap = buildSnapshot(ed);
+export async function saveToLibrary(ed, { templateId, name, note = '', kind = 'projet', variantId, formats, snapshot }, who) {
+  const snap = snapshot || buildSnapshot(ed, { kind, variantId, formats });
   let t = templateId ? getTemplate(Number(templateId)) : null;
+  if (t && (t.kind || 'projet') !== kind) return { ok: false, error: `Ce design est de type « ${KIND_LABELS[t.kind] || t.kind} » : ajoutez-y une version du même type, ou créez-en un nouveau.` };
   if (!t) {
     if (!String(name || '').trim()) return { ok: false, error: 'Donnez un nom au design.' };
-    const r = db.prepare('INSERT INTO design_templates(name,project_id,created,created_by,updated) VALUES(?,?,?,?,?)').run(String(name).trim().slice(0, 120), ed.id, now(), who, now());
+    const r = db.prepare('INSERT INTO design_templates(name,project_id,kind,created,created_by,updated) VALUES(?,?,?,?,?,?)').run(String(name).trim().slice(0, 120), ed.id, kind, now(), who, now());
     t = getTemplate(Number(r.lastInsertRowid));
   }
   const version = (db.prepare('SELECT MAX(version) m FROM design_versions WHERE template_id=?').get(t.id).m || 0) + 1;
@@ -82,7 +86,7 @@ export async function saveToLibrary(ed, { templateId, name, note = '' }, who) {
   delete snap.used;
   const thumbFile = EXPORT_PATH + `thumb-${t.id}-${version}.png`;
   const fmt = snap.formats['4x5'] ? '4x5' : Object.keys(snap.formats)[0];
-  const ok = await htmlToPng(renderFromSnapshot(snap, fmt).html, fmt, thumbFile);
+  const ok = fmt ? await htmlToPng(renderFromSnapshot(snap, fmt).html, fmt, thumbFile) : false;
   let thumb = '';
   if (ok) { thumb = base + 'apercu.png'; storage.put(thumb, thumbFile); rmSync(thumbFile, { force: true }); }
   db.prepare('INSERT INTO design_versions(template_id,version,snapshot,note,thumb,created,created_by) VALUES(?,?,?,?,?,?,?)').run(t.id, version, JSON.stringify(snap), String(note).slice(0, 300), thumb, now(), who);
@@ -109,6 +113,7 @@ export function duplicateTemplate(templateId, name, who) {
   if (!t || !last) return { ok: false, error: 'Design introuvable.' };
   const r = db.prepare('INSERT INTO design_templates(name,notes,parent_id,project_id,created,created_by,updated) VALUES(?,?,?,?,?,?,?)').run(String(name || `Copie de ${t.name}`).slice(0, 120), t.notes, t.id, t.project_id, now(), who, now());
   const nid = Number(r.lastInsertRowid), snap = JSON.parse(last.snapshot);
+  db.prepare('UPDATE design_templates SET kind=? WHERE id=?').run(t.kind || 'projet', nid);
   for (const a of Object.values(snap.assets)) {
     const key = `designs/t${nid}/v1/${basename(a.key)}`;
     if (storage.exists(a.key)) storage.copy(a.key, key);
@@ -147,6 +152,13 @@ export function applyVersion(projectId, versionId, opts, who) {
   for (const fmt of Object.keys(snap.formats)) {
     const f = snap.formats[fmt];
     saveDesign(projectId, `poster_${fmt}`, { ...f, hero: chosen[f.hero] || '', logo: chosen[f.logo] || '', els: strip(f.els) }, who, `Design « ${getTemplate(v.template_id).name} » v${v.version} appliqué`);
+  }
+  if (snap.kit) { // kit graphique : on ne touche ni aux photos ni aux textes, seulement aux styles communs et au logo
+    for (const fmt of Object.keys(FORMATS)) {
+      const cur = getDesign(projectId, `poster_${fmt}`);
+      saveDesign(projectId, `poster_${fmt}`, { ...cur, ...snap.kit.style, logo: chosen[snap.kit.logo] || cur.logo }, who, `Kit graphique « ${getTemplate(v.template_id).name} » v${v.version} appliqué`);
+    }
+    notes.push('styles communs (dégradé, composition, texte, partenaires) et logo repris');
   }
   if (opts.brand) {
     const data = { ...ed.data };
@@ -215,6 +227,7 @@ export function importBundle(zipFile, projectId, who) {
     if (j.schema !== 1 || !j.formats || !j.assets) return { ok: false, error: 'Version d’archive non prise en charge.' };
     const r = db.prepare('INSERT INTO design_templates(name,notes,project_id,created,created_by,updated) VALUES(?,?,?,?,?,?)').run(String(j.name || top).slice(0, 120) + ' (importé)', j.notes || '', projectId, now(), who, now());
     const tid = Number(r.lastInsertRowid);
+    db.prepare('UPDATE design_templates SET kind=? WHERE id=?').run(KIND_LABELS[j.kind] ? j.kind : 'projet', tid);
     for (const [id, a] of Object.entries(j.assets)) {
       const file = a.file || '';
       if (!file.startsWith('assets/') || file.includes('..') || !existsSync(root + file)) { delete j.assets[id]; continue; }
@@ -241,3 +254,28 @@ export function designFromVersion(versionId, fmt, { projectId, hero, logo }) {
   d.els = Object.fromEntries(Object.entries(f.els || {}).map(([k, e]) => { const { text, ...rest } = e; return [k, rest]; }));
   return { ...d, hero: own(hero), logo: own(logo) };
 }
+
+// --- « Enregistrer comme modèle » : la composition d'UN contenu (ses formats, éléments éditables, style vidéo)
+export function saveModel(ed, variant, { templateId, name, note }, who) {
+  const designs = variant.formats.map((f) => getDesign(ed.id, `v${variant.id}_${f}`));
+  if (designs.some((d) => d.ext)) return Promise.resolve({ ok: false, error: 'Un contenu basé sur une affiche reçue ne s’enregistre pas comme modèle : l’affiche est déjà votre fichier source.' });
+  if (!variant.formats.length && !variant.with_video) return Promise.resolve({ ok: false, error: 'Ce contenu n’a rien à enregistrer.' });
+  return saveToLibrary(ed, { templateId, name: name || variant.name, note, kind: 'modele', variantId: variant.id, formats: variant.formats }, who);
+}
+
+// --- « Enregistrer le kit graphique du projet » : charte, logo et styles communs, sans contenu particulier
+export function buildKitSnapshot(ed) {
+  const used = new Set(), p = getDesign(ed.id, 'poster_4x5'), d = ed.data;
+  if (p.logo) used.add(String(p.logo));
+  if (p.partners === '1') for (const a of assetsByRole(ed.id, 'partner')) if (a.kind === 'image') used.add(String(a.id));
+  const v = getVideoDesign(ed.id);
+  if (v.logo.asset) used.add(String(v.logo.asset));
+  return {
+    schema: 1, kind: 'kit', savedAt: now(), projectLabel: ed.label,
+    brand: Object.fromEntries(['color_primary', 'color_secondary', 'color_text', 'font_title', 'font_body', 'brand_rules'].map((k) => [k, d[k] ?? ''])),
+    sample: d, used: [...used], formats: {},
+    kit: { style: { gradient: p.gradient, style: p.style, text_pos: p.text_pos, partners: p.partners, title_scale: p.title_scale }, logo: p.logo || '' },
+    video: { logo: { corner: v.logo.corner, size: v.logo.size, margin: v.logo.margin, asset: v.logo.asset }, endcard: v.endcard, subs: v.subs },
+  };
+}
+export const saveKit = (ed, { templateId, name, note }, who) => saveToLibrary(ed, { templateId, name, note, kind: 'kit', snapshot: buildKitSnapshot(ed) }, who);

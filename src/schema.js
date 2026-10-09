@@ -138,3 +138,37 @@ export function publishBlockers(ed) {
   if (ed.data.provisional === '1') why.push('Contenu marqué provisoire.');
   return why;
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// Exigences CIBLÉES : un contenu n'exige de la fiche que ce qu'il affiche réellement. Une FAQ, des tarifs ou les options du site
+// non approuvés ne bloquent donc pas une affiche qui ne les montre pas. publishBlockers (ci-dessus) reste l'exigence LARGE,
+// celle du site complet.
+import { FORMATS as FMT } from './formats.js';
+export const SECTION_TITLES = Object.fromEntries(SECTIONS.map((s) => [s.id, s.title]));
+// pairs : [[format, design]] des affiches concernées. Les affiches reçues de l'extérieur (design.ext) ne montrent rien de la fiche.
+export function posterNeeds(pairs) {
+  const need = { sections: new Set(), venue: false, provisional: false };
+  for (const [fmt, g] of pairs) {
+    if (!g || g.ext) continue;
+    const shown = (id) => !(g.els && g.els[id] && g.els[id].hide);
+    const banner = FMT[fmt]?.layout === 'banner', band = g.style === 'bandeau' && !banner;
+    need.sections.add('identity'); need.sections.add('brand'); need.provisional = true;
+    if (shown('info') || (band && shown('dates'))) need.venue = true;
+    if (banner ? shown('cta') : band ? shown('info') : shown('cta') || shown('host')) need.sections.add('booking');
+  }
+  if (need.venue) need.sections.add('venue');
+  return need;
+}
+// Une vidéo ne montre la fiche que par son écran de fin (c'est l'affiche du format).
+export function videoNeeds(videoDesign, posterPairs) {
+  return videoDesign?.endcard?.on ? posterNeeds(posterPairs) : { sections: new Set(), venue: false, provisional: false };
+}
+export function explainNeeds(ed, need) {
+  const why = [];
+  if (need.venue && ed.data.venue_status !== 'confirmé') why.push({ section: 'venue', text: 'Le lieu n’est pas confirmé (il est cité sur ce contenu).' });
+  for (const s of need.sections) if (ed.validation[s]?.status !== 'approuvé') why.push({ section: s, text: `Section « ${SECTION_TITLES[s]} » non approuvée (utilisée par ce contenu).` });
+  if (need.provisional && ed.data.provisional === '1') why.push({ section: 'identity', text: 'Fiche marquée « provisoire » (textes d’exemple).' });
+  return why;
+}
+export const blockersFor = (ed, need) => explainNeeds(ed, need).map((w) => w.text);
+export const posterBlockers = (ed, pairs) => blockersFor(ed, posterNeeds(pairs));
