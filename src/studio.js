@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS exports(
 const EXPORT_DIR = DATA_DIR + 'exports/';
 mkdirSync(EXPORT_DIR, { recursive: true });
 
+try { db.exec("ALTER TABLE assets ADD COLUMN label TEXT NOT NULL DEFAULT ''"); } catch { /* colonne déjà présente */ }
 export const ROLES = {
   hero: 'Photo principale', gallery: 'Galerie', logo: 'Logo', partner: 'Logo partenaire', map: 'Carte / plan du parcours',
   video: 'Vidéo', audio: 'Audio / musique', subtitle: 'Sous-titres', source: 'Fichier source (graphiste)', other: 'Autre',
@@ -84,11 +85,11 @@ export function saveUpload(req, { editionId, name, role, who }) {
   });
 }
 
-export function updateAsset(id, { role, provisional, rights, status }, who) {
+export function updateAsset(id, { role, provisional, rights, status, label }, who) {
   const a = getAsset(id);
   if (!a) return;
-  db.prepare('UPDATE assets SET role=?, provisional=?, rights=?, status=? WHERE id=?')
-    .run(ROLES[role] ? role : a.role, provisional ? 1 : 0, (rights || '').slice(0, 500), ['brouillon', 'à relire', 'approuvé'].includes(status) ? status : a.status, id);
+  db.prepare('UPDATE assets SET role=?, provisional=?, rights=?, status=?, label=? WHERE id=?')
+    .run(ROLES[role] ? role : a.role, provisional ? 1 : 0, (rights || '').slice(0, 500), ['brouillon', 'à relire', 'approuvé'].includes(status) ? status : a.status, label === undefined ? a.label : String(label).trim().slice(0, 120), id);
   log(who, `Asset modifié : ${a.name}`);
 }
 

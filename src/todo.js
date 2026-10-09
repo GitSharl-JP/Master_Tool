@@ -11,18 +11,18 @@ import { FORMATS } from './formats.js';
 
 const addDays = (iso, n) => { const d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 
-export function nextActions(pid, limit = 8) {
+export function nextActions(pid, limit = 8, { skipVariants = false, skipPlan = false } = {}) {
   const ed = getEdition(pid), out = [], today = plan.today();
   const push = (level, text, href) => out.push({ level, text, href });
 
   // 1. calendrier : en retard ou dans les 7 jours
-  for (const it of plan.listItems(pid, { to: addDays(today, 7) })) {
+  for (const it of skipPlan ? [] : plan.listItems(pid, { to: addDays(today, 7) })) {
     if (it.status === 'fait') continue;
     const late = it.due_date < today;
     push(late ? 'urgent' : 'normal', `${late ? 'En retard' : 'À faire'} (${it.due_date}) : ${it.title}`, it.variant_id ? `/edition/${pid}/variants/${it.variant_id}` : `/edition/${pid}/calendar`);
   }
   // 2. variantes : l'étape suivante de chacune
-  for (const v of variants.listVariants(pid)) {
+  for (const v of skipVariants ? [] : variants.listVariants(pid)) {
     const ns = variants.nextStep(v.id);
     if (!ns || /^Terminé/.test(ns.text) || (!ns.action && !ns.href && /Utilisables tels quels/.test(ns.text))) continue;
     push('normal', `« ${v.name} » — ${ns.text}`, ns.href || `/edition/${pid}/variants/${v.id}`);

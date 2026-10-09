@@ -121,6 +121,17 @@ await step('1b. Polices par format et « Uniformiser » : un format réglé se r
   for (const fmt of ['4x5', '9x16', '1x1']) await A.post('/edition/1/poster/' + fmt + '/save', { hero: String(ids.hero), logo: String(ids.logo), partners: '1', style: 'classique', gradient: '65' });
 });
 
+await step('1c. Bibliothèque : un seul dispositif d’ajout, aperçus, filtres, nom affiché distinct du fichier d’origine', async () => {
+  const lib = await A.text('/edition/1/assets');
+  check('un seul bloc d’ajout en haut, aide repliée', /Ajouter des fichiers/.test(lib) && !/class="card upx"/.test(lib) && /<details><summary>Aide : formats acceptés/.test(lib));
+  check('chaque fichier propose « Créer un contenu avec ce fichier »', /Créer un contenu avec ce fichier/.test(lib));
+  await A.post('/assets/' + ids.hero + '/update', { label: 'Photo salle principale', role: 'hero', status: 'approuvé', rights: '' });
+  const l2 = await A.text('/edition/1/assets');
+  check('nom affiché lisible, fichier d’origine conservé', /Photo salle principale/.test(l2) && /Fichier d’origine conservé/.test(l2));
+  check('recherche par nom affiché', /Photo salle principale/.test(await A.text('/edition/1/assets?q=salle')) && /Aucun fichier ne correspond/.test(await A.text('/edition/1/assets?q=zzzzintrouvable')));
+  check('filtre par type', /Aucun fichier ne correspond/.test(await A.text('/edition/1/assets?kind=video&q=salle')));
+});
+
 await step('2. Design : enregistrer, modifier, retrouver l’ancien', async () => {
   const r1 = await A.post('/edition/1/designs/save', { name: 'DA Night Show', note: 'Première direction artistique' });
   check('design enregistré (v1)', /version 1/.test(A.loc(r1)), A.loc(r1));
@@ -175,7 +186,7 @@ await step('4b. Parcours court d’une personne seule : 3 actions de la créatio
   const pre = await A.text(`/edition/1/variants/new?mode=test&campaign=${ids.c}&adset=${ids.adset}&formats=1x1,16x9`);
   check('l’assistant se préremplit depuis les formats manquants d’une campagne', /name="fmt_1x1"[^>]*checked/.test(pre) && /name="fmt_16x9"[^>]*checked/.test(pre) && !/name="fmt_4x5"[^>]*checked/.test(pre));
   const fiche = await A.text('/edition/1');
-  check('« À faire maintenant » en tête du projet', /À faire maintenant/.test(fiche));
+  check('l’Accueil du projet distingue production et validations', /Production à reprendre/.test(fiche) && /Validations attendues/.test(fiche));
   // variante sans photo : bloquée par les contrôles automatiques (remplace une relecture extérieure)
   const nb = await A.post('/edition/1/variants/new', { intent: 'format', name: 'Test sans photo', hypothesis: 'Une composition pensée pour ce placement améliore la lecture.', fmt_16x9: '1' });
   const nid = Number(/variants\/(\d+)/.exec(nb.headers.get('location') || '')?.[1]);
@@ -322,8 +333,8 @@ await step('4f. Navigation simplifiée : Accueil de travail, cinq destinations, 
   check('cinq destinations + Paramètres du projet', ['Accueil', 'Contenus', 'Campagnes', 'Bibliothèque', 'Site web', 'Paramètres du projet'].every((w) => h.includes(`>${w}<`)));
   check('l’Accueil propose « Créer un contenu » et « Ouvrir une campagne »', /Créer un contenu/.test(h) && /Ouvrir une campagne/.test(h));
   check('l’Accueil n’est plus la fiche (pas de formulaire de fiche)', !/name="title_en"/.test(h) && !/Dupliquer ce projet/.test(h));
-  check('l’Accueil montre à reprendre, à relire, échéances, à faire maintenant', ['À reprendre', 'À relire ou approuver', 'Prochaines échéances', 'À faire maintenant'].every((w) => h.includes(w)));
-  check('l’Accueil liste les contenus existants du projet', /Dernières places|Émerveillement|Familles/.test(h));
+  check('l’Accueil distingue production à reprendre, validations, échéances, suivi et configuration', ['Production à reprendre', 'Validations attendues', 'Prochaines échéances', 'Suivi et configuration'].every((w) => h.includes(w)));
+  check('un contenu n’apparaît qu’une fois sur l’Accueil', ((h.match(/Émerveillement/g) || []).length) <= 2);
   const s = await A.text('/edition/1/settings');
   check('la fiche du spectacle est dans Paramètres du projet', /name="title_en"/.test(s) && /Gérer ce projet/.test(s) && /Dupliquer ce projet/.test(s));
   const bib = await A.text('/edition/1/assets'), cal = await A.text('/edition/1/calendar');
@@ -402,7 +413,7 @@ await step('4g. Espace de contenu : créer, matériel, création, vérification,
   const list = await A.text('/edition/' + P + '/variants');
   check('la liste « Contenus » montre affiches, vidéos et textes ensemble, avec leur type', /Teaser vidéo/.test(list) && /Script teaser/.test(list) && /Copie du premier/.test(list) && /class="tag">Vidéo</.test(list) && /class="tag">Texte</.test(list));
   const acc = await A.text('/edition/' + P);
-  check('l’Accueil reprend ces contenus', /Teaser vidéo/.test(acc) && /Script teaser/.test(acc));
+  check('l’Accueil reprend le travail en cours (vidéo) et laisse de côté le texte déjà approuvé', /Teaser vidéo/.test(acc) && !/Script teaser/.test(acc));
   ids.w = { v1, v2, tid };
 });
 
@@ -794,7 +805,7 @@ await step('14. Pages dans un vrai navigateur (assistant, éditeur de variante, 
       check(`page ${n} s’affiche`, await br.ev(`document.body.innerText.includes(${JSON.stringify(re)})`));
       await shot(n);
     }
-    for (const [p, n, re] of [['/edition/1', 'accueil', 'À reprendre'], ['/edition/1/settings', 'parametres', 'Paramètres du projet'], ['/edition/1/assets', 'bibliotheque', 'Fichiers sources'], ['/edition/3/poster/4x5', 'affiche-recue', 'Affiche'],
+    for (const [p, n, re] of [['/edition/1', 'accueil', 'Production à reprendre'], ['/edition/1/settings', 'parametres', 'Paramètres du projet'], ['/edition/1/assets', 'bibliotheque', 'Fichiers sources'], ['/edition/3/poster/4x5', 'affiche-recue', 'Affiche'],
       ['/edition/3/variants/new', 'creer-contenu', 'Créer un contenu'], [`/edition/3/variants/${ids.w.v1}?step=materiel`, 'ws-materiel', 'Importer un fichier'], [`/edition/3/variants/${ids.w.v1}?step=creation`, 'ws-creation', 'Modifier ce format'],
       [`/edition/3/variants/${ids.w.v1}`, 'ws-verification', 'Contrôles automatiques'], [`/edition/3/variants/${ids.w.v1}?step=diffusion`, 'ws-diffusion', 'Télécharger uniquement'],
       [`/edition/3/poster/1x1?variant=${ids.w.v1}`, 'ws-editeur-affiche', 'Création'], [`/edition/3/video?variant=${ids.w.v2}`, 'ws-editeur-video', 'Création'], [`/edition/3/texts/${ids.w.tid}?step=creation`, 'ws-texte', 'Rédaction'], ['/edition/3/variants', 'contenus-liste', 'Script teaser'], ['/edition/1/campaigns', 'campagnes-liste', 'Meta :'], [`/edition/1/campaigns/${ids.c}`, 'campagne-detail', 'Contenus de cette campagne'], ['/edition/1/settings#connexions', 'connexions', 'Connexions du projet'], ['/edition/1/designs', 'designs-liste', 'Kit graphique du projet']]) {
@@ -809,7 +820,7 @@ await step('14. Pages dans un vrai navigateur (assistant, éditeur de variante, 
     await br.ev(pick('form.upm', 'affiche-navigateur.svg', 'image/svg+xml', '<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1350"><rect width="1080" height="1350" fill="#336"/></svg>'));
     await br.sleep(2500);
     check('envoi réel depuis le matériel (navigateur) : fichier utilisé, message affiché', await br.ev("location.search.includes('step=materiel') && document.body.innerText.includes('Affiche reçue')"));
-    await br.go(U + '/edition/3/assets');
+    await br.go(U + '/edition/3/contents');
     await br.ev("(() => { const r = document.querySelector('form.upx input[value=doc]'); r.click(); return true; })()");
     check('sélecteur de point de départ : le mode « Document » change l’aide et le bouton', await br.ev("document.querySelector('form.upx .modefile button').textContent.includes('document') && !document.querySelector('form.upx .modefile').hidden && document.querySelector('form.upx .modetool').hidden"));
     await br.ev(pick('form.upx', 'concept-navigateur.txt', 'text/plain', 'Idée : la nuit tombe sur le temple.'));

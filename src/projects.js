@@ -134,13 +134,14 @@ export function homeData(ed) {
   const pid = ed.id, vs = variantsMod.listVariants(pid).filter((v) => v.status !== 'archivé');
   const texts = campaignsMod.listContents(pid).filter((c) => c.kind === 'texte' && c.status !== 'archivé');
   const asWork = [
-    ...vs.map((v) => ({ type: v.with_video && !v.formats.length ? 'Vidéo' : v.with_video ? 'Affiche + vidéo' : 'Affiche', name: v.name, status: v.status, updated: v.updated, href: `/edition/${pid}/variants/${v.id}`, next: variantsMod.nextStep(v.id)?.text || '' })),
-    ...texts.map((c) => ({ type: 'Texte', name: c.title, status: c.status, updated: c.updated, href: `/edition/${pid}/contents`, next: c.status === 'approuvé' ? '' : 'À relire et approuver' })),
+    ...vs.map((v) => { const ns = variantsMod.nextStep(v.id); return { type: variantsMod.variantType(v), name: v.name, status: v.status, updated: v.updated, href: `/edition/${pid}/variants/${v.id}${ns?.href && /^\/edition\/\d+\/variants\//.test(ns.href) ? '' : '?step=verification'}`, next: ns?.text || '', summary: variantsMod.exportStatus(v.id)?.summary || '', done: !ns || /^Terminé|Utilisables tels quels/.test(ns.text) }; }),
+    ...texts.map((c) => ({ type: 'Texte', name: c.title, status: c.status, updated: c.updated, href: `/edition/${pid}/texts/${c.id}?step=verification`, next: c.status === 'approuvé' ? '' : 'À relire et approuver', summary: '', done: c.status === 'approuvé' })),
   ].sort((a, b) => String(b.updated).localeCompare(String(a.updated)));
   return {
-    pipeline: pipeline(ed), recent: asWork.slice(0, 6), toReview: asWork.filter((w) => ['brouillon', 'à relire'].includes(w.status)).slice(0, 6),
+    // chaque contenu n'apparaît qu'une fois : en attente de validation, sinon à reprendre (production) ; les contenus terminés restent dans la liste des contenus
+    pipeline: pipeline(ed), toReview: asWork.filter((w) => w.status === 'à relire').slice(0, 8), recent: asWork.filter((w) => w.status !== 'à relire' && !w.done).slice(0, 10),
     items: planMod.listItems(pid, { from: planMod.today(), to: plusDays(planMod.today(), 14) }).filter((i) => i.status !== 'fait').slice(0, 6),
     late: planMod.listItems(pid, { to: plusDays(planMod.today(), -1) }).filter((i) => i.status !== 'fait').length,
-    todo: nextActions(pid, 6), counts: { work: asWork.length, campaigns: campaignsMod.listCampaigns(pid).length },
+    todo: nextActions(pid, 6, { skipVariants: true, skipPlan: true }), counts: { work: asWork.length, campaigns: campaignsMod.listCampaigns(pid).length },
   };
 }

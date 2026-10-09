@@ -180,27 +180,41 @@ export const entryCards = (ed, start = 'svg') => {
 
 const kb = (n) => (n > 1048576 ? `${(n / 1048576).toFixed(1)} Mo` : `${Math.max(1, Math.round(n / 1024))} Ko`);
 
-export function assetsPage(ed, assets, msg, storageInfo = '') {
-  const rows = assets.map((a) => `<form method="post" action="/assets/${a.id}/update" class="card asset">
-<div class="thumb">${a.kind === 'image' ? `<img src="/files/${a.id}" alt="">`
+const KIND_NAMES = { image: 'Images', video: 'Vidéos', audio: 'Audio', document: 'Documents', text: 'Textes / sous-titres', source: 'Fichiers sources' };
+export function assetsPage(ed, assets, msg, storageInfo = '', filter = {}) {
+  const active = filter.q || filter.kind || filter.role || filter.status;
+  const fold = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const shown = assets.filter((a) => (!filter.kind || a.kind === filter.kind) && (!filter.role || a.role === filter.role) && (!filter.status || a.status === filter.status)
+    && (!filter.q || fold(a.label).includes(fold(filter.q)) || fold(a.name).includes(fold(filter.q))));
+  const so = (name, list, cur) => `<select name="${name}" onchange="this.form.submit()">${list.map(([v, l]) => `<option value="${esc(v)}"${v === cur ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
+  const card = (a) => `<form method="post" action="/assets/${a.id}/update" class="card asset">
+<div class="thumb">${a.kind === 'image' ? `<img src="/files/${a.id}" alt="" loading="lazy">`
     : a.kind === 'video' ? `<video src="/files/${a.id}#t=0.5" preload="metadata" controls></video>`
       : a.kind === 'audio' ? `<audio src="/files/${a.id}" preload="none" controls></audio>`
-        : `<span>${esc(a.kind)}</span>`}<a href="/files/${a.id}" target="_blank"><small>Ouvrir</small></a></div>
-<div class="meta"><b>${esc(a.name)}</b> <small>${kb(a.size)} · ${esc(a.uploaded_by)} · ${fr(a.created)}</small>
-<div class="grid">
+        : `<span>${esc(KIND_NAMES[a.kind] || a.kind)}</span>`}<a href="/files/${a.id}" target="_blank"><small>Ouvrir</small></a></div>
+<div class="meta"><b>${esc(a.label || a.name)}</b>
+<p><span class="tag">${esc(ROLES[a.role] || a.role)}</span> <span class="tag ${a.status === 'approuvé' ? 'st-2' : ''}">${esc(a.status)}</span>${a.provisional ? ' <span class="tag warn">provisoire</span>' : ''} <small>${kb(a.size)} · ${fr(a.created)}</small></p>
+<p><a class="btn sm primary" href="/edition/${ed.id}/variants/new?asset=${a.id}" title="Crée un contenu qui utilise déjà ce fichier">Créer un contenu avec ce fichier</a>${a.kind === 'image' && ['poster', 'other'].includes(a.role) ? ` <button formaction="/assets/${a.id}/use-poster" title="Remplace l’affiche de chaque format par ce fichier">Utiliser comme affiche reçue</button>` : ''}${['document', 'text', 'source'].includes(a.kind) ? ` <button formaction="/assets/${a.id}/to-content" title="Crée un contenu texte dans la bibliothèque">Créer un contenu texte</button>` : ''}</p>
+<details><summary>Modifier le nom, le rôle, le statut, les droits</summary><div class="grid">
+<label>Nom affiché<input name="label" value="${esc(a.label || '')}" placeholder="${esc(a.name)}"></label>
 <label>Rôle<select name="role">${Object.entries(ROLES).map(([k, v]) => `<option value="${k}"${k === a.role ? ' selected' : ''}>${esc(v)}</option>`).join('')}</select></label>
 <label>Statut<select name="status">${VALIDATION.map((s) => `<option${s === a.status ? ' selected' : ''}>${s}</option>`).join('')}</select></label>
 <label>Droits / autorisation<input name="rights" value="${esc(a.rights)}" placeholder="Ex. Orfeo, usage promo OK jusqu'en 2028"></label></div>
 <label class="check"><input type="checkbox" name="provisional" value="1"${a.provisional ? ' checked' : ''}> Provisoire (à remplacer par le visuel final)</label>
-<a class="btn sm" href="/edition/${ed.id}/variants/new?asset=${a.id}" title="Crée un contenu qui utilise déjà ce fichier">Créer un contenu avec ce fichier</a> <button>Enregistrer</button>${a.kind === 'image' && ['poster', 'other'].includes(a.role) ? ` <button formaction="/assets/${a.id}/use-poster" title="Remplace l’affiche de chaque format par ce fichier">Utiliser comme affiche reçue</button>` : ''}${['document', 'text', 'source'].includes(a.kind) ? ` <button formaction="/assets/${a.id}/to-content" title="Crée un contenu texte dans la bibliothèque">Créer un contenu texte</button>` : ''}</div></form>`).join('');
+<small>Fichier d’origine conservé : ${esc(a.name)} · envoyé par ${esc(a.uploaded_by)}.</small> <button>Enregistrer</button></details></div></form>`;
   return `${tabs(ed, 'assets')}${msg ? `<p class="flash">${esc(msg)}</p>` : ''}
-${entryCards(ed)}
-<div class="card"><h2>Ajouter un fichier</h2>
+<div class="card"><h2>Ajouter des fichiers</h2>
 <form id="up" data-edition="${ed.id}" class="inline"><input type="file" id="upfile" required>
-<select id="uprole">${Object.entries(ROLES).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join('')}</select><button>Envoyer</button></form>
+<select id="uprole" title="Ce que représente le fichier">${Object.entries(ROLES).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join('')}</select><button class="primary">Ajouter</button></form><p id="upmsg"></p>
+<details><summary>Aide : formats acceptés, affiche déjà faite, stockage</summary>
 <small>Photos (JPG, PNG, WebP, GIF), vidéos (MP4, MOV, WebM), audio (MP3, WAV, M4A), sous-titres (SRT, VTT) et fichiers sources du graphiste (PSD, AI, PDF, ZIP, FIG), SVG, documents Word / OpenDocument / Markdown. Stockage actuel : ${esc(storageInfo)}.
-Une affiche déjà faite ne permet pas de déplacer ses éléments : importez-la avec « J’ai reçu une affiche » (cadrage et formats seulement) ; pour tout recomposer, demandez les fichiers sources.</small><p id="upmsg"></p></div>
-${rows || '<p>Aucun fichier pour l’instant. Tant qu’aucune photo n’est ajoutée, les affiches et le site utilisent une image « PLACEHOLDER ».</p>'}`;
+Une affiche déjà faite (rôle « Affiche reçue ») ne permet pas de déplacer ses éléments : seuls le cadrage et les formats se règlent ; pour tout recomposer, demandez les fichiers sources. Un .ai s’exporte en SVG depuis Illustrator (Fichier › Exporter › Exporter sous… › SVG).</small></details></div>
+<form method="get" class="filters inline"><input type="search" name="q" value="${esc(filter.q || '')}" placeholder="Rechercher par nom">
+${so('kind', [['', 'Tous les types'], ...Object.entries(KIND_NAMES)], filter.kind || '')}
+${so('status', [['', 'Tous les statuts'], ...VALIDATION.map((s) => [s, s])], filter.status || '')}
+<button>Filtrer</button>${active ? ` <a href="/edition/${ed.id}/assets">Tout afficher</a>` : ''}</form>
+<p><small>${shown.length} fichier(s)${active ? ` sur ${assets.length}` : ''}.</small></p>
+${shown.map(card).join('') || (active ? '<p>Aucun fichier ne correspond à ces filtres.</p>' : '<p>Aucun fichier pour l’instant. Tant qu’aucune photo n’est ajoutée, les affiches et le site utilisent une image « PLACEHOLDER ».</p>')}`;
 }
 
 // En-tête de l'espace de travail d'un contenu : le même sur chaque étape et dans chaque éditeur.

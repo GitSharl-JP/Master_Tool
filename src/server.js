@@ -134,7 +134,8 @@ const server = createServer(async (req, res) => {
     if ((r = path.match(/^\/edition\/(\d+)\/assets$/)) && req.method === 'GET') {
       const ed = db.getEdition(Number(r[1]));
       if (!ed) return send(res, 404, layout('Introuvable', '<h1>Projet introuvable</h1>', user));
-      return page('Assets', assetsPage(ed, studio.listAssets(ed.id), msgOf(), `${storage.driver} — ${storage.location}`));
+      const sp = url.searchParams;
+      return page('Assets', assetsPage(ed, studio.listAssets(ed.id), msgOf(), `${storage.driver} — ${storage.location}`, { q: (sp.get('q') || '').trim(), kind: sp.get('kind') || '', status: sp.get('status') || '' }));
     }
     if (path === '/assets/upload' && req.method === 'POST') {
       const ed = db.getEdition(Number(url.searchParams.get('edition')));
@@ -184,7 +185,7 @@ const server = createServer(async (req, res) => {
       const a = studio.getAsset(Number(r[1]));
       if (!a) return send(res, 404, 'Introuvable');
       const b = await readBody(req);
-      studio.updateAsset(a.id, { role: b.role, provisional: b.provisional === '1', rights: b.rights, status: b.status }, user.name);
+      studio.updateAsset(a.id, { role: b.role, provisional: b.provisional === '1', rights: b.rights, status: b.status, label: b.label }, user.name);
       return redirect(res, `/edition/${a.edition_id}/assets?m=${encodeURIComponent('Enregistré.')}`);
     }
     if ((r = path.match(/^\/files\/(\d+)$/))) {

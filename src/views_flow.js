@@ -440,9 +440,9 @@ ${deps.fonts.map((f) => `<tr><td>Police « ${esc(f.name)} »</td><td>${esc(f.sta
 }
 
 // ------------------------------------------------------------------ « À faire maintenant » (une personne seule, peu de temps)
-export function todoCard(items) {
-  if (!items.length) return '<div class="card todo"><h2>À faire maintenant</h2><p>✅ Rien d’urgent. Vos contenus et vos campagnes sont à jour.</p></div>';
-  return `<div class="card todo"><h2>À faire maintenant</h2><ul class="log todo">${items.map((i) => `<li class="${i.level}">${i.level === 'urgent' ? '🔴' : '▸'} <a href="${esc(i.href)}">${esc(i.text)}</a></li>`).join('')}</ul></div>`;
+export function todoCard(items, title = 'À faire maintenant') {
+  if (!items.length) return `<div class="card todo"><h2>${title}</h2><p>✅ Rien d’urgent. Vos contenus et vos campagnes sont à jour.</p></div>`;
+  return `<div class="card todo"><h2>${title}</h2><ul class="log todo">${items.map((i) => `<li class="${i.level}">${i.level === 'urgent' ? '🔴' : '▸'} <a href="${esc(i.href)}">${esc(i.text)}</a></li>`).join('')}</ul></div>`;
 }
 
 // ------------------------------------------------------------------ le site WordPress du projet
@@ -479,19 +479,19 @@ ${PROJECT_DEFS.map((d) => { const set = isSet(d.key, 'p' + ed.id), pv = preview(
 export function projectHomePage(ed, d, msg) {
   const next = d.pipeline.next;
   const work = (list, empty) => list.length
-    ? `<ul class="worklist">${list.map((w) => `<li><a href="${esc(w.href)}"><b>${esc(w.name)}</b></a> <span class="tag">${esc(w.type)}</span> ${chip(w.status)}${w.next ? `<small>${esc(w.next)}</small>` : ''}</li>`).join('')}</ul>`
+    ? `<ul class="worklist">${list.map((w) => `<li><a href="${esc(w.href)}"><b>${esc(w.name)}</b></a> <span class="tag">${esc(w.type)}</span> ${chip(w.status)}${w.next ? `<small>${esc(w.next)}</small>` : ''}${w.summary ? `<small class="sum">${esc(w.summary)}</small>` : ''}</li>`).join('')}</ul>`
     : `<p class="empty">${empty}</p>`;
   return `${tabs(ed, 'accueil')}${flash(msg)}
 <div class="home-actions"><a class="btn primary big" href="/edition/${ed.id}/variants/new">+ Créer un contenu</a><a class="btn big" href="/edition/${ed.id}/campaigns">Ouvrir une campagne</a></div>
-${next ? `<div class="next"><b>Prochaine étape — ${esc(next.label)}</b> ${esc(next.hint)}. <a class="btn sm" href="${esc(next.href)}">Y aller</a></div>` : '<div class="next"><b>Tout est en place.</b> Reprenez un contenu ci-dessous ou ouvrez une campagne.</div>'}
 <div class="home-grid">
-<div class="card"><h2>À reprendre</h2>${work(d.recent, 'Aucun contenu pour l’instant. Commencez par « Créer un contenu ».')}</div>
-<div class="card"><h2>À relire ou approuver</h2>${work(d.toReview, 'Rien en attente de relecture.')}</div>
+<div class="card"><h2>Production à reprendre</h2>${work(d.recent, d.toReview.length ? 'Rien d’autre à produire.' : 'Rien en cours. Créez un contenu pour commencer.')}</div>
+<div class="card"><h2>Validations attendues</h2>${work(d.toReview, 'Rien en attente de relecture.')}</div>
 <div class="card"><h2>Prochaines échéances</h2>${d.late ? `<p class="status warn">${d.late} échéance(s) en retard — <a href="/edition/${ed.id}/calendar">voir le calendrier</a></p>` : ''}${d.items.length
     ? `<ul class="worklist">${d.items.map((i) => `<li><b>${esc(i.due_date)}</b> ${esc(i.title)}</li>`).join('')}</ul>` : '<p class="empty">Aucune échéance dans les 14 prochains jours.</p>'}
 <p><a href="/edition/${ed.id}/calendar">Ouvrir le calendrier</a></p></div>
-${todoCard(d.todo)}
-</div>`;
+${todoCard(d.todo, 'Suivi et configuration')}
+</div>
+${next ? `<div class="next conf"><b>Configuration du projet — ${esc(next.label)}</b> ${esc(next.hint)}. <a class="btn sm" href="${esc(next.href)}">Y aller</a></div>` : ''}`;
 }
 
 // ------------------------------------------------------------------ « Créer un contenu » : trois choix, rien d'autre au départ
