@@ -103,6 +103,24 @@ await step('1. Projet prêt : fiche approuvée, assets originaux', async () => {
   for (const fmt of ['4x5', '9x16', '1x1']) await A.post(`/edition/1/poster/${fmt}/save`, { hero: String(ids.hero), logo: String(ids.logo), partners: '1', style: 'classique', gradient: '65' });
 });
 
+await step('1b. Polices par format et « Uniformiser » : un format réglé se reporte sur les autres', async () => {
+  const body = { hero: String(ids.hero), logo: String(ids.logo), partners: '1', style: 'classique', gradient: '33', ft: 'Impact', fb: 'Verdana', text_pos: 'haut', els: JSON.stringify({ title: { dx: 40, color: '#ff0000' } }) };
+  const p4 = await A.text('/edition/1/poster/4x5');
+  check('choix de police du titre et du texte proposés', /name="ft"/.test(p4) && /name="fb"/.test(p4) && /Uniformiser/.test(p4));
+  await A.post('/edition/1/poster/4x5/save', body);
+  const render = await A.text('/render/poster/1/4x5');
+  check('la police choisie est utilisée dans l’aperçu', /'Impact'/.test(render) && /'Verdana'/.test(render));
+  const forged = await A.text('/render/poster/1/4x5?ft=' + encodeURIComponent("x';}</style><script>1</script>"));
+  check('une police hors liste est ignorée', !/<script>1<\/script>/.test(forged));
+  const r = await A.post('/edition/1/poster/4x5/sync', body);
+  check('uniformisation confirmée', /Réglages reportés sur [1-9]/.test(decodeURIComponent(A.loc(r))), decodeURIComponent(A.loc(r)));
+  const p1 = await A.text('/edition/1/poster/1x1');
+  check('l’autre format reprend dégradé, police et position du texte', /name="gradient"[^>]*value="33"/.test(p1) && /<option value="Impact" selected/.test(p1) && /<option value="Verdana" selected/.test(p1) && /<option selected>haut/.test(p1));
+  const els = /name="els" value="([^"]*)"/.exec(p1)?.[1] || '';
+  check('la couleur de l’élément est reportée, pas sa position', /ff0000/.test(els) && !/&quot;dx&quot;:40/.test(els), els);
+  for (const fmt of ['4x5', '9x16', '1x1']) await A.post('/edition/1/poster/' + fmt + '/save', { hero: String(ids.hero), logo: String(ids.logo), partners: '1', style: 'classique', gradient: '65' });
+});
+
 await step('2. Design : enregistrer, modifier, retrouver l’ancien', async () => {
   const r1 = await A.post('/edition/1/designs/save', { name: 'DA Night Show', note: 'Première direction artistique' });
   check('design enregistré (v1)', /version 1/.test(A.loc(r1)), A.loc(r1));

@@ -207,7 +207,7 @@ const server = createServer(async (req, res) => {
       const out = studio.exportPack(ed, Object.keys(b).filter((k) => k.startsWith('ch_')).map((k) => k.slice(3)), user.name, null);
       return redirect(res, `/edition/${ed.id}/poster/4x5?m=${encodeURIComponent(out.ok ? `Pack créé (${out.count} formats)${out.draft ? ', marqué BROUILLON (fiche non prête).' : '.'}` : out.error)}`);
     }
-    if ((r = path.match(/^\/edition\/(\d+)\/poster\/([a-z0-9]+)(?:\/(save|export|svg|pdf))?$/))) {
+    if ((r = path.match(/^\/edition\/(\d+)\/poster\/([a-z0-9]+)(?:\/(save|export|sync|svg|pdf))?$/))) {
       const ed = db.getEdition(Number(r[1])), fmt = r[2];
       if (!ed || !studio.POSTER_FORMATS[fmt]) return send(res, 404, layout('Introuvable', '<h1>Projet ou format introuvable</h1>', user));
       let blockers = [];
@@ -240,6 +240,11 @@ const server = createServer(async (req, res) => {
       if (req.method === 'POST') {
         studio.saveDesign(ed.id, dkey, await readBody(req), user.name);
         blockers = studio.posterBlockers(ed, [[fmt, studio.getDesign(ed.id, dkey)]]);
+        if (r[3] === 'sync') {
+          const keys = (variant ? variant.formats : Object.keys(studio.POSTER_FORMATS)).map((f) => (vid ? `v${vid}_${f}` : `poster_${f}`));
+          const n = studio.applyToOtherFormats(ed.id, dkey, keys, user.name);
+          return redirect(res, `/edition/${ed.id}/poster/${fmt}?${pq}m=${encodeURIComponent(n ? `Réglages reportés sur ${n} autre(s) format(s) : photo, logo, style, dégradé, polices, couleurs et textes. Positions et tailles propres à chaque format conservées.` : 'Aucun autre format à mettre à jour.')}`);
+        }
         if (r[3] === 'export') {
           const out = studio.exportPoster(ed, fmt, user.name, blockers, { designKey: dkey, variantId: vid || undefined });
           return redirect(res, `/edition/${ed.id}/poster/${fmt}?${pq}m=${encodeURIComponent(out.ok ? (out.draft ? 'Image exportée, marquée BROUILLON (fiche non prête).' : 'Image exportée.') : out.error)}`);

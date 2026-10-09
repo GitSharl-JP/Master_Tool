@@ -21,10 +21,18 @@ export const dateLabel = (d) => {
   return a && b && a !== b ? `${a} – ${b}` : a || b || 'Dates to be announced';
 };
 
-function brand(d) {
+// Polices proposées par format d'affiche (installées avec Windows) ; sans choix, on garde les polices de la fiche du spectacle.
+export const FONTS = {
+  'Georgia': 'serif', 'Times New Roman': 'serif', 'Palatino Linotype': 'serif', 'Book Antiqua': 'serif', 'Cambria': 'serif', 'Constantia': 'serif', 'Rockwell': 'serif',
+  'Segoe UI': 'sans', 'Arial': 'sans', 'Calibri': 'sans', 'Candara': 'sans', 'Corbel': 'sans', 'Trebuchet MS': 'sans', 'Verdana': 'sans', 'Tahoma': 'sans',
+  'Century Gothic': 'sans', 'Franklin Gothic Medium': 'sans', 'Bahnschrift': 'sans', 'Impact': 'sans', 'Segoe Script': 'sans',
+};
+const fontOf = (name) => font(name, FONTS[name] === 'serif' ? 'Georgia,serif' : 'Segoe UI,Arial,sans-serif');
+
+function brand(d, g = {}) {
   return {
     p: safeColor(d.color_primary, '#1b1b2f'), s: safeColor(d.color_secondary, '#c8a24a'), x: safeColor(d.color_text, '#f5f1e8'),
-    ft: font(d.font_title, 'Georgia,serif'), fb: font(d.font_body, 'Segoe UI,Arial,sans-serif'),
+    ft: FONTS[g.ft] ? fontOf(g.ft) : font(d.font_title, 'Georgia,serif'), fb: FONTS[g.fb] ? fontOf(g.fb) : font(d.font_body, 'Segoe UI,Arial,sans-serif'),
   };
 }
 
@@ -53,7 +61,7 @@ export function gradientSpec(g, layout) {
 
 // La composition est recalculée pour chaque forme (portrait, carré, paysage, bannière), pas étirée.
 export function renderPoster(ed, fmt, g, { heroSrc, logoSrc, partnerSrcs = [], draft, edit = false, measure = false, print = false }) {
-  const d = ed.data, c = brand(d);
+  const d = ed.data, c = brand(d, g);
   const spec = FORMATS[fmt] || FORMATS['4x5'];
   const { w: W, h: H, layout } = spec;
   const wide = layout === 'landscape', banner = layout === 'banner';

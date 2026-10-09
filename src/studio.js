@@ -3,7 +3,7 @@ import { mkdirSync, existsSync, readFileSync, writeFileSync, unlinkSync } from '
 import { spawnSync, spawn } from 'node:child_process';
 import { extname } from 'node:path';
 import { db, DATA_DIR, log } from './db.js';
-import { renderPoster, renderImportedPoster, POSTER_ELEMENTS } from './render.js';
+import { renderPoster, renderImportedPoster, POSTER_ELEMENTS, FONTS } from './render.js';
 import { cleanSvg } from './svgclean.js';
 import { posterBlockers as posterBlockersOf } from './schema.js';
 export const posterBlockers = posterBlockersOf;
@@ -95,6 +95,8 @@ export function updateAsset(id, { role, provisional, rights, status }, who) {
 export const POSTER_FORMATS = FORMATS; // compat : le catalogue complet est dans formats.js
 // Affiche importée : `ext` (id d'un asset SVG/image), `fit` (cover | contain | blur), `bgc` (couleur de fond). Ces clés n'existent
 // que sur les designs importés, pour ne pas changer l'empreinte des designs déjà approuvés.
+export { FONTS };
+const fontPart = (o) => ({ ...(FONTS[o.ft] ? { ft: o.ft } : {}), ...(FONTS[o.fb] ? { fb: o.fb } : {}) }); // clés présentes seulement si une police est choisie (empreinte des designs existants inchangée)
 export const FITS = { cover: 'Remplir (recadre les bords)', contain: 'Entière sur fond uni', blur: 'Entière sur fond flou' };
 export const POSTER_DEFAULTS = { hero: '', logo: '', gradient: 70, posx: 50, posy: 50, zoom: 100, title_scale: 100, text_pos: 'bas', style: 'classique', partners: '1', els: {} };
 
@@ -131,9 +133,32 @@ export function getDesign(editionId, key) {
     ...imported,
     ...POSTER_DEFAULTS, hero: o.hero || String(first('hero')?.id || ''), logo: o.logo || String(first('logo')?.id || ''),
     gradient: o.gradient ?? POSTER_DEFAULTS.gradient, style: o.style || POSTER_DEFAULTS.style, partners: o.partners ?? POSTER_DEFAULTS.partners,
-    zoom: o.zoom ?? POSTER_DEFAULTS.zoom, text_pos: o.text_pos || POSTER_DEFAULTS.text_pos,
+    zoom: o.zoom ?? POSTER_DEFAULTS.zoom, text_pos: o.text_pos || POSTER_DEFAULTS.text_pos, ...fontPart(o),
   };
 }
+// « Uniformiser » : reporte sur les autres formats ce qui doit être identique (photo, logo, style, dégradé, polices, couleurs et textes des éléments).
+// Les positions et tailles (propres à chaque forme) et le cadrage de la photo restent ceux de chaque format.
+export function applyToOtherFormats(editionId, fromKey, toKeys, who) {
+  const src = getDesign(editionId, fromKey);
+  if (src.ext) return 0;
+  let n = 0;
+  for (const key of toKeys) {
+    if (key === fromKey) continue;
+    const cur = getDesign(editionId, key);
+    if (cur.ext) continue;
+    const els = {};
+    for (const id of new Set([...Object.keys(cur.els || {}), ...Object.keys(src.els || {})])) {
+      const mine = cur.els?.[id] || {}, from = src.els?.[id] || {};
+      els[id] = { ...(mine.dx ? { dx: mine.dx } : {}), ...(mine.dy ? { dy: mine.dy } : {}), ...(mine.s ? { s: mine.s } : {}), ...(from.hide ? { hide: true } : {}), ...(from.color ? { color: from.color } : {}), ...(from.text ? { text: from.text } : {}) };
+    }
+    const next = { ...cur, hero: src.hero, logo: src.logo, gradient: src.gradient, style: src.style, partners: src.partners, text_pos: src.text_pos, zoom: src.zoom, title_scale: src.title_scale, els };
+    delete next.ft; delete next.fb;
+    saveDesign(editionId, key, { ...next, ...fontPart(src) }, who, 'Uniformisé depuis un autre format');
+    n++;
+  }
+  return n;
+}
+
 // Historique des réglages de chaque design (affiche par format) : on peut toujours revenir en arrière.
 db.exec(`CREATE TABLE IF NOT EXISTS design_history(id INTEGER PRIMARY KEY, edition_id INTEGER NOT NULL, key TEXT NOT NULL, json TEXT NOT NULL, saved_at TEXT NOT NULL, saved_by TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '')`);
 export const listDesignHistory = (editionId, key, n = 12) => db.prepare('SELECT id,saved_at,saved_by,reason FROM design_history WHERE edition_id=? AND key=? ORDER BY id DESC LIMIT ?').all(editionId, key, n);
@@ -160,6 +185,7 @@ export function saveDesign(editionId, key, input, who = '', reason = 'Enregistre
     style: ['classique', 'bandeau'].includes(input.style) ? input.style : 'classique',
     partners: input.partners === '1' ? '1' : '0',
     els: cleanEls(input.els),
+    ...fontPart(input),
     ...importedPart(editionId, input),
   };
   db.prepare('INSERT INTO designs VALUES(?,?,?,?) ON CONFLICT(edition_id,key) DO UPDATE SET json=excluded.json, updated=excluded.updated')
@@ -261,6 +287,7 @@ export function saveDesignPreview(editionId, key, q) {
     style: ['classique', 'bandeau'].includes(q.style) ? q.style : base.style,
     partners: q.partners === '1' ? '1' : '0',
     els: q.els === undefined ? base.els : cleanEls(q.els),
+    ...fontPart({ ft: q.ft ?? base.ft, fb: q.fb ?? base.fb }),
     ...importedPart(editionId, { ext: q.ext ?? base.ext, fit: q.fit ?? base.fit, bgc: q.bgc ?? base.bgc }),
   };
 }

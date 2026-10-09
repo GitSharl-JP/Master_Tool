@@ -134,7 +134,7 @@ ${users.length < 2 ? `<form method="post" action="/settings/user" class="inline"
 
 // ---------------------------------------------------------------- onglets / assets / affiches
 import { ROLES, POSTER_FORMATS, FITS } from './studio.js';
-import { POSTER_ELEMENTS, elementsFor } from './render.js';
+import { POSTER_ELEMENTS, elementsFor, FONTS } from './render.js';
 import { CHANNELS, channelsOf } from './formats.js';
 
 // Navigation d'un projet : cinq destinations, dans l'ordre du travail, et les paramètres à part (secondaires).
@@ -227,6 +227,8 @@ ${range('posx', 'Cadrage horizontal', 0, 100)}${range('posy', 'Cadrage vertical'
 ${variant ? '' : `<div class="inline">${others.length ? `<select name="asset" form="swapform">${others.map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join('')}</select><button form="swapform">Utiliser cette autre affiche</button>` : ''}<button form="rmform" class="link">Revenir aux affiches de l’atelier</button></div>`}</div>`;
 }
 
+const fontOpts = (cur, fiche) => `<option value="">Police de la fiche${fiche ? ` (${esc(fiche)})` : ''}</option>${Object.keys(FONTS).map((n) => `<option value="${esc(n)}"${n === cur ? ' selected' : ''} style="font-family:'${esc(n)}'">${esc(n)}</option>`).join('')}`;
+
 export function posterPage(ed, fmt, design, assets, exports, msg, blockers, history = [], variant = null, extra = {}) {
   const vq = variant ? `variant=${variant.id}` : '', qs = vq ? `?${vq}` : '', qa = vq ? `&${vq}` : '';
   const imgs = assets.filter((a) => a.kind === 'image');
@@ -242,6 +244,7 @@ ${design.ext || variant ? '' : entryCards(ed, 'svg')}
 <div class="studio"><div class="stack"><form id="pform" method="post" action="/edition/${ed.id}/poster/${fmt}/save${qs}" class="card" data-variant="${variant ? variant.id : ''}" data-edition="${ed.id}" data-fmt="${fmt}" data-w="${f.w}" data-h="${f.h}" data-elements="${esc(JSON.stringify(elementsFor(design.style, f.layout).map((k) => [k, POSTER_ELEMENTS[k]])))}">
 <input type="hidden" name="els" value="${esc(JSON.stringify(design.els || {}))}">${design.ext ? `<input type="hidden" name="ext" value="${esc(design.ext)}">` : ''}
 <div class="actions"><button class="primary">Enregistrer</button><button formaction="/edition/${ed.id}/poster/${fmt}/export${qs}">${variant ? 'Export d’essai (PNG)' : 'Exporter en PNG'}</button></div>
+${design.ext ? '' : `<button formaction="/edition/${ed.id}/poster/${fmt}/sync${qs}" title="Enregistre ce format puis reporte photo, logo, style, dégradé, polices, couleurs et textes sur les autres formats. Les positions de chaque format sont conservées.">Uniformiser : appliquer aux autres formats</button>`}
 <div class="inline"><a href="/edition/${ed.id}/poster/${fmt}/svg${qs}">${design.ext ? 'Fichier d’origine (SVG)' : 'SVG (Illustrator)'}</a> · ${design.ext ? '' : `<a href="/edition/${ed.id}/poster/${fmt}/pdf${qs}">PDF vectoriel</a>`}${variant || design.ext ? '' : ` · <a href="/edition/${ed.id}/designs">Enregistrer dans la bibliothèque de designs</a>`}</div>
 <small>Titre, dates, lieu et couleurs viennent des <a href="/edition/${ed.id}/settings">infos du spectacle</a>. ${blockers ? 'L’export sera marqué BROUILLON tant que la fiche n’est pas prête.' : ''}</small>
 ${design.ext ? importedPanel(ed, design, assets, variant, extra) + '<div hidden>' : ''}<div class="elpanel"><h2>Éléments de l’affiche</h2>
@@ -261,6 +264,7 @@ ${range('gradient', 'Intensité du dégradé', 0, 100)}${design.ext ? '' : `${ra
 ${range('zoom', 'Zoom de la photo', 100, 250)}`}
 <label>Composition<select name="style">${[['classique', 'Classique (texte sur photo)'], ['bandeau', 'Bandeau (titre incliné)']].map(([k, n]) => `<option value="${k}"${k === design.style ? ' selected' : ''}>${n}</option>`).join('')}</select></label>
 <label class="check"><input type="checkbox" name="partners" value="1"${design.partners === '1' ? ' checked' : ''}> Afficher les logos partenaires (assets « Logo partenaire »)</label>
+${design.ext ? '' : `<label>Police du titre<select name="ft">${fontOpts(design.ft, ed.data.font_title)}</select></label><label>Police du texte<select name="fb">${fontOpts(design.fb, ed.data.font_body)}</select></label>`}
 <label>Position du texte<select name="text_pos">${['haut', 'milieu', 'bas'].map((p) => `<option${p === design.text_pos ? ' selected' : ''}>${p}</option>`).join('')}</select></label>${design.ext ? '</div>' : ''}
 </form>${design.ext && !variant ? `<form id="swapform" method="post" action="/edition/${ed.id}/poster-import"></form><form id="rmform" method="post" action="/edition/${ed.id}/poster-import"><input type="hidden" name="remove" value="1"></form>` : ''}
 <div class="card"><h2>Historique des réglages de ce format</h2><ul class="log hist">${history.map((h) => `<li><time>${fr(h.saved_at)}</time> ${esc(h.saved_by)} · ${esc(h.reason)} <form method="post" action="/edition/${ed.id}/poster/${fmt}/restore/${h.id}${qs}" class="inline"><button class="link">Restaurer</button></form></li>`).join('') || '<li>Aucun enregistrement.</li>'}</ul></div>
