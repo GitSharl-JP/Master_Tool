@@ -17,7 +17,7 @@ const args = process.argv.slice(2);
 const zip = args.find((a) => !a.startsWith('--') && a !== args[args.indexOf('--data') + 1]);
 const dataArg = args.includes('--data') ? args[args.indexOf('--data') + 1] : null;
 const force = args.includes('--force');
-const here = new URL('../', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
+const here = decodeURIComponent(new URL('../', import.meta.url).pathname).replace(/^\/([A-Za-z]:)/, '$1');
 const DATA = resolve(dataArg || process.env.ATELIER_DATA || here + 'data');
 const ASSETS = resolve(process.env.ATELIER_ASSETS || join(DATA, 'assets'));
 const TAR = (process.env.SystemRoot || 'C:/Windows').replace(/\\/g, '/') + '/System32/tar.exe';

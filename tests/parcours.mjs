@@ -4,12 +4,12 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { deflateSync } from 'node:zlib';
-import { mkdtempSync, writeFileSync, readFileSync, rmSync, existsSync, readdirSync, statSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, rmSync, existsSync, readdirSync, statSync, mkdirSync, cpSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openBrowser, edgeAvailable } from './cdp.mjs';
 
-const ROOT = new URL('../', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
+const ROOT = decodeURIComponent(new URL('../', import.meta.url).pathname).replace(/^\/([A-Za-z]:)/, '$1');
 const TMP = mkdtempSync(join(tmpdir(), 'atelier-test-'));
 const DATA = join(TMP, 'data'), BK = join(TMP, 'sauvegardes'), RESTORED = join(TMP, 'restaure');
 const PORT = 3990, PORT2 = 3991, U = `http://127.0.0.1:${PORT}`;
@@ -69,6 +69,18 @@ await step('0. Démarrage de l’atelier sur des données vierges', async () => 
   await fetch(U + '/setup', { method: 'POST', headers: F(U), body: new URLSearchParams({ name: 'Alice', password: 'motdepasse-alice' }) });
   A = await client(U, 'Alice', 'motdepasse-alice');
   check('un seul compte suffit : tout le parcours se fait seul(e)', !!A.ck);
+});
+
+await step('0b. Installé dans un dossier dont le nom contient un espace (cas de l’installateur)', async () => {
+  const inst = join(TMP, 'Atelier marketing'); mkdirSync(inst, { recursive: true });
+  for (const d of ['src', 'public']) cpSync(join(ROOT, d), join(inst, d), { recursive: true });
+  cpSync(join(ROOT, 'package.json'), join(inst, 'package.json'));
+  const env = { ...process.env, PORT: '3993' }; delete env.ATELIER_DATA; delete env.ATELIER_ASSETS;
+  const p = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', join(inst, 'src', 'server.js')], { cwd: inst, env, stdio: 'ignore' });
+  check('le serveur démarre depuis ce dossier', await waitUp(3993));
+  await sleep(300);
+  check('ses données sont créées dans « data » de ce dossier (pas dans un dossier « %20 »)', existsSync(join(inst, 'data', 'atelier.db')) && !readdirSync(TMP).some((n) => /%20/.test(n)), readdirSync(inst).join(', '));
+  p.kill(); await sleep(400);
 });
 
 await step('1. Projet prêt : fiche approuvée, assets originaux', async () => {

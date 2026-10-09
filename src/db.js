@@ -5,7 +5,7 @@ import { defaults, fieldKeys } from './schema.js';
 
 export { db };
 // ATELIER_DATA permet de déplacer le dossier de données (tests, ou migration serveur).
-const fromUrl = new URL('../data/', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
+const fromUrl = decodeURIComponent(new URL('../data/', import.meta.url).pathname).replace(/^\/([A-Za-z]:)/, '$1');
 export const DATA_DIR = process.env.ATELIER_DATA ? process.env.ATELIER_DATA.replace(/\\/g, '/').replace(/\/?$/, '/') : fromUrl;
 mkdirSync(DATA_DIR, { recursive: true });
 const db = new DatabaseSync(DATA_DIR + 'atelier.db');

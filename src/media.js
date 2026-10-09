@@ -3,7 +3,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 
-const LOCAL = new URL('../tools/ffmpeg/', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
+const LOCAL = decodeURIComponent(new URL('../tools/ffmpeg/', import.meta.url).pathname).replace(/^\/([A-Za-z]:)/, '$1');
 const pick = (name) => process.env['ATELIER_' + name.toUpperCase()] || (existsSync(LOCAL + name + '.exe') ? LOCAL + name + '.exe' : name);
 export const FFMPEG = pick('ffmpeg');
 export const FFPROBE = pick('ffprobe');

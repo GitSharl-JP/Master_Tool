@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { deflateSync } from 'node:zlib';
 
-const ROOT = new URL('../', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
+const ROOT = decodeURIComponent(new URL('../', import.meta.url).pathname).replace(/^\/([A-Za-z]:)/, '$1');
 const TMP = mkdtempSync(join(tmpdir(), 'ai-sample-')), PORT = 3988, U = `http://127.0.0.1:${PORT}`;
 const OUT = join(ROOT, 'docs', 'verification-illustrator');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
