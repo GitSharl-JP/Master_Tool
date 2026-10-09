@@ -620,6 +620,29 @@ await step('7. Exporter la version approuvée — sans doublon', async () => {
   console.log(`   (export complet en ${((Date.now() - t) / 1000).toFixed(1)} s)`);
 });
 
+await step('7b. Fichier d’export disparu : l’atelier le dit, la reprise ne crée aucun doublon', async () => {
+  const c = await A.post('/edition/1/variants/new', { simple: '1', type: 'affiche', name: 'Test reprise export', fmt_4x5: '1', fmt_1x1: '1' });
+  const vid = Number(/variants\/(\d+)/.exec(A.loc(c))?.[1]);
+  check('contenu de test créé', !!vid, A.loc(c));
+  await A.post(`/edition/1/variants/${vid}/approve-export`, {});
+  const page = () => A.text(`/edition/1/variants/${vid}?step=verification`);
+  const links = (h) => [...h.matchAll(/\/exports\/(\d+)\?dl=1/g)].map((m) => Number(m[1])).filter((x, i, a) => a.indexOf(x) === i).sort();
+  let pg = await page();
+  check('après l’export : 2/2 fichiers disponibles', /Création approuvée \(v\d+\) · 2\/2 fichiers disponibles/.test(pg), (/Création approuvée[^<]*/.exec(pg) || [''])[0]);
+  const before = links(pg);
+  const r = await A.get('/exports/' + before[0] + '?dl=1');
+  const file = /filename="([^"]+)"/.exec(r.headers.get('content-disposition') || '')?.[1];
+  await r.arrayBuffer();
+  rmSync(join(DATA, 'exports', file), { force: true });
+  pg = await page();
+  check('fichier disparu : 1/2, cause expliquée, bouton de reprise', /1\/2 fichiers? disponibles?/.test(pg) && /n’est plus sur cet ordinateur/.test(pg) && /Reprendre l’export/.test(pg) && /partiels/.test(pg));
+  check('le parcours ne coche pas « Vérification et exports » tant que tout n’existe pas', !/<li class="done[^"]*"><a href="[^"]*step=verification"/.test(pg));
+  await A.post(`/edition/1/variants/${vid}/export`, {});
+  pg = await page();
+  check('après la reprise : 2/2 fichiers, aucun doublon (mêmes exports)', /2\/2 fichiers disponibles/.test(pg) && JSON.stringify(links(pg)) === JSON.stringify(before), links(pg).join(',') + ' / ' + before.join(','));
+  check('le fichier est de nouveau téléchargeable', (await A.get('/exports/' + before[0] + '?dl=1')).status === 200);
+});
+
 await step('8. Un changement ne modifie JAMAIS une version approuvée', async () => {
   await A.post(`/edition/1/poster/4x5/save?variant=${ids.v1}`, { hero: String(ids.hero), logo: String(ids.logo), partners: '1', style: 'bandeau', gradient: '10', els: JSON.stringify({ title: { dx: 200, dy: 100, s: 150, text: 'TEXTE MODIFIÉ APRÈS APPROBATION' } }) });
   let page = await A.text(`/edition/1/variants/${ids.v1}`);

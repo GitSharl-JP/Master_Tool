@@ -258,6 +258,10 @@ export async function exportApproved(id, who, only = null) {
       out.push({ fmt, state: 'échec : réessayez, rien n’a été enregistré', failed: true }); continue;
     }
     db.prepare('DELETE FROM export_errors WHERE variant_id=? AND version=? AND fmt=?').run(id, ver.version, fmt);
+    if (hit) { // le fichier avait disparu : on le recrée sous la même entrée (mêmes associations, pas de doublon)
+      db.prepare('UPDATE exports SET file=?, draft=?, created=?, created_by=? WHERE id=?').run(file, draft ? 1 : 0, now(), who, hit.id);
+      out.push({ fmt, state: 'recréé (le fichier avait disparu)', exportId: hit.id }); continue;
+    }
     const res = db.prepare('INSERT INTO exports(edition_id,kind,label,file,draft,source_ids,created,created_by,variant_id,variant_version,fmt,content_key) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)')
       .run(v.project_id, 'affiche', `Variante « ${v.name} » v${ver.version} — Affiche ${FORMATS[fmt].label}`, file, draft ? 1 : 0, JSON.stringify([design.ext || design.hero, design.logo].filter(Boolean)), now(), who, id, ver.version, fmt, key);
     out.push({ fmt, state: draft ? 'créé (BROUILLON)' : 'créé', exportId: Number(res.lastInsertRowid) });
@@ -312,23 +316,24 @@ export function exportStatus(id) {
   const outs = approved ? outputsOf(id) : [];
   const vfmts = ver?.snapshot.video?.design.asset ? (ver.snapshot.video.design.formats?.length ? ver.snapshot.video.design.formats : ['9x16']) : [];
   let total = 0, have = 0, draftFiles = 0;
-  const missing = [];
+  const missing = []; // [{ fmt, video }]
   for (const o of outs) {
     if (o.kind === 'video') {
-      for (const f of vfmts) { total++; if (o.exports.some((e) => e.fmt === f)) have++; else missing.push(f); }
-    } else { total++; if (o.exports.length) have++; else missing.push(o.fmt); }
+      for (const f of vfmts) { total++; if (o.exports.some((e) => e.fmt === f)) have++; else missing.push({ fmt: f, video: true }); }
+    } else { total++; if (o.exports.length) have++; else missing.push({ fmt: o.fmt, video: false }); }
     if (o.exports.some((e) => e.draft)) draftFiles++;
   }
   const jobs = approved ? db.prepare("SELECT * FROM jobs WHERE variant_id=? AND variant_version=? ORDER BY id DESC").all(id, v.approved_version) : [];
   const lastJob = {}; for (const j of jobs) if (!(j.fmt in lastJob)) lastJob[j.fmt] = j;
-  const running = missing.filter((f) => ['queued', 'running'].includes(lastJob[f]?.status)).length;
+  const running = missing.filter((m) => m.video && ['queued', 'running'].includes(lastJob[m.fmt]?.status)).length;
   const errors = [];
-  for (const f of missing) {
-    const j = lastJob[f];
-    if (j?.status === 'error') errors.push({ fmt: f, message: j.message || 'La vidéo n’a pas pu être produite.' });
-    else if (!j) {
-      const e = approved ? db.prepare('SELECT message FROM export_errors WHERE variant_id=? AND version=? AND fmt=?').get(id, v.approved_version, f) : null;
-      if (e) errors.push({ fmt: f, message: e.message });
+  for (const m of missing) {
+    const j = m.video ? lastJob[m.fmt] : null, label = m.video ? `vidéo ${m.fmt}` : m.fmt;
+    if (j?.status === 'error') errors.push({ fmt: label, message: j.message || 'La vidéo n’a pas pu être produite.' });
+    else if (db.prepare('SELECT 1 FROM exports WHERE variant_id=? AND variant_version=? AND fmt=? AND kind=?').get(id, v.approved_version, m.fmt, m.video ? 'video' : 'affiche')) errors.push({ fmt: label, message: 'Le fichier exporté n’est plus sur cet ordinateur : reprenez l’export pour le recréer.' });
+    else if (!m.video) {
+      const e = db.prepare('SELECT message FROM export_errors WHERE variant_id=? AND version=? AND fmt=?').get(id, v.approved_version, m.fmt);
+      if (e) errors.push({ fmt: label, message: e.message });
     }
   }
   const state = !approved ? 'non produits' : total === 0 ? 'rien à produire' : have === total ? 'disponibles' : running ? 'en cours' : have > 0 ? 'partiels' : errors.length ? 'en erreur' : 'non produits';
@@ -353,7 +358,7 @@ export function outputsOf(id) {
   if (v.with_video) rows.push({ fmt: 'video', kind: 'video' });
   return rows.map((r) => {
     const fmts = r.kind === 'video' ? (getVideoDesign(v.project_id, scope(id)).formats || []) : [r.fmt];
-    const exps = db.prepare("SELECT * FROM exports WHERE variant_id=? AND variant_version=? AND kind=? ORDER BY id DESC").all(id, v.approved_version, r.kind === 'video' ? 'video' : 'affiche').filter((e) => fmts.includes(e.fmt));
+    const exps = db.prepare("SELECT * FROM exports WHERE variant_id=? AND variant_version=? AND kind=? ORDER BY id DESC").all(id, v.approved_version, r.kind === 'video' ? 'video' : 'affiche').filter((e) => fmts.includes(e.fmt) && existsSync(EXPORT_PATH + e.file));
     const trial = r.kind === 'image' ? db.prepare("SELECT * FROM exports WHERE variant_id=? AND variant_version IS NULL AND fmt=? ORDER BY id DESC LIMIT 1").get(id, r.fmt) : null;
     const contents = db.prepare('SELECT * FROM contents WHERE variant_id=? AND kind=?').all(id, r.kind).filter((c) => fmts.includes(c.format));
     const links = contents.flatMap((c) => linksOfContent(c.id));
