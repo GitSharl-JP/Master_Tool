@@ -44,7 +44,7 @@ for (const [c, d] of [['meta_objective', T], ['meta_budget', T], ['meta_start', 
 for (const [c, d] of [['meta_targeting', T], ['meta_placements', "TEXT NOT NULL DEFAULT ''"], ['meta_synced_at', 'TEXT'], ['meta_source', "TEXT NOT NULL DEFAULT 'manuel'"],
   ['brief_audience', T], ['brief_placements', "TEXT NOT NULL DEFAULT '[]'"], ['brief_languages', T], ['brief_hypothesis', T]]) addCol('adsets', c, d);
 for (const [c, d] of [['meta_synced_at', 'TEXT'], ['meta_source', "TEXT NOT NULL DEFAULT 'manuel'"], ['brief_angle', T]]) addCol('ads', c, d);
-for (const [c, d] of [['variant_id', 'INTEGER'], ['variant_version', 'INTEGER']]) addCol('contents', c, d);
+for (const [c, d] of [['variant_id', 'INTEGER'], ['variant_version', 'INTEGER'], ['body', T], ['asset_id', 'INTEGER']]) addCol('contents', c, d);
 // anciennes valeurs -> nouveau vocabulaire ; anciens champs recopiés vers la configuration Meta / le brief interne
 db.exec(`
 UPDATE content_links SET state='brouillon' WHERE state='prévu';
@@ -84,16 +84,17 @@ export function createContent(pid, b, who) {
   const kind = e ? (e.kind === 'video' ? 'video' : e.kind === 'pack' ? 'pack' : 'image') : 'texte';
   const title = txt(b.title, 140) || e?.label || '';
   if (!title) return { ok: false, error: 'Donnez un titre au contenu.' };
-  const r = db.prepare('INSERT INTO contents(project_id,kind,title,export_id,format,angle,audience,language,channel,status,notes,created,created_by,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
-    .run(pid, kind, title, e ? e.id : null, e ? fmtOf(e.file) : txt(b.format, 20), txt(b.angle, 140), txt(b.audience, 140), txt(b.language, 40), txt(b.channel, 40), 'à relire', txt(b.notes, 500), now(), who, now());
+  const srcAsset = b.asset_id ? db.prepare('SELECT id FROM assets WHERE id=? AND edition_id=?').get(Number(b.asset_id), pid) : null;
+  const r = db.prepare('INSERT INTO contents(project_id,kind,title,export_id,format,angle,audience,language,channel,status,notes,body,asset_id,created,created_by,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+    .run(pid, kind, title, e ? e.id : null, e ? fmtOf(e.file) : txt(b.format, 20), txt(b.angle, 140), txt(b.audience, 140), txt(b.language, 40), txt(b.channel, 40), 'à relire', txt(b.notes, 500), txt(b.body, 20000), srcAsset ? srcAsset.id : null, now(), who, now());
   log(who, `Contenu ajouté : ${title}`);
   return { ok: true, id: Number(r.lastInsertRowid) };
 }
 export function updateContent(id, b, who) {
   const c = getContent(id);
   if (!c) return;
-  db.prepare('UPDATE contents SET title=?,angle=?,audience=?,language=?,channel=?,status=?,notes=?,updated=? WHERE id=?')
-    .run(txt(b.title, 140) || c.title, txt(b.angle, 140), txt(b.audience, 140), txt(b.language, 40), txt(b.channel, 40), CONTENT_STATUSES.includes(b.status) ? b.status : c.status, txt(b.notes, 500), now(), id);
+  db.prepare('UPDATE contents SET title=?,angle=?,audience=?,language=?,channel=?,status=?,notes=?,body=?,updated=? WHERE id=?')
+    .run(txt(b.title, 140) || c.title, txt(b.angle, 140), txt(b.audience, 140), txt(b.language, 40), txt(b.channel, 40), CONTENT_STATUSES.includes(b.status) ? b.status : c.status, txt(b.notes, 500), b.body === undefined ? c.body : txt(b.body, 20000), now(), id);
   log(who, `Contenu modifié : ${c.title}`);
 }
 // Nouvelle version d'un contenu : n'affecte AUCUNE association existante (elles restent épinglées sur leur export).
@@ -180,13 +181,14 @@ function targetOf(l) {
 export const campaignIdOfLink = (l) => targetOf(l)?.campaign_id || null;
 export function linkContent(contentId, target, who) { // target : { campaign_id } | { adset_id } | { ad_id }
   const c = getContent(contentId);
-  if (!c || !c.export_id) return { ok: false, error: 'Ce contenu n’a pas encore de fichier (export) à associer.' };
+  // Un contenu texte (concept, script, légende) s'associe sans fichier ; un visuel ou une vidéo exige son export.
+  if (!c || (!c.export_id && c.kind !== 'texte')) return { ok: false, error: 'Ce contenu n’a pas encore de fichier (export) à associer.' };
   const t = { campaign_id: Number(target.campaign_id) || null, adset_id: Number(target.adset_id) || null, ad_id: Number(target.ad_id) || null };
   if ([t.campaign_id, t.adset_id, t.ad_id].filter(Boolean).length !== 1) return { ok: false, error: 'Une association vise un seul niveau : campagne, ensemble OU annonce.' };
   if (!targetOf(t)) return { ok: false, error: 'Niveau introuvable.' };
-  if (db.prepare('SELECT 1 FROM content_links WHERE content_id=? AND campaign_id IS ? AND adset_id IS ? AND ad_id IS ? AND export_id=?').get(contentId, t.campaign_id, t.adset_id, t.ad_id, c.export_id)) return { ok: false, error: 'Déjà associé à ce niveau (même version).' };
+  if (db.prepare('SELECT 1 FROM content_links WHERE content_id=? AND campaign_id IS ? AND adset_id IS ? AND ad_id IS ? AND export_id IS ?').get(contentId, t.campaign_id, t.adset_id, t.ad_id, c.export_id)) return { ok: false, error: 'Déjà associé à ce niveau (même version).' };
   // Associer reste possible même si le niveau est actif dans Meta : on prépare une variante en BROUILLON, sans rien toucher à la diffusion.
-  db.prepare('INSERT INTO content_links(content_id,campaign_id,adset_id,ad_id,export_id,state,linked_at,linked_by) VALUES(?,?,?,?,?,?,?,?)').run(contentId, t.campaign_id, t.adset_id, t.ad_id, c.export_id, 'brouillon', now(), who);
+  db.prepare('INSERT INTO content_links(content_id,campaign_id,adset_id,ad_id,export_id,state,linked_at,linked_by) VALUES(?,?,?,?,?,?,?,?)').run(contentId, t.campaign_id, t.adset_id, t.ad_id, c.export_id || null, 'brouillon', now(), who);
   log(who, `Contenu « ${c.title} » associé (${levelOf(t)}) en brouillon — version épinglée`);
   return { ok: true };
 }
@@ -200,7 +202,7 @@ export function transitionRecap(linkId, toState) {
   if (isFrozenState(l.state) && toState !== 'publié' && toState !== 'erreur') errors.push(`Cette association est déjà « ${l.state} » : version diffusée, figée.`);
   if (l.state === 'publié') errors.push('Cette association est déjà publiée : elle ne change plus depuis l’atelier.');
   if (['approuvé', 'transmis', 'publié'].includes(toState)) {
-    if (!c || c.status !== 'approuvé') errors.push('Le contenu doit d’abord être approuvé (onglet Contenus ou page de la variante).');
+    if (!c || c.status !== 'approuvé') errors.push('Le contenu doit d’abord être approuvé (page du contenu, étape Vérification).');
     if (e && e.draft) errors.push('Cette version est marquée BROUILLON (fiche non prête ou source provisoire) : refaites un export une fois la fiche prête.');
   }
   if (toState === 'transmis' && l.state !== 'approuvé') errors.push('Une association doit être « approuvée » avant d’être transmise.');

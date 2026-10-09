@@ -17,7 +17,7 @@ export const KINDS = { production: 'Production', relecture: 'Relecture', approba
 export const PLAN_STATUSES = ['à faire', 'en cours', 'fait', 'bloqué'];
 // Décalage en jours AVANT la publication (J-n).
 const STEPS = [
-  ['production', 'Préparer textes, cadrages et sous-titres', 10], ['relecture', 'Relecture', 7], ['approbation', 'Approuver la variante', 6],
+  ['production', 'Préparer textes, cadrages et sous-titres', 10], ['relecture', 'Relecture', 7], ['approbation', 'Approuver le contenu', 6],
   ['export', 'Exporter les fichiers', 5], ['transmission', 'Transmettre à Meta (déclaration manuelle tant que l’API n’est pas connectée)', 3], ['publication', 'Publication / mise en diffusion', 0],
 ];
 const addDays = (iso, n) => { const d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
@@ -26,16 +26,16 @@ const validDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(s || '') && !Number.isNaN(Da
 
 export function planVariant(variantId, publishDate, who, opts = {}) {
   const v = db.prepare('SELECT * FROM variants WHERE id=?').get(variantId);
-  if (!v) return { ok: false, error: 'Variante introuvable.' };
+  if (!v) return { ok: false, error: 'Contenu introuvable.' };
   if (!validDate(publishDate)) return { ok: false, error: 'Indiquez la date de publication visée.' };
-  if (db.prepare('SELECT 1 FROM plan_items WHERE variant_id=? AND auto=1').get(variantId)) return { ok: false, error: 'Cette variante est déjà planifiée : modifiez les dates directement dans le calendrier.' };
+  if (db.prepare('SELECT 1 FROM plan_items WHERE variant_id=? AND auto=1').get(variantId)) return { ok: false, error: 'Ce contenu est déjà planifié : modifiez les dates directement dans le calendrier.' };
   const owner = txt(opts.owner, 60) || v.owner || who;
   for (const [kind, title, off] of STEPS) {
     const who2 = kind === 'approbation' || kind === 'relecture' ? (v.reviewer || owner) : owner;
     db.prepare('INSERT INTO plan_items(project_id,campaign_id,variant_id,kind,title,due_date,owner,status,auto,created,created_by) VALUES(?,?,?,?,?,?,?,?,?,?,?)')
       .run(v.project_id, v.campaign_id, variantId, kind, `${title} — ${v.name}`, addDays(publishDate, -off), who2, 'à faire', 1, now(), who);
   }
-  log(who, `Variante « ${v.name} » planifiée à rebours (publication visée le ${publishDate})`);
+  log(who, `Contenu « ${v.name} » planifié à rebours (publication visée le ${publishDate})`);
   syncVariant(variantId);
   return { ok: true };
 }

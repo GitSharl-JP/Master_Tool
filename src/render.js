@@ -160,6 +160,26 @@ ${banner ? '' : logo}${banner ? bannerHtml : band ? bandeau : classic}${banner ?
 ${draft ? '<div class="draft">DRAFT — NOT FOR PUBLICATION</div>' : ''}</div>${editor}</body></html>`;
 }
 
+// Affiche REÇUE de l'extérieur (SVG ou image finie) : l'image est toute la composition, on ne la recompose pas.
+// fit : cover = remplit en recadrant · contain = entière sur fond uni · blur = entière sur sa propre copie floutée.
+// Le cadrage (posx/posy) et le zoom servent comme pour une photo. Aucun texte n'est ajouté par-dessus.
+export function renderImportedPoster(fmt, g, { src, draft, edit = false, print = false }) {
+  const { w: W, h: H } = FORMATS[fmt] || FORMATS['4x5'];
+  const fit = g.fit === 'cover' || g.fit === 'contain' ? g.fit : 'blur';
+  const bgc = safeColor(g.bgc, '#000000');
+  const bgData = `data-px="${g.posx}" data-py="${g.posy}" data-z="${g.zoom}"`;
+  const img = src ? `<img class="bg" ${bgData} data-slot="hero" src="${src}" alt="">` : `<div class="bg ph" ${bgData}><span>PLACEHOLDER IMAGE</span></div>`;
+  const blur = src && fit === 'blur' ? `<img class="bgb" src="${src}" alt="">` : '';
+  const css = `*{box-sizing:border-box;margin:0}html,body{width:${W}px;height:${H}px;overflow:hidden;background:${bgc}}
+.p{position:relative;width:${W}px;height:${H}px;overflow:hidden;background:${bgc};font-family:Segoe UI,Arial,sans-serif}
+.bg{position:absolute;inset:0;width:100%;height:100%;object-fit:${fit === 'cover' ? 'cover' : 'contain'};object-position:${g.posx}% ${g.posy}%;transform:scale(${g.zoom / 100});transform-origin:${g.posx}% ${g.posy}%}
+.bgb{position:absolute;left:-6%;top:-6%;width:112%;height:112%;object-fit:cover;filter:blur(36px) brightness(.55)}
+.ph{display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#333,#777);font:700 44px sans-serif;letter-spacing:.2em;color:rgba(255,255,255,.4)}
+.draft{position:absolute;top:0;left:0;right:0;background:#b3261e;color:#fff;text-align:center;font:700 26px Segoe UI,Arial,sans-serif;padding:10px;letter-spacing:.08em;pointer-events:none}
+${print ? `@page{size:${W}px ${H}px;margin:0}html,body{-webkit-print-color-adjust:exact;print-color-adjust:exact}` : ''}`;
+  return `<!doctype html><html><head><meta charset="utf-8"><style>${css}</style></head><body><div class="p" data-w="${W}" data-h="${H}">${blur}${img}${draft ? '<div class="draft">DRAFT — NOT FOR PUBLICATION</div>' : ''}</div>${edit ? '<script src="/poster-editor.js"></script>' : ''}</body></html>`;
+}
+
 // ---------------------------------------------------------------- site
 export const SITE_PAGES = [
   ['home', 'Home'], ['experience', 'The experience'], ['gallery', 'Gallery'], ['booking', 'Book'],

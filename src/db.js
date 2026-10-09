@@ -135,3 +135,14 @@ export function backup() {
   return name;
 }
 export const hasDb = () => existsSync(DATA_DIR + 'atelier.db');
+
+// Changement de mot de passe (outil local src/comptes.js) : coupe aussi les sessions ouvertes de ce compte.
+export function setPassword(name, password) {
+  const u = db.prepare('SELECT id FROM users WHERE name=?').get(name);
+  if (!u) return false;
+  const salt = randomBytes(16).toString('hex');
+  db.prepare('UPDATE users SET hash=? WHERE id=?').run(salt + ':' + scryptSync(password, salt, 64).toString('hex'), u.id);
+  db.prepare('DELETE FROM sessions WHERE user_id=?').run(u.id);
+  log('système', `Mot de passe changé (outil local) : ${name}`);
+  return true;
+}

@@ -3,7 +3,10 @@ import { mkdirSync, existsSync, readFileSync, writeFileSync, unlinkSync } from '
 import { spawnSync, spawn } from 'node:child_process';
 import { extname } from 'node:path';
 import { db, DATA_DIR, log } from './db.js';
-import { renderPoster, POSTER_ELEMENTS } from './render.js';
+import { renderPoster, renderImportedPoster, POSTER_ELEMENTS } from './render.js';
+import { cleanSvg } from './svgclean.js';
+import { posterBlockers as posterBlockersOf } from './schema.js';
+export const posterBlockers = posterBlockersOf;
 import { storage } from './storage.js';
 import { FORMATS, CHANNELS, formatsForChannels } from './formats.js';
 
@@ -24,6 +27,7 @@ mkdirSync(EXPORT_DIR, { recursive: true });
 export const ROLES = {
   hero: 'Photo principale', gallery: 'Galerie', logo: 'Logo', partner: 'Logo partenaire', map: 'Carte / plan du parcours',
   video: 'Vidéo', audio: 'Audio / musique', subtitle: 'Sous-titres', source: 'Fichier source (graphiste)', other: 'Autre',
+  poster: 'Affiche reçue (SVG ou image finie)', brief: 'Document (concept, script, brief)',
 };
 // Types acceptés : ajouter une extension ici suffit pour accepter un nouveau type de fichier.
 const KINDS = {
@@ -31,13 +35,15 @@ const KINDS = {
   '.mp4': 'video', '.mov': 'video', '.webm': 'video', '.m4v': 'video',
   '.mp3': 'audio', '.wav': 'audio', '.m4a': 'audio', '.ogg': 'audio',
   '.srt': 'text', '.vtt': 'text', '.txt': 'text',
+  '.svg': 'image',
+  '.docx': 'document', '.doc': 'document', '.odt': 'document', '.rtf': 'document', '.md': 'document', '.pptx': 'document', '.xlsx': 'document',
   '.psd': 'source', '.ai': 'source', '.pdf': 'source', '.zip': 'source', '.fig': 'source', '.indd': 'source',
 };
 export const MIME = {
   '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp', '.gif': 'image/gif',
   '.mp4': 'video/mp4', '.m4v': 'video/mp4', '.mov': 'video/quicktime', '.webm': 'video/webm',
   '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.m4a': 'audio/mp4', '.ogg': 'audio/ogg',
-  '.srt': 'text/plain; charset=utf-8', '.vtt': 'text/vtt; charset=utf-8', '.txt': 'text/plain; charset=utf-8', '.pdf': 'application/pdf',
+  '.svg': 'image/svg+xml', '.srt': 'text/plain; charset=utf-8', '.vtt': 'text/vtt; charset=utf-8', '.txt': 'text/plain; charset=utf-8', '.pdf': 'application/pdf',
 };
 const MAX = (Number(process.env.ATELIER_MAX_UPLOAD_MB) || 4096) * 1024 * 1024;
 const now = () => new Date().toISOString();
@@ -61,6 +67,12 @@ export function saveUpload(req, { editionId, name, role, who }) {
     req.pipe(out);
     out.on('finish', () => {
       if (failed || size === 0) { storage.remove(stored); return reject(new Error(size ? 'Fichier trop volumineux.' : 'Fichier vide.')); }
+      if (ext === '.svg') { // SVG reçu de l'extérieur : nettoyé et vérifié avant d'entrer dans l'atelier
+        const c = cleanSvg(readFileSync(storage.path(stored), 'utf8'));
+        if (!c.ok) { storage.remove(stored); return reject(new Error(c.error)); }
+        writeFileSync(storage.path(stored), c.svg);
+        size = Buffer.byteLength(c.svg);
+      }
       const r = db.prepare('INSERT INTO assets(edition_id,name,stored,kind,role,size,uploaded_by,created) VALUES(?,?,?,?,?,?,?,?)')
         .run(editionId, safe, stored, KINDS[ext], role, size, who, now());
       log(who, `Asset ajouté : ${safe} (${ROLES[role]})`);
@@ -81,6 +93,9 @@ export function updateAsset(id, { role, provisional, rights, status }, who) {
 
 // --- réglages de design (affiches), par édition et par format
 export const POSTER_FORMATS = FORMATS; // compat : le catalogue complet est dans formats.js
+// Affiche importée : `ext` (id d'un asset SVG/image), `fit` (cover | contain | blur), `bgc` (couleur de fond). Ces clés n'existent
+// que sur les designs importés, pour ne pas changer l'empreinte des designs déjà approuvés.
+export const FITS = { cover: 'Remplir (recadre les bords)', contain: 'Entière sur fond uni', blur: 'Entière sur fond flou' };
 export const POSTER_DEFAULTS = { hero: '', logo: '', gradient: 70, posx: 50, posy: 50, zoom: 100, title_scale: 100, text_pos: 'bas', style: 'classique', partners: '1', els: {} };
 
 // Réglages par élément : on ne garde que des valeurs connues et bornées (le navigateur n'est pas digne de confiance).
@@ -111,7 +126,9 @@ export function getDesign(editionId, key) {
   const other = db.prepare("SELECT json FROM designs WHERE edition_id=? AND key GLOB 'poster_*' ORDER BY updated DESC LIMIT 1").get(editionId);
   const o = other ? JSON.parse(other.json) : {};
   const first = (role) => listAssets(editionId).filter((a) => a.role === role && a.kind === 'image').pop();
+  const imported = o.ext ? { ext: o.ext, fit: o.fit || 'blur', bgc: o.bgc || '#000000' } : {};
   return {
+    ...imported,
     ...POSTER_DEFAULTS, hero: o.hero || String(first('hero')?.id || ''), logo: o.logo || String(first('logo')?.id || ''),
     gradient: o.gradient ?? POSTER_DEFAULTS.gradient, style: o.style || POSTER_DEFAULTS.style, partners: o.partners ?? POSTER_DEFAULTS.partners,
     zoom: o.zoom ?? POSTER_DEFAULTS.zoom, text_pos: o.text_pos || POSTER_DEFAULTS.text_pos,
@@ -127,6 +144,12 @@ export function restoreDesign(editionId, key, historyId, who) {
   return true;
 }
 
+// Part « affiche importée » d'un design : vide (aucune clé) si l'asset n'existe pas, n'est pas une image ou n'est pas de ce projet.
+function importedPart(editionId, input) {
+  const a = input.ext ? getAsset(Number(input.ext)) : null;
+  if (!a || a.edition_id !== editionId || a.kind !== 'image') return {};
+  return { ext: String(a.id), fit: FITS[input.fit] ? input.fit : 'blur', bgc: /^#[0-9a-f]{6}$/i.test(input.bgc || '') ? input.bgc : '#000000' };
+}
 export function saveDesign(editionId, key, input, who = '', reason = 'Enregistrement') {
   const num = (v, lo, hi, d) => { const n = Number(v); return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : d; };
   const d = {
@@ -137,6 +160,7 @@ export function saveDesign(editionId, key, input, who = '', reason = 'Enregistre
     style: ['classique', 'bandeau'].includes(input.style) ? input.style : 'classique',
     partners: input.partners === '1' ? '1' : '0',
     els: cleanEls(input.els),
+    ...importedPart(editionId, input),
   };
   db.prepare('INSERT INTO designs VALUES(?,?,?,?) ON CONFLICT(edition_id,key) DO UPDATE SET json=excluded.json, updated=excluded.updated')
     .run(editionId, key, JSON.stringify(d), now());
@@ -171,6 +195,12 @@ function dataUri(a) {
 // HTML autonome (images intégrées) d'une affiche, avec son statut brouillon : base commune de l'export d'affiche et de l'écran de fin des vidéos.
 export function buildPosterHtml(ed, fmt, draftReasons, opts = {}) {
   const design = opts.design || getDesign(ed.id, opts.designKey || `poster_${fmt}`);
+  if (design.ext) { // affiche reçue de l'extérieur : l'image est la composition entière
+    const a = getAsset(Number(design.ext));
+    const draft = opts.noDraft ? false : draftReasons.length > 0 || !a || a.provisional === 1;
+    const src = a && storage.exists(a.stored) ? dataUri(a) : null;
+    return { html: renderImportedPoster(fmt, design, { src, draft, print: !!opts.print }), design, draft, srcs: { hero: src } };
+  }
   const hero = design.hero ? getAsset(Number(design.hero)) : null;
   const logo = design.logo ? getAsset(Number(design.logo)) : null;
   const draft = opts.noDraft ? false : draftReasons.length > 0 || hero?.provisional === 1 || !hero;
@@ -212,7 +242,7 @@ export function exportPoster(ed, fmt, who, draftReasons, opts = {}) {
   try { unlinkSync(htmlFile); } catch {}
   if (!existsSync(pngFile)) return { ok: false, error: 'La génération de l’image a échoué. Réessayez ; rien n’a été enregistré.' };
   const res = db.prepare('INSERT INTO exports(edition_id,kind,label,file,draft,source_ids,created,created_by,variant_id,fmt) VALUES(?,?,?,?,?,?,?,?,?,?)')
-    .run(ed.id, 'affiche', `${opts.variantId ? 'Essai variante — ' : ''}Affiche ${f.label}`, base + '.png', draft ? 1 : 0, JSON.stringify([design.hero, design.logo].filter(Boolean)), now(), who, opts.variantId || null, fmt);
+    .run(ed.id, 'affiche', `${opts.variantId ? 'Essai variante — ' : ''}Affiche ${f.label}`, base + '.png', draft ? 1 : 0, JSON.stringify([design.ext || design.hero, design.logo].filter(Boolean)), now(), who, opts.variantId || null, fmt);
   log(who, `Affiche exportée (${f.label})${draft ? ' — BROUILLON' : ''}`);
   return { ok: true, id: Number(res.lastInsertRowid), draft };
 }
@@ -231,6 +261,7 @@ export function saveDesignPreview(editionId, key, q) {
     style: ['classique', 'bandeau'].includes(q.style) ? q.style : base.style,
     partners: q.partners === '1' ? '1' : '0',
     els: q.els === undefined ? base.els : cleanEls(q.els),
+    ...importedPart(editionId, { ext: q.ext ?? base.ext, fit: q.fit ?? base.fit, bgc: q.bgc ?? base.bgc }),
   };
 }
 
@@ -243,7 +274,7 @@ export function exportPack(ed, channelKeys, who, draftReasons) {
   if (!keys.length) return { ok: false, error: 'Choisissez au moins un canal.' };
   const made = {}; // format -> { id, file } (un format partagé par plusieurs canaux n'est produit qu'une fois)
   for (const fmt of formatsForChannels(keys)) {
-    const r = exportPoster(ed, fmt, who, draftReasons);
+    const r = exportPoster(ed, fmt, who, draftReasons || posterBlockersOf(ed, [[fmt, getDesign(ed.id, `poster_${fmt}`)]]));
     if (!r.ok) return { ok: false, error: `Format ${FORMATS[fmt].label} : ${r.error}` };
     made[fmt] = { id: r.id, file: getExport(r.id).file };
   }

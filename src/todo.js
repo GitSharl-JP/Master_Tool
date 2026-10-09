@@ -1,7 +1,8 @@
 // « À faire maintenant » : les prochaines actions utiles d'un projet, dans l'ordre, calculées depuis l'état réel.
 // Pensé pour une personne seule avec peu de temps : on ouvre le projet, on voit quoi faire, on clique.
 import { getEdition } from './db.js';
-import { publishBlockers } from './schema.js';
+import { posterBlockers } from './schema.js';
+import { getDesign } from './studio.js';
 import * as plan from './plan.js';
 import * as campaigns from './campaigns.js';
 import * as variants from './variants.js';
@@ -36,8 +37,8 @@ export function nextActions(pid, limit = 8) {
     }
   }
   // 4. fiche et sauvegarde
-  const notReady = publishBlockers(ed);
-  if (notReady.length) push('normal', `La fiche n’est pas prête (${notReady.length} point(s)) : vos exports sont en BROUILLON et ne peuvent pas être transmis`, `/edition/${pid}`);
+  const notReady = posterBlockers(ed, [['4x5', getDesign(pid, 'poster_4x5')]]);
+  if (notReady.length) push('normal', `Pour sortir vos affiches du BROUILLON, complétez les infos du spectacle (${notReady.length} point(s))`, `/edition/${pid}/settings`);
   const bs = backupStatus();
   if (bs.stale) push('normal', bs.dir ? 'Aucune sauvegarde externe depuis plus de 7 jours.' : 'Aucun dossier de sauvegarde externe : un seul disque détient tout votre travail.', '/settings#sauvegardes');
   out.sort((a, b) => (a.level === 'urgent' ? 0 : 1) - (b.level === 'urgent' ? 0 : 1));
