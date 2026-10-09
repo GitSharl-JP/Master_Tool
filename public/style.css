@@ -288,3 +288,4 @@ details.brief>summary{cursor:pointer;padding:2px 0}details.brief{padding:12px 20
 .outs{display:inline-flex;gap:6px;flex-wrap:wrap;margin-left:6px}
 
 .swatches{display:flex;gap:6px;flex-wrap:wrap;padding:8px}.swatches i{display:block;width:34px;height:34px;border-radius:8px;border:1px solid var(--line)}
+.filters{gap:8px;margin:10px 0}.filters input[type=search]{min-width:220px}.rownext{margin:6px 0 0;font-size:.9rem}

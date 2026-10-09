@@ -109,6 +109,26 @@ import * as campaignsMod from './campaigns.js';
 import * as planMod from './plan.js';
 import { nextActions } from './todo.js';
 
+// Liste unique des contenus (affiches, vidéos, textes) avec filtres : type, statut, campagne, recherche par nom.
+// Les formats, versions et fichiers restent rattachés au contenu d'origine (un seul lien vers sa page de travail).
+const fold = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+export function allWork(pid, f = {}) {
+  const rows = [
+    ...variantsMod.listVariants(pid).map((v) => {
+      const live = v.status !== 'archivé', es = live ? variantsMod.exportStatus(v.id) : null;
+      return { kind: 'variant', id: v.id, type: variantsMod.variantType(v), name: v.name, status: v.status, updated: v.updated, href: `/edition/${pid}/variants/${v.id}`,
+        campaigns: v.campaign_id ? [v.campaign_id] : [], files: es && es.total ? `${es.have}/${es.total} fichiers${es.errors.length ? ' · erreur' : ''}` : '', next: live ? variantsMod.nextStep(v.id)?.text || '' : '' };
+    }),
+    ...campaignsMod.listContents(pid).filter((c) => c.kind === 'texte').map((c) => ({ kind: 'texte', id: c.id, type: 'Texte', name: c.title, status: c.status, updated: c.updated, href: `/edition/${pid}/texts/${c.id}`,
+      campaigns: [...new Set(campaignsMod.linksOfContent(c.id).map((l) => l.campaign_id).filter(Boolean))], files: c.asset_id ? 'fichier joint' : '', next: c.status === 'approuvé' || c.status === 'archivé' ? '' : 'À relire et approuver' })),
+  ];
+  const q = fold(f.q);
+  return rows.filter((r) => (f.status ? r.status === f.status : r.status !== 'archivé')
+    && (!f.type || (f.type === 'texte' ? r.kind === 'texte' : f.type === 'affiche' ? /^Affiche/.test(r.type) : f.type === 'video' ? /Vidéo/.test(r.type) : true))
+    && (!f.campaign || r.campaigns.includes(Number(f.campaign)))
+    && (!q || fold(r.name).includes(q))).sort((a, b) => String(b.updated).localeCompare(String(a.updated)));
+}
+
 const plusDays = (iso, k) => { const d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + k); return d.toISOString().slice(0, 10); };
 export function homeData(ed) {
   const pid = ed.id, vs = variantsMod.listVariants(pid).filter((v) => v.status !== 'archivé');

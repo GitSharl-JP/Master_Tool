@@ -503,9 +503,8 @@ const server = createServer(async (req, res) => {
         }
       }
       if (!r[3] && req.method === 'GET') {
-        const filter = Number(url.searchParams.get('campaign')) || '';
-        const list = variants.listVariants(ed.id, filter || undefined);
-        return page('Contenus', variantsPage(ed, { texts: campaigns.listContents(ed.id).filter((x) => x.kind === 'texte' && x.status !== 'archivé'), solo: users.length <= 1, variants: list, campaigns: camps, outputs: Object.fromEntries(list.map((v) => [v.id, variants.outputsOf(v.id)])), filter }), msgOf());
+        const sp = url.searchParams, filter = { q: (sp.get('q') || '').trim(), type: sp.get('type') || '', status: sp.get('status') || '', campaign: Number(sp.get('campaign')) || '' };
+        return page('Contenus', variantsPage(ed, { rows: projects.allWork(ed.id, filter), total: projects.allWork(ed.id, {}).length, campaigns: camps, filter }), msgOf());
       }
       if (r[3]) {
         const v = variants.getVariant(Number(r[3]));

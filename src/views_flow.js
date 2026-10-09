@@ -31,20 +31,23 @@ const thumb = (ed, fmt, vid) => {
 };
 
 // ------------------------------------------------------------------ variantes
-export function variantsPage(ed, { variants, campaigns, outputs, msg, filter, solo, texts = [] }) {
+export function variantsPage(ed, { rows, total, campaigns, msg, filter }) {
   const camp = (id) => campaigns.find((c) => c.id === id);
+  const active = filter.q || filter.type || filter.status || filter.campaign;
+  const so = (name, list, cur) => `<select name="${name}" onchange="this.form.submit()">${list.map(([v, l]) => opt(v, l, cur)).join('')}</select>`;
   return `${tabs(ed, 'variantes')}${flash(msg)}
-<p class="lead">Tout ce que vous fabriquez : affiches, vidéos et textes. Ouvrez un contenu pour le terminer étape par étape (matériel, création, vérification, diffusion).</p>
-<div class="inline"><a class="btn" href="/edition/${ed.id}/variants/new${filter ? '?campaign=' + filter : ''}">+ Créer un contenu</a>
-<form method="get" class="inline"><select name="campaign" onchange="this.form.submit()"><option value="">Toutes les campagnes</option>${campaigns.map((c) => opt(c.id, c.name, filter)).join('')}</select></form></div>
-${variants.map((v) => `<div class="card vcard"><div class="vtop"><h2><a href="/edition/${ed.id}/variants/${v.id}">${esc(v.name)}</a> <span class="tag">${esc(variantType(v))}</span> ${chip(v.status)} ${v.approved_version ? `<span class="tag">approuvée v${v.approved_version}</span>` : ''}</h2>
-<small>${esc(INTENTS[v.intent]?.label || v.intent)}${v.campaign_id ? ' · campagne « ' + esc(camp(v.campaign_id)?.name || '?') + ' »' : ' · hors campagne (organique / réserve)'}</small></div>
-<p>${v.angle ? `<span class="tag">angle : ${esc(v.angle)}</span> ` : ''}${v.audience ? `<span class="tag">audience : ${esc(v.audience)}</span> ` : ''}${v.language ? `<span class="tag">langue : ${esc(v.language)}</span>` : ''}</p>
-${v.hypothesis && !/^Déclinaison simple/.test(v.hypothesis) ? `<p class="hyp">Hypothèse : ${esc(v.hypothesis)}</p>` : ''}
-${(outputs[v.id] || []).map((o) => `<div class="orow">${o.kind === 'video' ? '<b>Vidéo</b>' : `<b>${esc(FORMATS[o.fmt].ratio)}</b>`} ${stepper(o.stage)}</div>`).join('')}
-${solo ? '' : `<small>Responsable : ${esc(v.owner || '—')} · relecture : ${esc(v.reviewer || '—')}</small>`}</div>`).join('') || '<p>Aucune affiche ni vidéo pour l’instant. Créez le premier contenu depuis le bouton ci-dessus.</p>'}
-${texts.map((t) => `<div class="card vcard"><div class="vtop"><h2><a href="/edition/${ed.id}/texts/${t.id}">${esc(t.title)}</a> <span class="tag">Texte</span> ${chip(t.status)}</h2><small>${t.language ? esc(t.language) + ' · ' : ''}${t.body ? esc(t.body.slice(0, 90)) + (t.body.length > 90 ? '…' : '') : 'vide'}</small></div></div>`).join('')}
-${STAGE_LEGEND}`;
+<p class="lead">Tout ce que vous fabriquez : affiches, vidéos et textes, au même endroit. Ouvrez un contenu pour le terminer étape par étape ; ses formats, versions et fichiers exportés restent dans sa page.</p>
+<div class="inline"><a class="btn primary" href="/edition/${ed.id}/variants/new${filter.campaign ? '?campaign=' + filter.campaign : ''}">+ Créer un contenu</a></div>
+<form method="get" class="filters inline">
+<input type="search" name="q" value="${esc(filter.q)}" placeholder="Rechercher par nom">
+${so('type', [['', 'Tous les types'], ['affiche', 'Affiches'], ['video', 'Vidéos'], ['texte', 'Textes']], filter.type)}
+${so('status', [['', 'Statuts actifs'], ['brouillon', 'Brouillon'], ['à relire', 'À relire'], ['approuvé', 'Approuvé'], ['archivé', 'Archivés']], filter.status)}
+${so('campaign', [['', 'Toutes les campagnes'], ...campaigns.map((c) => [c.id, c.name])], filter.campaign)}
+<button>Filtrer</button>${active ? ` <a href="/edition/${ed.id}/variants">Tout afficher</a>` : ''}</form>
+<p><small>${rows.length} contenu(s)${active ? ` sur ${total}` : ''}.</small></p>
+${rows.map((r) => `<div class="card vcard"><div class="vtop"><h2><a href="${r.href}">${esc(r.name)}</a> <span class="tag">${esc(r.type)}</span> ${chip(r.status)}</h2>
+<small>${r.campaigns.length ? 'campagne « ' + esc(r.campaigns.map((id) => camp(id)?.name || '?').join(' », « ')) + ' »' : 'hors campagne'}${r.files ? ' · ' + esc(r.files) : ''} · modifié ${fr(r.updated)}</small></div>
+${r.next ? `<p class="rownext">${esc(r.next)} <a class="btn sm" href="${r.href}">Ouvrir</a></p>` : ''}</div>`).join('') || (active ? '<p>Aucun contenu ne correspond à ces filtres.</p>' : '<p>Aucun contenu pour l’instant. Créez le premier depuis le bouton ci-dessus.</p>')}`;
 }
 
 export function variantNewPage(ed, c) {

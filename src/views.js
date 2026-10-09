@@ -148,7 +148,7 @@ const SECTIONS_NAV = [
 ];
 const SUBTABS = {
   accueil: (id) => [['accueil', 'Tableau de travail', `/edition/${id}`], ['calendrier', 'Calendrier', `/edition/${id}/calendar`]],
-  contenus: (id) => [['variantes', 'Affiches et vidéos', `/edition/${id}/variants`], ['contenus', 'Textes et fichiers prêts', `/edition/${id}/contents`], ['calendrier-lien', 'Calendrier', `/edition/${id}/calendar`]],
+  contenus: (id) => [['variantes', 'Tous les contenus', `/edition/${id}/variants`], ['contenus', 'Textes et fichiers prêts', `/edition/${id}/contents`], ['calendrier-lien', 'Calendrier', `/edition/${id}/calendar`]],
   biblio: (id) => [['assets', 'Fichiers sources', `/edition/${id}/assets`], ['designs', 'Designs et modèles', `/edition/${id}/designs`]],
 };
 export const tabs = (ed, active) => {

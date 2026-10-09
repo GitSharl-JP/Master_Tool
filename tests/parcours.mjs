@@ -164,7 +164,9 @@ await step('4. Variantes guidées : intention obligatoire, pas de quasi-doublon'
   ids.v2 = Number(/variants\/(\d+)/.exec(r2.headers.get('location') || '')?.[1]);
   check('variante 2 créée (audience familles)', !!ids.v2);
   const list = await A.text('/edition/1/variants');
-  check('liste des variantes : intention, hypothèse, parcours visibles', /Familles/.test(list) && /Hypothèse/.test(list) && /brouillon/.test(list));
+  check('liste unique des contenus : noms, types, statuts, filtres', /Tous les contenus/.test(list) && /Émerveillement/.test(list) && /brouillon/.test(list) && /name="q"/.test(list) && /name="campaign"/.test(list));
+  check('filtre par nom : trouve ou dit qu’il n’y a rien', /Aucun contenu ne correspond/.test(await A.text('/edition/1/variants?q=zzzintrouvable')) && /Émerveillement/.test(await A.text('/edition/1/variants?q=emerveillement')));
+  check('filtre par type : les textes ne montrent pas les affiches', !/Émerveillement/.test(await A.text('/edition/1/variants?type=texte')) && /Émerveillement/.test(await A.text('/edition/1/variants?type=affiche')));
 });
 
 await step('4b. Parcours court d’une personne seule : 3 actions de la création à l’association', async () => {
@@ -781,7 +783,7 @@ await step('14. Pages dans un vrai navigateur (assistant, éditeur de variante, 
     const c = await br.ev(String.raw`(() => { const e = document.getElementById('pframe').contentDocument.querySelector('[data-el=title]').getBoundingClientRect(); return [Math.round(e.left + e.width / 2), Math.round(e.top + e.height / 2)]; })()`);
     check('position : centre de l’élément placé à 456 × 345 px', Math.abs(c[0] - 456) <= 2 && Math.abs(c[1] - 345) <= 2, JSON.stringify(c));
     await shot('editeur-variante');
-    for (const [p, n, re] of [['/edition/1/calendar?month=2027-01', 'calendrier', 'Réunion de lancement'], [`/edition/1/campaigns/${ids.c}`, 'campagne', 'Configuration Meta'], ['/edition/1/variants', 'variantes', 'Familles'], ['/settings', 'reglages', 'Sauvegardes'], ['/edition/1/contents', 'contenus', 'Associé']]) {
+    for (const [p, n, re] of [['/edition/1/calendar?month=2027-01', 'calendrier', 'Réunion de lancement'], [`/edition/1/campaigns/${ids.c}`, 'campagne', 'Configuration Meta'], ['/edition/1/variants', 'variantes', 'Tous les contenus'], ['/settings', 'reglages', 'Sauvegardes'], ['/edition/1/contents', 'contenus', 'Associé']]) {
       await br.go(U + p);
       check(`page ${n} s’affiche`, await br.ev(`document.body.innerText.includes(${JSON.stringify(re)})`));
       await shot(n);
