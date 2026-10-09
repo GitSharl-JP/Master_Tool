@@ -199,3 +199,78 @@ label>small{font-size:.78rem;line-height:1.4}
 .validate{margin-top:var(--gap);padding-top:16px;border-top:1px solid var(--line)}
 .studio form.card,.studio .card{padding:18px}
 .studio h2{margin-bottom:12px}
+
+/* Portes d'entrée « j'ai reçu une affiche / un document » */
+.entry{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;margin:16px 0}
+.entry .card h3{margin:0 0 6px}
+.entry .upmsg{margin:6px 0 0;min-height:1.2em}
+.srctext{white-space:pre-wrap;max-height:260px;overflow:auto;background:#00000010;padding:10px;border-radius:6px;font:inherit}
+.seg{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}
+.seg label{flex-direction:row;align-items:center;gap:6px;border:1px solid var(--line);border-radius:999px;padding:6px 14px;cursor:pointer}
+.seg label:has(input:checked){background:var(--accent,#c8a24a);color:#111;border-color:transparent}
+.seg input{min-height:0;width:auto}
+.projects td.acts{white-space:nowrap}.projects .acts>*{margin-right:10px;vertical-align:middle}
+.danger,.danger-btn{color:#b3261e}.danger-btn{border-color:#b3261e}
+details.mini summary{cursor:pointer;font-size:.8rem;opacity:.7}details.mini[open]{margin-top:6px}
+/* Parcours du projet : 5 étapes, la prochaine est mise en avant */
+.pipe{list-style:none;display:flex;gap:8px;padding:0;margin:10px 0 14px;flex-wrap:wrap}
+.pipe li{flex:1 1 150px}
+.pipe a{display:flex;gap:10px;align-items:center;border:1px solid var(--line);border-radius:10px;padding:8px 12px;text-decoration:none;color:inherit;height:100%}
+.pipe b{display:inline-flex;align-items:center;justify-content:center;min-width:26px;height:26px;border-radius:50%;background:var(--line);font-size:.85rem}
+.pipe span{display:flex;flex-direction:column;font-weight:600;font-size:.9rem;line-height:1.25}.pipe small{font-weight:400;opacity:.7;font-size:.75rem}
+.pipe li.done b{background:#2e7d32;color:#fff}
+.pipe li.next a{border-color:var(--accent,#c8a24a);box-shadow:0 0 0 2px var(--accent,#c8a24a) inset}.pipe li.next b{background:var(--accent,#c8a24a);color:#111}
+.pipe li.here a{background:#ffffff0d;outline:1px dashed currentColor}
+
+/* Navigation de projet : 5 destinations + paramètres à part */
+.pnav{display:flex;justify-content:space-between;align-items:center;gap:12px;border-bottom:1px solid var(--line);margin:8px 0 0;flex-wrap:wrap}
+.pnav-main{display:flex;gap:2px;flex-wrap:wrap}
+.pnav a{padding:10px 16px;text-decoration:none;color:var(--ink);font-weight:600;font-size:.95rem;border-bottom:3px solid transparent;margin-bottom:-1px}
+.pnav a:hover{background:var(--acc-lt)}.pnav a.on{border-bottom-color:var(--acc);color:var(--acc-dk)}
+.pnav .pnav-set{font-weight:500;font-size:.85rem;opacity:.75}.pnav .pnav-set.on{opacity:1}
+.subtabs{display:flex;gap:6px;margin:10px 0 16px;flex-wrap:wrap}
+.subtabs a{padding:5px 14px;border-radius:999px;border:1px solid var(--line);text-decoration:none;color:inherit;font-size:.88rem}
+.subtabs a.on{background:var(--acc-lt);border-color:var(--acc);color:var(--acc-dk);font-weight:600}
+/* Accueil du projet */
+.home-actions{display:flex;gap:12px;flex-wrap:wrap;margin:18px 0}
+.btn.big{padding:14px 26px;font-size:1.05rem}
+.home-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:var(--gap)}
+.home-grid .card{margin:0}
+.worklist{list-style:none;padding:0;margin:0}
+.worklist li{padding:8px 0;border-bottom:1px solid var(--line);display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center}
+.worklist small{flex-basis:100%;opacity:.75}
+.empty{opacity:.7;margin:0}
+
+/* Téléphone : en-tête compact (ne déborde plus) */
+@media(max-width:520px){header{gap:8px}.brand img{height:26px}nav{gap:2px}nav a,.ddb{padding:8px 8px;font-size:.85rem}.ddb::after{margin-left:4px}.pnav a{padding:9px 12px}}
+
+/* un élément « hidden » le reste, même avec une classe qui impose un affichage */
+[hidden]{display:none!important}
+.upx input[type=file]{max-width:100%;min-width:0;flex:1 1 220px}.upx .inline{flex-wrap:wrap}
+.inline{flex-wrap:wrap}input[type=file],select{max-width:100%;min-width:0}
+.asset .meta{min-width:0;overflow-wrap:anywhere}@media(max-width:520px){.asset{flex-direction:column}.asset .thumb{width:100%;max-width:220px}}
+
+/* Espace de travail d un contenu : en-tête commun et quatre étapes */
+.ws{border:1px solid var(--line);border-radius:var(--radius);padding:12px 16px;margin:6px 0 16px;background:var(--card)}
+.ws-top{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px}.ws-top a{font-size:.85rem}
+.steps{list-style:none;display:flex;gap:8px;padding:0;margin:0;flex-wrap:wrap}.steps li{flex:1 1 150px}
+.steps a{display:flex;gap:10px;align-items:center;border:1px solid var(--line);border-radius:10px;padding:8px 12px;text-decoration:none;color:inherit;height:100%}
+.steps b{display:inline-flex;align-items:center;justify-content:center;min-width:26px;height:26px;border-radius:50%;background:var(--line);font-size:.85rem}
+.steps span{display:flex;flex-direction:column;font-weight:600;font-size:.9rem;line-height:1.25}.steps small{font-weight:400;opacity:.75;font-size:.75rem}
+.steps li.done b{background:#2e7d32;color:#fff}.steps li.here a{border-color:var(--acc);box-shadow:0 0 0 2px var(--acc) inset}
+.ws-note{display:block;margin-top:8px;opacity:.75}
+.stepnext{margin:18px 0}
+.fgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:16px}.fcell{display:flex;flex-direction:column;gap:8px;align-items:flex-start}
+.typepick{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin:12px 0}
+.typecard{display:flex;gap:10px;align-items:flex-start;border:2px solid var(--line);border-radius:12px;padding:16px;cursor:pointer}.typecard:has(input:checked){border-color:var(--acc);background:var(--acc-lt)}
+.typecard span{display:flex;flex-direction:column;gap:4px}.typecard input{margin-top:4px;min-height:0;width:auto}
+details.brief>summary{cursor:pointer;padding:2px 0}details.brief{padding:12px 20px}
+
+.typecard{flex-direction:row;align-items:flex-start}
+
+.metabar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:8px 14px;border:1px solid var(--line);border-radius:10px;margin:8px 0 14px;background:var(--card)}
+.campcard .vtop h2{margin-bottom:6px}
+
+.outs{display:inline-flex;gap:6px;flex-wrap:wrap;margin-left:6px}
+
+.swatches{display:flex;gap:6px;flex-wrap:wrap;padding:8px}.swatches i{display:block;width:34px;height:34px;border-radius:8px;border:1px solid var(--line)}

@@ -37,6 +37,55 @@ if (up) {
   });
 }
 
+// Sélecteur de point de départ (Atelier / SVG / Document / Autre) : envoi puis arrivée sur la page suivante du parcours.
+document.querySelectorAll('form.upx').forEach((form) => {
+  const modes = JSON.parse(form.dataset.modes), file = form.querySelector('input[type=file]'), btn = form.querySelector('.modefile button');
+  const mode = () => modes[form.querySelector('input[name=mode]:checked').value];
+  const sync = () => {
+    const m = mode(), tool = !m.go;
+    form.querySelector('.modehelp').textContent = m.help;
+    form.querySelector('.modetool').hidden = !tool;
+    form.querySelector('.modefile').hidden = tool;
+    file.required = !tool; file.accept = m.accept || ''; file.value = ''; btn.textContent = m.go || '';
+  };
+  form.addEventListener('change', (e) => { if (e.target.name === 'mode') sync(); });
+  sync();
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const f = file.files[0], msg = form.querySelector('.upmsg'), m = mode();
+    if (!f || !m.go) return;
+    msg.textContent = `Envoi de ${f.name}…`;
+    const q = new URLSearchParams({ edition: form.dataset.edition, role: m.role, name: f.name });
+    if (m.use) q.set('use', m.use);
+    try {
+      const r = await fetch('/assets/upload?' + q, { method: 'POST', body: f });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || 'Échec');
+      location.href = j.url || `/edition/${form.dataset.edition}/assets?m=` + encodeURIComponent('Fichier ajouté.');
+    } catch (err) { msg.textContent = 'Erreur : ' + err.message; }
+  });
+});
+
+// Matériel d'un contenu : le fichier est envoyé puis utilisé tout de suite dans ce contenu.
+document.querySelectorAll('form.upm').forEach((form) => {
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const f = form.querySelector('input[type=file]').files[0], msg = form.parentElement.querySelector('.upmsg') || form.nextElementSibling, what = form.elements.what.value;
+    if (!f) return;
+    msg.textContent = `Envoi de ${f.name}…`;
+    const role = { hero: 'hero', logo: 'logo', poster: 'poster', video: 'video', doc: 'brief' }[what] || 'other';
+    const q = new URLSearchParams({ edition: form.dataset.edition, role, name: f.name, what });
+    if (form.dataset.variant) q.set('variant', form.dataset.variant);
+    if (form.dataset.text) q.set('text', form.dataset.text);
+    try {
+      const r = await fetch('/assets/upload?' + q, { method: 'POST', body: f });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || 'Échec');
+      location.href = j.url || location.href;
+    } catch (err) { msg.textContent = 'Erreur : ' + err.message; }
+  });
+});
+
 const pform = $('pform');
 if (pform) {
   const frame = $('pframe'), wrap = $('pwrap');
