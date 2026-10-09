@@ -10,16 +10,32 @@ L'atelier est conçu pour **une seule personne**. Rien ne suppose un relecteur o
 
 ```
 Projet                         (table `editions`, appelé « projet » dans l'interface)
-├── Site WordPress             UN site par projet, sur SON domaine (onglet Site web ; identifiants propres au projet ; voir wordpress.md)
-├── Bibliothèque               assets · designs (versionnés, réappliquables) · contenus
-├── Création                   variantes guidées · affiches (7 formats) · vidéos
-├── Calendrier de production
-└── Connexion Meta (manuelle)
-    └── Campagnes              créées dans Meta, reliées ici → ensembles → annonces
-        └── contenus associés (version épinglée) : production, validation, transmission, suivi
+├── Accueil                    tableau de travail : à reprendre, à relire, échéances, « À faire maintenant » ; calendrier en sous-vue
+├── Contenus                   affiches · vidéos · textes, chacun dans UN espace à quatre étapes (voir plus bas)
+├── Campagnes                  créées dans Meta, reliées ici → ensembles → annonces ; contenus associés (version épinglée)
+├── Bibliothèque               Fichiers sources (assets) · Designs et modèles (kits graphiques, modèles de contenu)
+├── Site web                   UN site par projet, sur SON domaine (identifiants propres au projet ; voir wordpress.md)
+└── Paramètres du projet       fiche du spectacle, charte, connexion Meta (manuelle), gestion du projet (renommer, archiver, supprimer)
 ```
 
 Un projet a plusieurs campagnes, toutes vers le même site ; créer une campagne ne crée pas de site. Un contenu existe sans campagne (organique) et s'associe à un ou plusieurs niveaux.
+
+## Contenu et espace de travail (vocabulaire de l'interface : « contenu »)
+
+- Interne : un contenu affiche/vidéo = ligne `variants` (URL `/variants/:id`) ; un texte = ligne `contents` de type `texte` (URL `/texts/:id`). Aucune migration : seule la couche d'affichage est commune.
+- **Créer un contenu** : type (affiche / vidéo / texte), nom proposé, campagne facultative, point de départ (zéro, copie d'un contenu, fichier de la bibliothèque, modèle). Pas d'hypothèse à écrire : « Mode test détaillé » (`?mode=test`) garde intention, angle, audience, hypothèse pour les vrais tests créatifs ; sinon un panneau « Brief marketing » replié.
+- **Quatre étapes**, accessibles dans n'importe quel ordre, avec le même en-tête dans les éditeurs d'affiche et de vidéo : Matériel (import direct utilisé aussitôt, affiche reçue, modèle, formats) → Création (textes communs, éditeur de chaque format, « Enregistrer comme modèle ») → Vérification et exports (contrôles, approbation figée, export) → Diffusion (campagne Meta, publication organique, téléchargement ; rien n'est envoyé à Meta).
+- Les sorties exportées deviennent seules des `contents` associables : aucune saisie manuelle.
+
+## Validations ciblées (`schema.js` : `posterNeeds`, `videoNeeds`, `explainNeeds`)
+
+Un contenu n'exige de la fiche que ce qu'il affiche : une affiche composée → sections Identité, Charte, + Lieu et dates si l'info lieu/dates est affichée, + Réservation si bouton ou site affichés, et « non provisoire » ; une vidéo → seulement son écran de fin (s'il est activé) ; une affiche reçue ou un texte → rien de la fiche (seul un fichier « provisoire » rend l'export BROUILLON). `publishBlockers` (large : lieu confirmé + 8 sections approuvées + non provisoire) ne reste exigé que pour le site. Préparer en brouillon est toujours permis ; l'écart est expliqué avec un lien vers la section à corriger (`/settings#sec-<id>`). Choix de sécurité : une affiche reçue ou une vidéo ne bloque pas sur un lieu non confirmé, mais l'atelier le signale (conseil) avant diffusion.
+
+## Modèles et kit graphique (`library.js`, colonne `design_templates.kind`)
+
+- `modele` : la composition d'UN contenu (formats, éléments modifiables, style vidéo), enregistré depuis le contenu ; réutilisable dans « Créer un contenu » sans jamais modifier l'original (dupliquer pour changer). Refusé pour un contenu basé sur une affiche reçue.
+- `kit` : charte, logo, styles communs (dégradé, composition, position du texte, partenaires) et style vidéo ; s'applique au projet (photos et textes intacts) ; jamais proposé comme point de départ d'un contenu.
+- `projet` : l'ancien « design complet du projet », conservé (replié).
 
 ## Statuts (vocabulaire unique)
 
@@ -32,6 +48,14 @@ Un projet a plusieurs campagnes, toutes vers le même site ; créer une campagne
 
 Une variante = une **intention** (angle, audience, langue, format, relance) + une **hypothèse** obligatoire ; refus d'une quasi-copie (même angle+audience+langue dans la même campagne). Ses designs vivent sous la clé `v<id>_<format>` (éditeur d'affiche réutilisé via `?variant=`), vidéo et sous-titres sous la portée `v<id>`.
 « Approuver » enregistre une **version immuable** (designs, sous-titres, fiche à cet instant). L'**export officiel part toujours de la version approuvée** ; clé de contenu identique = pas de doublon (reprise après erreur comprise). Toute modification après approbation → `à relire`, sans toucher à la version approuvée ni à ses exports. Les sorties exportées deviennent des `contents` associables.
+
+## Points d'entrée libres (`intake.js`, `svgclean.js`)
+
+On ne part pas toujours de la fiche : le même parcours (design → variante → export → contenu → campagne) doit marcher quel que soit le point de départ et l'ordre.
+
+- **Affiche reçue** (SVG, ou PNG/JPG/WebP ; un `.ai`/PDF doit d'abord être exporté en SVG, il n'est pas converti) : l'asset (rôle `poster`) devient le design de chaque format via les clés `ext`/`fit`/`bgc` du design (absentes des designs composés, pour ne pas changer l'empreinte des variantes déjà approuvées). `fit` : `cover` (proportions à ±8 %), sinon `blur` (entière sur sa copie floutée) ; `contain` = fond uni. Aucun texte de la fiche n'est ajouté ; ses textes ne s'éditent pas (on corrige le fichier et on le réimporte). Le SVG est nettoyé à l'envoi (script, `on*`, DOCTYPE, `foreignObject` retirés ; dimensions garanties). Avertissements (« conseil », jamais bloquants) : texte vivant, images liées, filtres/masques. Les exports restent en BROUILLON tant que la fiche n'est pas prête ou que l'asset est « provisoire ». Variantes : `poster=<asset>` à la création ; les contrôles ne demandent alors ni photo, ni logo, ni titre de fiche.
+- **Document** (concept, script, brief : `.docx`/`.odt` lus par le tar de Windows, `.txt`/`.md`, sinon fichier joint sans texte) : devient un contenu `texte` (`contents.body`, `contents.asset_id`). Un contenu texte s'associe à une campagne **sans export** et suit le même parcours de validation ; il peut préremplir l'assistant de variante (`/variants/new?content=ID`, rien n'est repris automatiquement).
+- Limites connues : une affiche reçue n'entre pas dans la bibliothèque de designs (modèles) ; pas d'export SVG recomposé pour elle (on rend le fichier d'origine) ; PDF/PowerPoint non lus.
 
 ## Garde-fous Meta (ne pas contourner)
 
