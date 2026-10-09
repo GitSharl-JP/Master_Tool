@@ -289,3 +289,4 @@ details.brief>summary{cursor:pointer;padding:2px 0}details.brief{padding:12px 20
 
 .swatches{display:flex;gap:6px;flex-wrap:wrap;padding:8px}.swatches i{display:block;width:34px;height:34px;border-radius:8px;border:1px solid var(--line)}
 .filters{gap:8px;margin:10px 0}.filters input[type=search]{min-width:220px}.rownext{margin:6px 0 0;font-size:.9rem}
+.filters,#up{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.filters input,.filters select,#up input,#up select{width:auto;flex:0 1 230px;max-width:100%}.filters button,#up button{flex:0 0 auto}
