@@ -57,14 +57,17 @@ export function fmtTime(t, sep = ',') { const ms = Math.round(t * 1000); return 
 export const toSrt = (cues) => cues.map((c, i) => `${i + 1}\n${fmtTime(c.start)} --> ${fmtTime(c.end)}\n${c.text}\n`).join('\n');
 
 // ASS pour l'incrustation : taille et marges calculées pour CHAQUE format (zones de sécurité Stories / TikTok).
-export function toAss(cues, { W, H, fontSize, marginV, marginSide, from, to }) {
+export function toAss(cues, { W, H, fontSize, marginV, marginSide, from, to, pos, rot = 0, opacity = 100 }) {
   const ts = (t) => `${Math.floor(t / 3600)}:${pad(Math.floor(t / 60) % 60)}:${pad(Math.floor(t) % 60)}.${pad(Math.floor((t % 1) * 100))}`;
   const ev = cues
     .filter((c) => c.end > from && c.start < to)
     .map((c) => {
       const s = Math.max(0, c.start - from), e = Math.min(to - from, c.end - from);
       const txt = c.text.replace(/[{}]/g, '').replace(/\n/g, '\\N');
-      return `Dialogue: 0,${ts(s)},${ts(e)},Default,,0,0,0,,${txt}`;
+      const alpha = Math.round(255 * (1 - Math.min(100, Math.max(0, opacity)) / 100)).toString(16).toUpperCase().padStart(2, '0');
+      // an5 : le centre du bloc est le point d'ancrage ; frz : rotation (le sens horaire est positif, comme dans l'aperçu)
+      const tag = pos ? `{\\an5\\pos(${Math.round(pos.x)},${Math.round(pos.y)})${rot ? `\\frz${-rot}` : ''}${opacity < 100 ? `\\alpha&H${alpha}&` : ''}}` : '';
+      return `Dialogue: 0,${ts(s)},${ts(e)},Default,,0,0,0,,${tag}${txt}`;
     });
   return `[Script Info]
 ScriptType: v4.00+

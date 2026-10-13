@@ -95,9 +95,9 @@ export function pipeline(ed) {
   const steps = [
     { n: 1, label: 'Décrire le spectacle', page: ['fiche'], done: blockers === 0, hint: blockers ? `${blockers} point(s) à compléter dans les paramètres du projet (surtout utiles pour le site)` : 'Infos complètes', href: `/edition/${id}/settings${sec ? '#sec-' + sec : ''}` },
     { n: 2, label: 'Ajouter le matériel', page: ['assets', 'designs', 'contenus'], done: c.assets > 0, hint: c.assets ? `${c.assets} fichier(s)` : 'Photos, affiche reçue ou document', href: `/edition/${id}/assets` },
-    { n: 3, label: 'Créer un contenu', page: ['variantes', 'affiches', 'videos'], done: c.variants > 0, hint: c.variants ? `${c.variants} contenu(s)` : 'Un premier contenu', href: c.variants ? `/edition/${id}/variants` : `/edition/${id}/variants/new` },
+    { n: 3, label: 'Créer une campagne et ses contenus', page: ['variantes', 'affiches', 'videos'], done: c.variants > 0, hint: c.variants ? `${c.variants} contenu(s)` : 'Une campagne, puis son premier contenu', href: `/edition/${id}/campaigns` },
     { n: 4, label: 'Approuver et exporter', page: [], done: approved > 0 && exported > 0, hint: exported ? `${exported} fichier(s) exporté(s)` : 'Un clic sur le contenu', href: waiting ? `/edition/${id}/variants/${waiting.id}?step=verification` : `/edition/${id}/variants` },
-    { n: 5, label: 'Mettre en campagne', page: ['campagnes'], done: links > 0, hint: links ? `${links} association(s)` : 'Relier à une campagne Meta', href: `/edition/${id}/campaigns` },
+    { n: 5, label: 'Relier à Meta', page: ['campagnes'], done: links > 0, hint: links ? `${links} association(s)` : 'Depuis la campagne, une fois les contenus prêts', href: `/edition/${id}/campaigns` },
   ];
   const next = steps.find((s) => !s.done) || null;
   return { steps, next };

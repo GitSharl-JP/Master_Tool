@@ -56,6 +56,7 @@ UPDATE adsets SET brief_audience=audience, brief_placements=placements, brief_la
 const now = () => new Date().toISOString();
 const txt = (v, n = 300) => String(v ?? '').trim().slice(0, n);
 
+export const OFF_CAMPAIGN = 'Hors campagne'; // reçoit les contenus créés sans campagne (organique, site…)
 export const META_STATUSES = ['inconnu', 'brouillon', 'active', 'en pause', 'terminée'];
 export const CONTENT_STATUSES = ['brouillon', 'à relire', 'approuvé', 'archivé'];
 // Vocabulaire explicite : EXPORTÉ (un fichier existe) ≠ TRANSMIS (envoyé à Meta) ≠ PUBLIÉ (diffusé dans Meta).
@@ -122,6 +123,12 @@ export function createCampaign(pid, b, who) {
     .run(pid, ...metaCampFields(b), ...briefCampFields(b), 'manuel', 'manuel', now(), who, now());
   log(who, `Campagne reliée (association manuelle) : ${name}`);
   return { ok: true, id: Number(r.lastInsertRowid) };
+}
+// La campagne « Hors campagne » du projet (créée au premier besoin) : tout contenu appartient ainsi à une campagne.
+export function ensureOffCampaign(pid, who) {
+  const ex = db.prepare('SELECT id FROM campaigns WHERE project_id=? AND name=?').get(pid, OFF_CAMPAIGN);
+  if (ex) return ex.id;
+  return createCampaign(pid, { name: OFF_CAMPAIGN, brief_objective: 'Publications organiques et visuels du site', meta_status: 'inconnu' }, who).id;
 }
 // Deux formulaires distincts : la configuration Meta et le brief interne ne s'écrasent jamais.
 export function updateCampaignMeta(id, b, who) {
@@ -265,7 +272,7 @@ export function addResult(linkId, b, who) {
   if (!db.prepare('SELECT 1 FROM content_links WHERE id=?').get(linkId)) return false;
   const n = (v) => Math.max(0, Number(String(v).replace(',', '.')) || 0);
   db.prepare('INSERT INTO results(link_id,period,impressions,clicks,spend,conversions,source,entered_by,entered_at) VALUES(?,?,?,?,?,?,?,?,?)')
-    .run(linkId, txt(b.period, 60), Math.round(n(b.impressions)), Math.round(n(b.clicks)), n(b.spend), Math.round(n(b.conversions)), b.source === 'import' ? 'import' : 'manuel', who, now());
+    .run(linkId, txt(b.period || [b.period_from, b.period_to].filter(Boolean).join(' → '), 60), Math.round(n(b.impressions)), Math.round(n(b.clicks)), n(b.spend), Math.round(n(b.conversions)), b.source === 'import' ? 'import' : 'manuel', who, now());
   log(who, b.source === 'import' ? `Résultats importés du rapport Ads Manager (association ${linkId})` : `Résultats saisis à la main (association ${linkId})`);
   return true;
 }

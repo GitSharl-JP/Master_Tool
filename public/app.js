@@ -19,22 +19,43 @@ function enhance(range) {
 const setV = (range, v) => { range.value = v; if (range._num) range._num.value = range.value; };
 document.querySelectorAll('.rng input[type=range]').forEach(enhance);
 
-const up = $('up');
-if (up) {
-  up.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const f = $('upfile').files[0];
-    const msg = $('upmsg');
-    if (!f) return;
-    msg.textContent = `Envoi de ${f.name}…`;
-    const q = new URLSearchParams({ edition: up.dataset.edition, role: $('uprole').value, name: f.name });
+// Envoi d'un ou plusieurs fichiers, un envoi par fichier. Le type n'est pas demandé : le serveur le devine (il se corrige ensuite dans la liste).
+async function sendFiles(files, { edition, variant, msg }) {
+  const list = [...files], ok = [], bad = []; let last = null;
+  for (const [i, f] of list.entries()) {
+    msg.textContent = list.length > 1 ? `Envoi ${i + 1}/${list.length} : ${f.name}…` : `Envoi de ${f.name}…`;
+    const q = new URLSearchParams({ edition, name: f.name });
+    if (variant) { q.set('variant', variant); q.set('what', 'add'); }
     try {
       const r = await fetch('/assets/upload?' + q, { method: 'POST', body: f });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || 'Échec');
-      location.href = `/edition/${up.dataset.edition}/assets?m=` + encodeURIComponent('Fichier ajouté.');
-    } catch (err) { msg.textContent = 'Erreur : ' + err.message; }
-  });
+      ok.push(f.name); last = j;
+    } catch (err) { bad.push(`${f.name} (${err.message})`); }
+  }
+  return { ok, bad, last };
+}
+// Zone de dépôt : on peut glisser des fichiers dessus (plusieurs à la fois) ; `onFiles` reçoit la liste.
+function dropZone(zone, onFiles) {
+  const stop = (e) => { e.preventDefault(); e.stopPropagation(); };
+  ['dragenter', 'dragover'].forEach((t) => zone.addEventListener(t, (e) => { stop(e); zone.classList.add('over'); }));
+  ['dragleave', 'drop'].forEach((t) => zone.addEventListener(t, (e) => { stop(e); zone.classList.remove('over'); }));
+  zone.addEventListener('drop', (e) => { if (e.dataTransfer?.files?.length) onFiles(e.dataTransfer.files); });
+}
+const plural = (n, one, many) => `${n} ${n > 1 ? many : one}`;
+
+const up = $('up');
+if (up) {
+  const msg = $('upmsg'), input = $('upfile');
+  const run = async (files) => {
+    if (!files || !files.length) return;
+    const { ok, bad } = await sendFiles(files, { edition: up.dataset.edition, msg });
+    if (!ok.length) { msg.textContent = 'Erreur : ' + bad.join(' ; '); return; }
+    location.href = `/edition/${up.dataset.edition}/assets?m=` + encodeURIComponent(`${plural(ok.length, 'fichier ajouté', 'fichiers ajoutés')}.${bad.length ? ' Refusé : ' + bad.join(' ; ') : ''}`);
+  };
+  up.addEventListener('submit', (e) => { e.preventDefault(); run(input.files); });
+  input.addEventListener('change', () => run(input.files));
+  dropZone(up, run);
 }
 
 // Sélecteur de point de départ (Atelier / SVG / Document / Autre) : envoi puis arrivée sur la page suivante du parcours.
@@ -68,12 +89,28 @@ document.querySelectorAll('form.upx').forEach((form) => {
 
 // Matériel d'un contenu : le fichier est envoyé puis utilisé tout de suite dans ce contenu.
 document.querySelectorAll('form.upm').forEach((form) => {
+  const msg0 = form.parentElement.querySelector('.upmsg') || form.nextElementSibling;
+  if (form.elements.what.value === 'add') { // ajout libre au matériel : plusieurs fichiers, glisser-déposer, type deviné
+    const input = form.querySelector('input[type=file]');
+    const run = async (files) => {
+      if (!files || !files.length) return;
+      const { ok, bad, last } = await sendFiles(files, { edition: form.dataset.edition, variant: form.dataset.variant, msg: msg0 });
+      if (!ok.length) { msg0.textContent = 'Erreur : ' + bad.join(' ; '); return; }
+      const base = `/edition/${form.dataset.edition}/variants/${form.dataset.variant}?step=materiel&m=`;
+      location.href = ok.length === 1 && !bad.length && last?.url ? last.url
+        : base + encodeURIComponent(`${plural(ok.length, 'fichier ajouté', 'fichiers ajoutés')} : choisissez ci-dessous où les utiliser (photo de fond, logo, affiche reçue).${bad.length ? ' Refusé : ' + bad.join(' ; ') : ''}`);
+    };
+    form.addEventListener('submit', (e) => { e.preventDefault(); run(input.files); });
+    input.addEventListener('change', () => run(input.files));
+    dropZone(form, run);
+    return;
+  }
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const f = form.querySelector('input[type=file]').files[0], msg = form.parentElement.querySelector('.upmsg') || form.nextElementSibling, what = form.elements.what.value;
+    const f = form.querySelector('input[type=file]').files[0], msg = msg0, what = form.elements.what.value;
     if (!f) return;
     msg.textContent = `Envoi de ${f.name}…`;
-    const role = { hero: 'hero', logo: 'logo', poster: 'poster', video: 'video', doc: 'brief' }[what] || 'other';
+    const role = { hero: 'hero', logo: 'logo', poster: 'poster', video: 'video', doc: 'brief' }[what] || (f.type.startsWith('video/') ? 'video' : 'other');
     const q = new URLSearchParams({ edition: form.dataset.edition, role, name: f.name, what });
     if (form.dataset.variant) q.set('variant', form.dataset.variant);
     if (form.dataset.text) q.set('text', form.dataset.text);
@@ -121,7 +158,7 @@ if (pform) {
       const li = document.createElement('li');
       const cb = Object.assign(document.createElement('input'), { type: 'checkbox', checked: !els[id]?.hide, title: 'Afficher / masquer' });
       cb.addEventListener('change', () => { setEl(id, { hide: !cb.checked }); save(); reload(); });
-      const b = Object.assign(document.createElement('button'), { type: 'button', textContent: label, className: 'link' + (id === cur ? ' on' : '') });
+      const b = Object.assign(document.createElement('button'), { type: 'button', textContent: label, className: 'elbtn' + (id === cur ? ' on' : ''), title: 'Sélectionner cet élément pour le régler' });
       b.addEventListener('click', () => { post({ type: 'select', id }); if (els[id]?.hide) showPanel(id, {}); });
       li.append(cb, b);
       if (present && !els[id]?.hide && !present.includes(id)) {
@@ -151,6 +188,7 @@ if (pform) {
   const f = { dx: $('el_dx'), dy: $('el_dy'), s: $('el_s'), color: $('el_color'), text: $('el_text') };
   function showPanel(id, v) {
     cur = id;
+    const hint = $('elhint'); if (hint) hint.hidden = !!id;
     if (!id) { panel.hidden = true; renderList(); return; }
     panel.hidden = false;
     $('elname').textContent = labels[id] || id;
@@ -283,3 +321,30 @@ document.querySelectorAll('[data-count]').forEach((el) => {
 });
 const csvfile = document.getElementById('csvfile');
 if (csvfile) csvfile.addEventListener('change', async () => { const f = csvfile.files[0]; if (!f) return; csvfile.form.elements.csv.value = await f.text(); });
+
+// Calendrier : au survol d'une tâche, une bulle avec ses détails et un aperçu du visuel (sans cliquer).
+(() => {
+  const items = document.querySelectorAll('table.cal [data-tip]');
+  if (!items.length) return;
+  const tip = Object.assign(document.createElement('div'), { id: 'caltip', hidden: true });
+  document.body.append(tip);
+  const row = (k, v) => (v ? `<div><span>${k}</span>${v}</div>` : '');
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const show = (el) => {
+    let d; try { d = JSON.parse(el.dataset.tip); } catch { return; }
+    const media = d.thumb ? `<img src="${esc(d.thumb)}" alt="">` : d.live ? `<div class="live"><iframe src="${esc(d.live)}" title="Aperçu" loading="lazy"></iframe></div>` : '';
+    tip.innerHTML = `${media}<div class="body"><b>${esc(d.title)}</b><small class="state s-${d.state === 'en retard' ? 'late' : d.state === 'fait' ? 'ok' : 'todo'}">${esc(d.kind)} · ${esc(d.state)}</small>${row('Quand', esc(d.when))}${row('Responsable', esc(d.owner))}${row('Contenu', esc(d.content))}${row('Campagne', esc(d.campaign))}${row('Note', esc(d.note))}${d.go ? `<em>${esc(d.go)}</em>` : ''}</div>`;
+    tip.hidden = false;
+    const r = el.getBoundingClientRect(), w = tip.offsetWidth, h = tip.offsetHeight;
+    let x = r.left + r.width / 2 - w / 2, y = r.bottom + 8;
+    if (y + h > innerHeight - 8) y = Math.max(8, r.top - h - 8);
+    tip.style.left = Math.min(Math.max(8, x), innerWidth - w - 8) + 'px';
+    tip.style.top = y + 'px';
+  };
+  items.forEach((el) => {
+    el.addEventListener('mouseenter', () => show(el));
+    el.addEventListener('focus', () => show(el));
+    el.addEventListener('mouseleave', () => { tip.hidden = true; });
+    el.addEventListener('blur', () => { tip.hidden = true; });
+  });
+})();

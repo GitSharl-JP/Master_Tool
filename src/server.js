@@ -146,8 +146,10 @@ const server = createServer(async (req, res) => {
         const id = await studio.saveUpload(req, { editionId: ed.id, name: url.searchParams.get('name') || 'fichier', role: url.searchParams.get('role'), who: user.name });
         const vId = Number(url.searchParams.get('variant')), tId = Number(url.searchParams.get('text')), what = url.searchParams.get('what');
         if (vId && what && variants.getVariant(vId)?.project_id === ed.id) { // matériel d'un contenu affiche / vidéo
-          const key = { hero: 'hero', logo: 'logo', poster: 'poster', video: 'video_asset' }[what];
-          const o = key ? variants.applyMaterial(vId, { [key]: String(id) }, user.name) : { ok: true, msg: 'Fichier ajouté à la bibliothèque.' };
+          // « add » : le fichier rejoint la bibliothèque ; sa destination (photo, logo, affiche) se choisit ensuite. Une vidéo n'a qu'un usage : elle devient la source.
+          const isVideo = what === 'add' && studio.getAsset(id)?.kind === 'video' && variants.getVariant(vId).with_video;
+          const key = isVideo ? 'video_asset' : { hero: 'hero', logo: 'logo', poster: 'poster', video: 'video_asset' }[what];
+          const o = key ? variants.applyMaterial(vId, { [key]: String(id) }, user.name) : { ok: true, msg: 'Fichier ajouté : choisissez ci-dessous où l’utiliser (photo de fond, logo, affiche reçue).' };
           return json(200, { id, url: `/edition/${ed.id}/variants/${vId}?step=materiel&m=${encodeURIComponent(o.ok ? o.msg : o.error)}` });
         }
         if (tId && what === 'doc') { // document importé dans un contenu texte
@@ -274,6 +276,11 @@ const server = createServer(async (req, res) => {
     }
 
     // ---------- vidéo
+    if ((r = path.match(/^\/api\/video-info\/(\d+)$/)) && req.method === 'GET') { // durée et propriétés d'une vidéo de la bibliothèque (ajout d'un clip à la timeline)
+      const info = video.clipInfo(Number(r[1]));
+      res.writeHead(info ? 200 : 404, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      return res.end(JSON.stringify(info || { error: 'Vidéo illisible ou introuvable.' }));
+    }
     if ((r = path.match(/^\/api\/jobs\/(\d+)$/)) && req.method === 'GET') {
       res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
       return res.end(JSON.stringify(video.listJobs(Number(r[1]))));
@@ -289,9 +296,9 @@ const server = createServer(async (req, res) => {
         return res.end(toSrt(video.getCues(ed.id, scope).cues));
       }
       if (req.method === 'GET' && !sub) {
-        const design = video.getVideoDesign(ed.id, scope), asset = design.asset ? studio.getAsset(Number(design.asset)) : null;
-        const info = asset && storage.exists(asset.stored) ? probe(studio.assetPath(asset)) : null;
-        return page('Vidéos', videoPage(ed, { ws: vid ? variants.workspaceInfo(vid) : undefined, variant, design, cues: video.getCues(ed.id, scope).cues, info, assets: studio.listAssets(ed.id), ready: ffmpegReady(), draft: (design.endcard?.on && studio.posterBlockers(ed, [['9x16', studio.getDesign(ed.id, scope ? `${scope}_9x16` : 'poster_9x16')]]).length > 0) || asset?.provisional === 1 }), msgOf());
+        const m = video.getTlModel(ed.id, scope), design = m.design;
+        const provisional = m.tl.clips.some((c) => studio.getAsset(Number(c.asset))?.provisional === 1);
+        return page('Vidéos', videoPage(ed, { ws: vid ? variants.workspaceInfo(vid) : undefined, variant, design, tl: m.tl, cues: m.cues, infos: video.clipInfos(m.tl), assets: studio.listAssets(ed.id), ready: ffmpegReady(), draft: (design.endcard?.on && studio.posterBlockers(ed, [['9x16', studio.getDesign(ed.id, scope ? `${scope}_9x16` : 'poster_9x16')]]).length > 0) || provisional }), msgOf());
       }
       if (req.method === 'POST') {
         const b = await readBody(req);
@@ -498,9 +505,11 @@ const server = createServer(async (req, res) => {
         if (req.method === 'GET') return url.searchParams.get('mode') === 'test' ? newForm() : light();
         if (req.method === 'POST') {
           const b = await readBody(req);
-          if (b.type) { // « Créer un contenu » : type, nom, campagne facultative, point de départ
+          if (b.type) { // « Ajouter un contenu » : type, nom, campagne (par défaut « Hors campagne »), point de départ
+            if (!Number(b.campaign_id)) b.campaign_id = String(campaigns.ensureOffCampaign(ed.id, user.name));
             if (b.type === 'texte') {
               const o = campaigns.createContent(ed.id, { title: b.name || `Texte — ${new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}`, body: b.copy ? (campaigns.getContent(Number(b.copy))?.body || '') : '', language: 'EN' }, user.name);
+              if (o.ok) campaigns.linkContent(o.id, { campaign_id: Number(b.campaign_id) }, user.name); // le texte appartient à sa campagne (brouillon)
               if (o.ok && b.asset) intake.importIntoContent(ed.id, o.id, Number(b.asset), user.name);
               return o.ok ? redirect(res, `/edition/${ed.id}/texts/${o.id}?step=materiel&m=${encodeURIComponent('Texte créé. Importez un document ou passez à la rédaction.')}`) : light(b, o.error);
             }
@@ -529,15 +538,17 @@ const server = createServer(async (req, res) => {
         if (!v || v.project_id !== ed.id) return send(res, 404, layout('Introuvable', '<h1>Contenu introuvable</h1>', user));
         const back = (m) => redirect(res, `/edition/${ed.id}/variants/${v.id}?m=${encodeURIComponent(m)}`);
         if (req.method === 'GET' && !r[4]) {
+          // « Création » d'une affiche : on arrive directement dans l'éditeur du premier format. La page d'ensemble (textes communs, vidéo, modèle) reste à ?all=1.
+          if (url.searchParams.get('step') === 'creation' && !url.searchParams.has('all') && v.formats.length) return redirect(res, `/edition/${ed.id}/poster/${v.formats[0]}?variant=${v.id}`);
           const autoAdset = v.adset_id ? adsets.find((a) => a.id === v.adset_id) : null, autoCamp = v.campaign_id ? camps.find((c2) => c2.id === v.campaign_id) : null;
           return page(v.name, variantPage(ed, { solo: false, next: variants.nextStep(v.id), checksList: variants.checks(v.id), autoLabel: autoAdset ? `ensemble « ${autoAdset.name} »` : autoCamp ? `campagne « ${autoCamp.name} »` : '', v, outputs: variants.outputsOf(v.id), versions: variants.listVersions(v.id), pristine: variants.isPristine(v), campaigns: camps, adsets, users, planItems: plan.listItems(ed.id, { variantId: v.id }), step: url.searchParams.get('step'), ws: variants.workspaceInfo(v.id), assets: studio.listAssets(ed.id), templates, models: library.listTemplates().filter((t) => t.kind === 'modele'), design0: v.formats.length ? studio.getDesign(ed.id, `v${v.id}_${v.formats[0]}`) : null, vdesign: v.with_video ? video.getVideoDesign(ed.id, `v${v.id}`) : null }), msgOf());
         }
         if (req.method === 'POST') {
           const b = await readBody(req);
-          if (r[4] === 'save-model') { const o = await library.saveModel(ed, v, b, user.name); return redirect(res, `/edition/${ed.id}/variants/${v.id}?step=creation&m=${encodeURIComponent(o.ok ? `Modèle enregistré (version ${o.version}). Vous le retrouvez dans « Créer un contenu » et dans Bibliothèque › Designs et modèles.` : o.error)}`); }
+          if (r[4] === 'save-model') { const o = await library.saveModel(ed, v, b, user.name); return redirect(res, `/edition/${ed.id}/variants/${v.id}?step=creation&all=1&m=${encodeURIComponent(o.ok ? `Modèle enregistré (version ${o.version}). Vous le retrouvez dans « Créer un contenu » et dans Bibliothèque › Designs et modèles.` : o.error)}`); }
           if (r[4] === 'material') { const o = variants.applyMaterial(v.id, b, user.name); return redirect(res, `/edition/${ed.id}/variants/${v.id}?step=materiel&m=${encodeURIComponent(o.ok ? o.msg : o.error)}`); }
           if (r[4] === 'update') { variants.updateVariant(v.id, b, user.name); return back('Intention enregistrée.'); }
-          if (r[4] === 'messages') { variants.updateMessages(v.id, b, user.name); return back('Textes appliqués aux formats.'); }
+          if (r[4] === 'messages') { variants.updateMessages(v.id, b, user.name); return redirect(res, `/edition/${ed.id}/variants/${v.id}?step=creation&all=1&m=${encodeURIComponent('Textes appliqués aux formats : voir les aperçus ci-dessous.')}#textes`); }
           if (r[4] === 'assign') { const o = variants.assign(v.id, b, user.name); return back(o.ok ? 'Responsable, relecteur et échéance enregistrés.' : o.error); }
           if (r[4] === 'review') { const o = variants.requestReview(v.id, user.name); plan.syncVariant(v.id); return back(o.ok ? 'Mise de côté « à relire » : revenez-y avec un regard neuf, puis approuvez.' : o.error); }
           if (r[4] === 'approve-export') {
@@ -574,7 +585,7 @@ const server = createServer(async (req, res) => {
         const month = /^\d{4}-\d{2}$/.test(url.searchParams.get('month') || '') ? url.searchParams.get('month') : plan.today().slice(0, 7);
         const campaignFilter = Number(url.searchParams.get('campaign')) || '';
         const grid = plan.monthGrid(month), from = grid[0][0].date, to = grid[grid.length - 1][6].date;
-        return page('Calendrier', calendarPage(ed, { month, items: plan.listItems(ed.id, { from, to, campaignId: campaignFilter || undefined }), campaigns: campaigns.listCampaigns(ed.id), variants: variants.listVariants(ed.id), users: db.listUsers().map((u) => u.name), solo: db.listUsers().length <= 1, todo: todo.nextActions(ed.id), campaignFilter }), msgOf());
+        return page('Calendrier', calendarPage(ed, { thumbs: Object.fromEntries(studio.listExports(ed.id).filter((e) => e.kind === 'affiche' && e.variant_id).reverse().map((e) => [e.variant_id, `/exports/${e.id}`])), month, items: plan.listItems(ed.id, { from, to, campaignId: campaignFilter || undefined }), campaigns: campaigns.listCampaigns(ed.id), variants: variants.listVariants(ed.id), users: db.listUsers().map((u) => u.name), solo: db.listUsers().length <= 1, todo: todo.nextActions(ed.id), campaignFilter }), msgOf());
       }
       if (req.method === 'POST') {
         const b = await readBody(req);

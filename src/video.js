@@ -7,6 +7,7 @@ import { FFMPEG, probe, reframe, parseSubtitles, toAss } from './media.js';
 import { getAsset, assetPath, getDesign, buildPosterHtml, htmlToPng, EXPORT_PATH, fireDesignSaved } from './studio.js';
 import { FORMATS, VIDEO_FORMATS } from './formats.js';
 import { posterBlockers } from './schema.js';
+import { cleanTl, tlSummary, tlAssetIds, legacyToTl, buildTlJob, infoOf, resolveSubs, mergedCues, cleanCues } from './timeline.js';
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS subtitles(edition_id INTEGER PRIMARY KEY, json TEXT NOT NULL, source TEXT NOT NULL DEFAULT '', updated TEXT NOT NULL);
@@ -51,17 +52,42 @@ export function saveVideoDesign(editionId, raw, scope = '', who = '') {
     const r = i.reframe?.[fmt];
     if (r) rf[fmt] = { posx: num(r.posx, 0, 100, 50), posy: num(r.posy, 0, 100, 50), zoom: num(r.zoom, 100, 300, 100) };
   }
+  // Position d'un élément par format : centre en px dans l'image du format. On ne garde que ce qui s'écarte de l'emplacement d'origine (les anciens designs gardent leur empreinte).
+  const cleanPos = (m) => { const o = {}; for (const fmt of VIDEO_FORMATS) { const p = m?.[fmt], f = FORMATS[fmt]; if (p && Number.isFinite(Number(p.x)) && Number.isFinite(Number(p.y))) o[fmt] = { x: Math.round(num(p.x, 0, f.w, f.w / 2)), y: Math.round(num(p.y, 0, f.h, f.h / 2)) }; } return o; };
+  const lpos = cleanPos(i.logo?.pos), spos = cleanPos(i.subs?.pos);
+  let tl = null;
+  if (i.tl) {
+    tl = cleanTl(i.tl, own);
+    // un autre écran (matériel d'un contenu) a changé la vidéo source sans toucher à la timeline : le premier clip suit
+    const prev = (() => { const r = db.prepare('SELECT json FROM designs WHERE edition_id=? AND key=?').get(editionId, vkey(scope)); return r ? JSON.parse(r.json) : {}; })();
+    if (prev.tl && JSON.stringify(i.tl) === JSON.stringify(prev.tl) && own(i.asset, ['video']) && String(i.asset) !== String(prev.asset) && tl.clips.length) tl.clips[0] = { ...tl.clips[0], asset: String(i.asset), in: 0, out: 0 };
+  }
   const d = {
     asset: own(i.asset, ['video']), start: num(i.start, 0, 86400, 0), end: num(i.end, 0, 86400, 0),
-    logo: { asset: own(i.logo?.asset, ['image']), corner: ['tl', 'tr', 'bl', 'br'].includes(i.logo?.corner) ? i.logo.corner : 'tr', size: num(i.logo?.size, 5, 40, 14), margin: num(i.logo?.margin, 0, 15, 4) },
+    logo: { asset: own(i.logo?.asset, ['image']), corner: ['tl', 'tr', 'bl', 'br'].includes(i.logo?.corner) ? i.logo.corner : 'tr', size: num(i.logo?.size, 5, 40, 14), margin: num(i.logo?.margin, 0, 15, 4), ...(Object.keys(lpos).length ? { pos: lpos } : {}) },
     endcard: { on: i.endcard?.on === true || i.endcard?.on === '1', seconds: num(i.endcard?.seconds, 1, 10, 3) },
-    subs: { on: i.subs?.on === true || i.subs?.on === '1', size: num(i.subs?.size, 60, 160, 100) },
+    subs: { on: i.subs?.on === true || i.subs?.on === '1', size: num(i.subs?.size, 60, 160, 100), ...(Object.keys(spos).length ? { pos: spos } : {}) },
     reframe: rf, formats: (i.formats || []).filter((f) => VIDEO_FORMATS.includes(f)),
   };
+  if (tl) Object.assign(d, { tl }, tlSummary(tl));
   db.prepare('INSERT INTO designs VALUES(?,?,?,?) ON CONFLICT(edition_id,key) DO UPDATE SET json=excluded.json, updated=excluded.updated').run(editionId, vkey(scope), JSON.stringify(d), now());
   fireDesignSaved(editionId, vkey(scope), who);
   return d;
 }
+
+// --- montage à timeline : ce que l'éditeur affiche (un ancien design à une vidéo est converti, avec les mêmes emplacements)
+export function getTlModel(editionId, scope = '') {
+  const design = getVideoDesign(editionId, scope), c = getCues(editionId, scope);
+  if (design.tl) { const tl = resolveSubs(design.tl, c.cues); return { design, tl, cues: mergedCues(tl), converted: false }; }
+  const { tl, cues } = legacyToTl(design, c.cues);
+  return { design, tl, cues, converted: true };
+}
+export function clipInfo(assetId) {
+  const a = getAsset(Number(assetId));
+  const i = a && a.kind === 'video' ? infoOf(a) : null;
+  return i ? { w: i.w, h: i.h, duration: i.duration, hasAudio: !!i.hasAudio, name: a.label || a.name } : null;
+}
+export const clipInfos = (tl) => Object.fromEntries(tl.clips.map((c) => [c.asset, clipInfo(c.asset)]).filter(([, v]) => v));
 
 // --- sous-titres
 export const getCues = (editionId, scope = '') => {
@@ -87,6 +113,14 @@ export function importCues(editionId, assetId, who, scope = '') {
   const cues = parseSubtitles(readFileSync(assetPath(a), 'utf8'));
   if (!cues.length) return { ok: false, error: 'Aucun sous-titre lisible dans ce fichier.' };
   saveCues(editionId, cues, who, a.name, scope);
+  const d = getVideoDesign(editionId, scope);
+  if (d.tl) {
+    const els = [...d.tl.els];
+    let i = els.findIndex((e) => e.type === 'subs');
+    if (i < 0) { els.push({ id: 'e' + Date.now().toString(36), type: 'subs', start: 0, end: 0, fx: 0.5, fy: 0.8, pos: {}, s: 100, rot: 0, op: 100 }); i = els.length - 1; }
+    els[i] = { ...els[i], cues: cleanCues(cues) };
+    saveVideoDesign(editionId, { ...d, tl: { ...d.tl, els } }, scope, who);
+  }
   return { ok: true, count: cues.length };
 }
 
@@ -97,7 +131,8 @@ function jobKey(ed, fmt, d, cues, ctx = {}) {
   const src = getAsset(Number(d.asset)), logo = d.logo.asset ? getAsset(Number(d.logo.asset)) : null;
   return createHash('sha1').update(JSON.stringify({
     e: ed.id, fmt, d, srcFile: src && [src.stored, src.size], logo: logo && logo.stored, edUpdated: ed.updated,
-    cues: d.subs.on ? cues : null, poster: d.endcard.on ? (ctx.posterDesigns?.[fmt] || getDesign(ed.id, `poster_${fmt}`)) : null,
+    tl: d.tl ? tlAssetIds(d.tl).map((id) => { const a = getAsset(Number(id)); return a && [a.stored, a.size]; }) : null,
+    cues: (d.tl ? d.tl.els.some((e) => e.type === 'subs' && !e.cues) : d.subs.on) ? cues : null, poster: d.endcard.on ? (ctx.posterDesigns?.[fmt] || getDesign(ed.id, `poster_${fmt}`)) : null,
     draft: ctx.draft ?? (d.endcard.on ? posterBlockers(ed, [[fmt, getDesign(ed.id, `poster_${fmt}`)]]).length > 0 : false), variant: ctx.variant ? [ctx.variant.id, ctx.variant.version] : null,
   })).digest('hex');
 }
@@ -107,7 +142,7 @@ function jobKey(ed, fmt, d, cues, ctx = {}) {
 export function planExports(ed, who, opts = {}) {
   const st = opts.state;
   const d = st ? st.design : getVideoDesign(ed.id, opts.scope || ''), cues = st ? st.cues : getCues(ed.id, opts.scope || '').cues;
-  if (!d.asset) return { ok: false, error: 'Choisissez d’abord une vidéo source.' };
+  if (d.tl ? !d.tl.clips.length : !d.asset) return { ok: false, error: d.tl ? 'Ajoutez d’abord un clip à la timeline.' : 'Choisissez d’abord une vidéo source.' };
   if (!d.formats.length) return { ok: false, error: 'Cochez au moins un format.' };
   const out = [];
   for (const fmt of d.formats) {
@@ -157,6 +192,7 @@ async function runJob(id) {
   const ed = state ? { ...ed0, data: state.fiche } : ed0; // version approuvée : la fiche figée au moment de l'approbation
   const fmt = job.fmt, f = FORMATS[fmt];
   setJob(id, { status: 'running', progress: 0, message: 'Préparation…' });
+  if (d.tl) return runTlJob(id, job, ed, ed0, d, cues, state, f, fmt);
 
   const src = getAsset(Number(d.asset));
   if (!src) return fail(id, 'La vidéo source n’existe plus dans la bibliothèque.');
@@ -184,7 +220,7 @@ async function runJob(id) {
   // sous-titres recalés sur l'extrait, avec les marges propres à ce format
   let ass = false;
   if (d.subs.on && cues.length) {
-    const txt = toAss(cues, { W: f.w, H: f.h, fontSize: Math.round(f.w * 0.045 * d.subs.size / 100), marginV: f.safe.bottom + Math.round(f.h * 0.02), marginSide: f.safe.side, from: start, to: end });
+    const txt = toAss(cues, { W: f.w, H: f.h, fontSize: Math.round(f.w * 0.045 * d.subs.size / 100), marginV: f.safe.bottom + Math.round(f.h * 0.02), marginSide: f.safe.side, from: start, to: end, pos: d.subs.pos?.[fmt] });
     if (txt.includes('Dialogue:')) { writeFileSync(tmp + 'subs.ass', txt); ass = true; }
   }
   const logoAsset = d.logo.asset ? getAsset(Number(d.logo.asset)) : null;
@@ -204,8 +240,9 @@ async function runJob(id) {
   if (logoAsset) {
     const lw = Math.round(f.w * d.logo.size / 100), m = Math.round(f.w * d.logo.margin / 100);
     const c = d.logo.corner;
-    const x = c.endsWith('l') ? m : `W-overlay_w-${m}`;
-    const y = c.startsWith('t') ? Math.max(m, f.safe.top) : `H-overlay_h-${Math.max(m, f.safe.bottom)}`;
+    const lp = d.logo.pos?.[fmt]; // position choisie : le centre du logo est à (x, y) ; sinon le coin d'origine
+    const x = lp ? `${lp.x}-overlay_w/2` : c.endsWith('l') ? m : `W-overlay_w-${m}`;
+    const y = lp ? `${lp.y}-overlay_h/2` : c.startsWith('t') ? Math.max(m, f.safe.top) : `H-overlay_h-${Math.max(m, f.safe.bottom)}`;
     fg.push(`[${idx.logo}:v]scale=${lw}:-1,format=rgba[lg]`, `[${cur}][lg]overlay=${x}:${y}:format=auto[v1]`);
     cur = 'v1';
   }
@@ -220,14 +257,36 @@ async function runJob(id) {
     fg.push(`[${idx.end}:v]scale=${f.w}:${f.h},setsar=1,fps=30,format=yuv420p[ev]`, `[${idx.sil}:a]aformat=channel_layouts=stereo,atrim=0:${endSecs},asetpts=N/SR/TB[ea]`,
       `[${cur}][a0][ev][ea]concat=n=2:v=1:a=1[vout][aout]`);
   } else fg.push(`[${cur}]null[vout]`, '[a0]anull[aout]');
-  writeFileSync(tmp + 'graph.txt', fg.join(';\n'));
+  return encode(id, job, { args, graph: fg.join(';\n'), tmp, total: dur + endSecs, draft, f, fmt, ed, state, sourceIds: [d.asset, d.logo.asset].filter(Boolean) });
+}
 
+// Montage à timeline : mêmes garde-fous que l'export historique (écran de fin, marquage brouillon), puis la commande construite par timeline.js.
+async function runTlJob(id, job, ed, ed0, d, cues, state, f, fmt) {
+  const tmp = TMP + 'job' + id + '/';
+  rmSync(tmp, { recursive: true, force: true });
+  mkdirSync(tmp, { recursive: true });
+  const blockers = state ? (state.draft ? ['figé'] : []) : (d.endcard.on ? posterBlockers(ed0, [[fmt, getDesign(ed0.id, `poster_${fmt}`)]]) : []);
+  const draft = state ? state.draft : blockers.length > 0 || d.tl.clips.some((c) => getAsset(Number(c.asset))?.provisional === 1);
+  const endSecs = d.endcard.on ? d.endcard.seconds : 0;
+  if (endSecs) {
+    setJob(id, { message: 'Création de l’écran de fin…' });
+    const ok = await htmlToPng(buildPosterHtml(ed, fmt, blockers, { design: state?.posterDesigns?.[fmt] }).html, fmt, tmp + 'end.png');
+    if (!ok) return fail(id, 'Impossible de créer l’écran de fin (Edge ou Chrome introuvable ?).');
+  }
+  setJob(id, { message: 'Montage…' });
+  const r = await buildTlJob({ d, cues, fmt, f, tmp, draft, endSecs });
+  if (r.error) return fail(id, r.error);
+  return encode(id, job, { ...r, tmp, draft, f, fmt, ed, state });
+}
+
+// Fin commune : encode, vérifie le fichier, l'enregistre comme export.
+async function encode(id, job, { args, graph, tmp, total, draft, f, fmt, ed, state, sourceIds }) {
+  writeFileSync(tmp + 'graph.txt', graph);
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   const base = `video-${ed.id}-${fmt}-${stamp}${draft ? '-DRAFT' : ''}.mp4`;
   args.push('-/filter_complex', 'graph.txt', '-map', '[vout]', '-map', '[aout]', '-c:v', 'libx264', '-preset', 'medium', '-crf', '20', '-r', '30',
     '-c:a', 'aac', '-b:a', '160k', '-movflags', '+faststart', EXPORT_PATH + base);
 
-  const total = dur + endSecs;
   setJob(id, { message: 'Encodage…' });
   const code = await new Promise((resolve) => {
     const p = spawn(FFMPEG, args, { cwd: tmp, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
@@ -250,7 +309,7 @@ async function runJob(id) {
     return fail(id, `L’export a échoué. ${tail}`);
   }
   const res = db.prepare('INSERT INTO exports(edition_id,kind,label,file,draft,source_ids,created,created_by,variant_id,variant_version,fmt,content_key) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)')
-    .run(ed.id, 'video', `${state ? `Variante v${state.variant.version} — ` : ''}Vidéo ${f.label}`, base, draft ? 1 : 0, JSON.stringify([d.asset, d.logo.asset].filter(Boolean)), now(), job.created_by, state?.variant.id ?? null, state?.variant.version ?? null, fmt, job.key);
+    .run(ed.id, 'video', `${state ? `Variante v${state.variant.version} — ` : ''}Vidéo ${f.label}`, base, draft ? 1 : 0, JSON.stringify(sourceIds), now(), job.created_by, state?.variant.id ?? null, state?.variant.version ?? null, fmt, job.key);
   setJob(id, { status: 'done', progress: 1, message: draft ? 'Terminé (BROUILLON : fiche non prête ou source provisoire).' : 'Terminé.', export_id: Number(res.lastInsertRowid) });
   log(job.created_by, `Vidéo exportée (${f.label})${draft ? ' — BROUILLON' : ''}`);
   rmSync(tmp, { recursive: true, force: true });

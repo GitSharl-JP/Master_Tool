@@ -23,12 +23,12 @@ const check = (name, cond, extra = '') => { results.push({ step: curStep, name, 
 async function step(name, fn) { curStep = name; console.log(`\n▶ ${name}`); t0 = Date.now(); try { await fn(); } catch (e) { check('étape sans erreur inattendue', false, e.stack.split('\n').slice(0, 2).join(' | ')); } const s = (Date.now() - t0) / 1000; results.push({ step: name, time: s }); console.log(`   (${s.toFixed(1)} s)`); }
 
 // ---------- images de test générées sans dépendance (PNG dégradé)
-function png(w, h, seed) {
+function png(w, h, seed, solid) {
   const crcT = new Int32Array(256).map((_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c; });
   const crc = (b) => { let c = -1; for (const x of b) c = crcT[(c ^ x) & 255] ^ (c >>> 8); return (c ^ -1) >>> 0; };
   const chunk = (t, d) => { const l = Buffer.alloc(4); l.writeUInt32BE(d.length); const td = Buffer.concat([Buffer.from(t), d]); const c = Buffer.alloc(4); c.writeUInt32BE(crc(td)); return Buffer.concat([l, td, c]); };
   const raw = Buffer.alloc((w * 3 + 1) * h);
-  for (let y = 0; y < h; y++) { raw[y * (w * 3 + 1)] = 0; for (let x = 0; x < w; x++) { const o = y * (w * 3 + 1) + 1 + x * 3; raw[o] = (x * 255 / w + seed * 40) & 255; raw[o + 1] = (y * 255 / h) & 255; raw[o + 2] = (128 + seed * 60 + ((x ^ y) & 31)) & 255; } }
+  for (let y = 0; y < h; y++) { raw[y * (w * 3 + 1)] = 0; for (let x = 0; x < w; x++) { const o = y * (w * 3 + 1) + 1 + x * 3; raw[o] = (x * 255 / w + seed * 40) & 255; raw[o + 1] = (y * 255 / h) & 255; raw[o + 2] = (128 + seed * 60 + ((x ^ y) & 31)) & 255; if (solid) { raw[o] = solid[0]; raw[o + 1] = solid[1]; raw[o + 2] = solid[2]; } } }
   const ih = Buffer.alloc(13); ih.writeUInt32BE(w, 0); ih.writeUInt32BE(h, 4); ih[8] = 8; ih[9] = 2;
   return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ih), chunk('IDAT', deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]);
 }
@@ -330,15 +330,15 @@ await step('4e. Gestionnaire de projets : essai, renommer, archiver, supprimer',
 
 await step('4f. Navigation simplifiée : Accueil de travail, cinq destinations, paramètres à part', async () => {
   const h = await A.text('/edition/1');
-  check('cinq destinations + Paramètres du projet', ['Accueil', 'Contenus', 'Campagnes', 'Bibliothèque', 'Site web', 'Paramètres du projet'].every((w) => h.includes(`>${w}<`)));
-  check('l’Accueil propose « Créer un contenu » et « Ouvrir une campagne »', /Créer un contenu/.test(h) && /Ouvrir une campagne/.test(h));
+  check('cinq destinations + Paramètres du projet (plus de « Contenus » à part : un contenu naît dans une campagne)', ['Accueil', 'Campagnes', 'Calendrier', 'Site web', 'Bibliothèque', 'Paramètres du projet'].every((w) => h.includes(`>${w}<`)) && !h.includes('>Contenus<'));
+  check('l’Accueil mène aux campagnes et au calendrier ; pas de création de contenu hors campagne', /Mes campagnes/.test(h) && /Calendrier du projet/.test(h) && !/\+ Créer un contenu/.test(h));
   check('l’Accueil n’est plus la fiche (pas de formulaire de fiche)', !/name="title_en"/.test(h) && !/Dupliquer ce projet/.test(h));
   check('l’Accueil distingue production à reprendre, validations, échéances, suivi et configuration', ['Production à reprendre', 'Validations attendues', 'Prochaines échéances', 'Suivi et configuration'].every((w) => h.includes(w)));
   check('un contenu n’apparaît qu’une fois sur l’Accueil', ((h.match(/Émerveillement/g) || []).length) <= 2);
   const s = await A.text('/edition/1/settings');
   check('la fiche du spectacle est dans Paramètres du projet', /name="title_en"/.test(s) && /Gérer ce projet/.test(s) && /Dupliquer ce projet/.test(s));
   const bib = await A.text('/edition/1/assets'), cal = await A.text('/edition/1/calendar');
-  check('Bibliothèque : fichiers sources et designs ; Calendrier depuis l’Accueil', /Fichiers sources/.test(bib) && /Designs et modèles/.test(bib) && /Tableau de travail/.test(cal));
+  check('Bibliothèque : fichiers sources et designs ; Calendrier depuis l’Accueil', /Fichiers sources/.test(bib) && /Designs et modèles/.test(bib) && /Calendrier/.test(cal));
   check('le formulaire de la fiche enregistre depuis les paramètres', s.includes('action="/edition/1/save"'));
 });
 
@@ -352,18 +352,34 @@ await step('4g. Espace de contenu : créer, matériel, création, vérification,
   check('création sans nom ni hypothèse : un nom est proposé, arrivée sur le matériel', !!v1 && /step=materiel/.test(A.loc(c1)), A.loc(c1));
   const m1 = await A.text('/edition/' + P + '/variants/' + v1 + '?step=materiel');
   check('quatre étapes visibles : Matériel, Création, Vérification et exports, Diffusion', ['Matériel', 'Création', 'Vérification et exports', 'Diffusion'].every((w) => m1.includes(w)));
-  check('matériel : import direct, affiche reçue, formats, brief marketing replié', /Importer un fichier/.test(m1) && /Utiliser une affiche déjà reçue/.test(m1) && /Formats de sortie/.test(m1) && /Brief marketing/.test(m1));
+  check('matériel : import direct, affiche reçue, formats, brief marketing replié', /Ajouter un fichier/.test(m1) && /Aucune image dans ce projet|Affiche reçue/.test(m1) && /Formats de sortie/.test(m1) && /Brief marketing/.test(m1));
   const ph = await rawUp('role=hero&name=photo-test.png&what=hero&variant=' + v1, png(900, 1100, 1));
   check('un import depuis le matériel est utilisé tout de suite (sans quitter l’espace)', ph.status === 200 && /step=materiel/.test(ph.json.url) && /photo/i.test(decodeURIComponent(ph.json.url)), ph.json.url);
   check('…et il est dans la bibliothèque', /photo-test\.png/.test(await A.text('/edition/' + P + '/assets')));
   check('…et l’aperçu du contenu utilise cette photo', new RegExp('/files/' + ph.json.id + '"').test(await A.text('/render/poster/' + P + '/4x5?variant=' + v1)));
+  const ad = await rawUp('role=other&name=double-usage.png&what=add&variant=' + v1, png(400, 400, 3));
+  check('« Ajouter un fichier » : il rejoint la bibliothèque, sa destination se choisit ensuite', ad.status === 200 && /choisissez/i.test(decodeURIComponent(ad.json.url)) && /double-usage\.png/.test(await A.text('/edition/' + P + '/assets')), ad.json.url);
+  const au1 = await rawUp('name=logo-orfeo-auto.png', png(200, 200, 4)), au2 = await rawUp('name=teaser-auto.mp4', Buffer.from('pas une vraie video')), au3 = await rawUp('name=sous-titres-auto.srt', Buffer.from('1\n00:00:01,000 --> 00:00:02,000\nHello\n'));
+  const lib = await A.text('/edition/' + P + '/assets');
+  const roleOf = (name) => (new RegExp(name.replace(/[.]/g, '\\.') + '[^]*?<span class="tag">([^<]+)</span>').exec(lib) || [])[1];
+  check('à l’ajout, le type est deviné sans rien demander (logo, vidéo, sous-titres)', au1.status === 200 && au2.status === 200 && au3.status === 200 && roleOf('logo-orfeo-auto.png') === 'Logo' && roleOf('teaser-auto.mp4') === 'Vidéo' && roleOf('sous-titres-auto.srt') === 'Sous-titres', [roleOf('logo-orfeo-auto.png'), roleOf('teaser-auto.mp4'), roleOf('sous-titres-auto.srt')].join(' / '));
+  await A.post(`/edition/${P}/variants/${v1}/material`, { hero: String(ad.json.id) });
+  await A.post(`/edition/${P}/variants/${v1}/material`, { logo: String(ad.json.id) });
+  const dm = await A.text(`/edition/${P}/variants/${v1}?step=materiel`);
+  check('le même fichier sert de photo de fond ET de logo, sans second envoi', (dm.match(/✓ Photo de fond/g) || []).length === 1 && (dm.match(/✓ Logo/g) || []).length === 1);
+  await A.post(`/edition/${P}/variants/${v1}/material`, { hero: String(ph.json.id) });
+  await A.post(`/edition/${P}/variants/${v1}/material`, { logo: '' });
+  const dm2 = await A.text(`/edition/${P}/variants/${v1}?step=materiel`);
+  check('on remet la photo d’origine et on retire le logo (un clic de plus)', (dm2.match(/✓ Photo de fond/g) || []).length === 1 && !/✓ Logo/.test(dm2));
   await rawUp('role=poster&name=musee.svg&what=poster&variant=' + v1, Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1350"><rect width="1080" height="1350" fill="#224"/><circle cx="540" cy="600" r="300" fill="#c8a24a"/></svg>'));
   check('une affiche SVG importée depuis le matériel remplace la composition pour ce contenu', /class="bgb"/.test(await A.text('/render/poster/' + P + '/9x16?variant=' + v1)));
   check('les autres contenus du projet ne sont pas touchés', !/class="bgb"/.test(await A.text('/render/poster/' + P + '/9x16')));
   await A.post('/edition/' + P + '/variants/' + v1 + '/material', { poster: 'none' });
   check('retour à la composition de l’atelier', !/class="bgb"/.test(await A.text('/render/poster/' + P + '/9x16?variant=' + v1)));
   const fm = await A.post('/edition/' + P + '/variants/' + v1 + '/material', { set_formats: '1', fmt_4x5: '1', fmt_1x1: '1' });
-  const cr = await A.text('/edition/' + P + '/variants/' + v1 + '?step=creation');
+  const go = await A.get('/edition/' + P + '/variants/' + v1 + '?step=creation');
+  check('« Création » d’une affiche ouvre directement l’éditeur du premier format', go.status >= 300 && go.status < 400 && new RegExp('/edition/' + P + '/poster/\\w+\\?variant=' + v1).test(A.loc(go)), A.loc(go));
+  const cr = await A.text('/edition/' + P + '/variants/' + v1 + '?step=creation&all=1');
   check('formats modifiés : le nouveau format apparaît à la création, l’ancien disparaît', /Modifier ce format/.test(cr) && /1:1/.test(cr) && !/9:16 — Stories/.test(cr), A.loc(fm));
   const ed = await A.text('/edition/' + P + '/poster/1x1?variant=' + v1);
   check('l’éditeur d’affiche garde l’en-tête à quatre étapes et le retour', /class="ws"/.test(ed) && /step=verification/.test(ed) && /id="pform"/.test(ed));
@@ -374,7 +390,7 @@ await step('4g. Espace de contenu : créer, matériel, création, vérification,
   const df = await A.text('/edition/' + P + '/variants/' + v1 + '?step=diffusion');
   check('diffusion : campagne, publication organique, téléchargement ; rien n’est envoyé à Meta', /Associer à une campagne/.test(df) && /Publication organique/.test(df) && /Télécharger uniquement/.test(df) && /n’envoie rien à Meta/.test(df) && /\/exports\/\d+\?dl=1/.test(df));
   const back = await A.text('/edition/' + P + '/variants/' + v1 + '?step=materiel');
-  check('on peut revenir au matériel après l’export (rien n’est perdu)', /Importer un fichier/.test(back));
+  check('on peut revenir au matériel après l’export (rien n’est perdu)', /Ajouter un fichier/.test(back));
   const cpy = await A.post('/edition/' + P + '/variants/new', { type: 'affiche', name: 'Copie du premier', copy: String(v1) });
   check('créer un contenu en copiant un existant (sans hypothèse ni test)', /variants\/\d+\?step=materiel/.test(A.loc(cpy)), A.loc(cpy));
   // ---- vidéo
@@ -383,10 +399,10 @@ await step('4g. Espace de contenu : créer, matériel, création, vérification,
   const c2 = await A.post('/edition/' + P + '/variants/new', { type: 'video', name: 'Teaser vidéo' });
   const v2 = Number(/variants\/(\d+)/.exec(c2.headers.get('location') || '')?.[1]);
   const m2 = await A.text('/edition/' + P + '/variants/' + v2 + '?step=materiel');
-  check('contenu vidéo : le matériel propose la vidéo source, pas la photo d’affiche', /Vidéo source/.test(m2) && !/Photo de fond<\/label>/.test(m2));
+  check('contenu vidéo : le matériel propose la vidéo source, pas la photo d’affiche', /Choisir la vidéo source/.test(m2) && !/Photo de fond<\/label>/.test(m2));
   const vu = await rawUp('role=video&name=court.mp4&what=video&variant=' + v2, readFileSync(vp));
   check('import de la vidéo depuis le matériel : utilisée aussitôt', vu.status === 200 && /vidéo source/i.test(decodeURIComponent(vu.json.url)), vu.json.url);
-  const cv = await A.text('/edition/' + P + '/variants/' + v2 + '?step=creation');
+  const cv = await A.text('/edition/' + P + '/variants/' + v2 + '?step=creation&all=1');
   check('création vidéo : accès à l’éditeur (extrait, cadrage, logo, sous-titres)', /Ouvrir l’éditeur vidéo/.test(cv) && /court\.mp4/.test(cv));
   const ve = await A.text('/edition/' + P + '/video?variant=' + v2);
   check('l’éditeur vidéo garde l’en-tête de l’espace de travail', /class="ws"/.test(ve) && /step=materiel/.test(ve) && /id="vform"/.test(ve));
@@ -422,13 +438,20 @@ await step('4h. Campagnes, bibliothèque et calendrier reliés au parcours de co
   // ---- campagnes : indicateur compact, avancement, configuration déplacée
   const list = await A.text('/edition/1/campaigns');
   check('Campagnes : indicateur Meta compact, plus de formulaire de configuration en tête', /Meta :/.test(list) && /non connecté/.test(list) && !/name="ad_account"/.test(list) && /Connexions du projet/.test(list));
-  check('Campagnes : chaque campagne montre son avancement et ses actions', /publiés|transmis|en préparation/.test(list) && /\+ Créer un contenu/.test(list) && /Ouvrir/.test(list));
+  check('Campagnes : chaque campagne montre son avancement et ses actions', /publiés|transmis|en préparation/.test(list) && /\+ Ajouter un contenu/.test(list) && /Ouvrir/.test(list) && /\+ Nouvelle campagne/.test(list));
   const st = await A.text('/edition/1/settings');
   check('la connexion Meta (saisie à la main) est dans les Paramètres du projet', /id="connexions"/.test(st) && /name="ad_account"/.test(st) && /non connecté/.test(st));
   const sv = await A.post('/edition/1/campaigns/meta', { ad_account: 'act_42', page_name: 'Page test', from: 'settings' });
   check('enregistrer la connexion ramène aux paramètres, donnée conservée', /\/settings/.test(A.loc(sv)) && /value="act_42"/.test(await A.text('/edition/1/settings')));
   const cp = await A.text('/edition/1/campaigns/' + ids.c);
-  check('page campagne : contenus et avancement avant la configuration Meta', cp.indexOf('Contenus de cette campagne') > 0 && cp.indexOf('Contenus de cette campagne') < cp.indexOf('Configuration Meta') && /Configuration Meta et brief interne/.test(cp));
+  check('page campagne : contenus et avancement avant la configuration Meta', cp.indexOf('Contenus de cette campagne') > 0 && cp.indexOf('Contenus de cette campagne') < cp.indexOf('Configuration Meta') && /Brief interne et lien avec Meta/.test(cp));
+  check('page campagne : le fil Brief › Contenus › Validation › Export › Meta, avec le prochain pas', /class="frise"/.test(cp) && ['Brief', 'Contenus', 'Validation', 'Export', 'Meta'].every((w) => cp.includes(`. ${w}</b>`)) && /class="now"/.test(cp));
+  const oc = await A.post('/edition/1/variants/new', { type: 'affiche', name: 'Visuel organique' }), ov = Number(/variants\/(\d+)/.exec(A.loc(oc))?.[1]);
+  const lst = await A.text('/edition/1/campaigns');
+  check('un contenu créé sans campagne va dans « Hors campagne » (créée au premier besoin, une seule fois)', ov > 0 && (lst.match(/campaigns\/\d+">Hors campagne/g) || []).length === 1);
+  const ot = await A.post('/edition/1/variants/new', { type: 'texte', name: 'Légende organique' });
+  const lst2 = await A.text('/edition/1/campaigns'), offId = Number(/campaigns\/(\d+)">Hors campagne/.exec(lst2)?.[1]);
+  check('un texte créé sans campagne est rattaché à « Hors campagne », sans second « Hors campagne »', /Légende organique/.test(await A.text('/edition/1/campaigns/' + offId)) && (lst2.match(/campaigns\/\d+">Hors campagne/g) || []).length === 1, A.loc(ot));
   check('page campagne : créer un contenu pour cette campagne + associer un contenu existant', new RegExp('variants/new\\?campaign=' + ids.c).test(cp) && /Associer un contenu existant/.test(cp));
   check('page campagne : versions diffusées toujours figées et visibles', /🔒/.test(cp) && /nouveaux contenus en brouillon/.test(cp));
   // ---- créer un contenu pour une campagne : contexte prérempli
@@ -531,7 +554,7 @@ await step('4i. Validations ciblées, modèles de contenu et kit graphique', asy
   check('créer un contenu depuis un modèle', /variants\/\d+\?step=materiel/.test(A.loc(c5)), A.loc(c5));
   const dup = await A.post('/edition/' + Q + '/designs/duplicate/' + tid, { name: 'Copie du modèle' });
   check('dupliquer un modèle : l’original reste intact, la copie est indépendante', /dupliqué/.test(A.loc(dup)) && /Copie du modèle/.test(await A.text('/edition/' + Q + '/designs')) && /Modèle affiche ciblée/.test(await A.text('/edition/' + Q + '/designs')));
-  const fl = await A.text('/edition/' + Q + '/variants/' + v1 + '?step=creation');
+  const fl = await A.text('/edition/' + Q + '/variants/' + v1 + '?step=creation&all=1');
   check('l’étape Création propose « Enregistrer comme modèle »', /Enregistrer comme modèle/.test(fl));
   // ---- kit graphique
   const kt = await A.text('/edition/1/designs');
@@ -555,6 +578,7 @@ await step('4i. Validations ciblées, modèles de contenu et kit graphique', asy
 await step('5. Corriger textes, cadrage et sous-titres', async () => {
   const msg = await A.post(`/edition/1/variants/${ids.v1}/messages`, { msg_title: 'LIGHT & SOUND', msg_tagline: 'Wonder after dark', msg_top: 'Every evening from sunset', msg_cta: 'Book now' });
   check('textes appliqués aux formats', /Textes appliqués/.test(A.loc(msg)));
+  check('« Appliquer aux formats » reste sur l’étape Création (pas de saut vers la vérification), au bloc des textes', /step=creation/.test(A.loc(msg)) && /#textes$/.test(A.loc(msg)) && /id="textes"/.test(await A.text(`/edition/1/variants/${ids.v1}?step=creation&all=1`)), A.loc(msg));
   const render = await A.text(`/render/poster/1/4x5?variant=${ids.v1}`);
   check('l’aperçu de la variante montre ses textes, pas ceux du projet', /LIGHT &amp; SOUND/.test(render) && !/>NIGHT SHOW</.test(render));
   const base = await A.text('/render/poster/1/4x5');
@@ -743,6 +767,7 @@ await step('10. Calendrier de production', async () => {
   check('pas de double planification', /déjà planifié/.test(A.loc(again)));
   await A.post('/edition/1/calendar/new', { title: 'Réunion de lancement Meta', kind: 'jalon', due_date: '2027-01-12', owner: 'Alice', campaign_id: String(ids.c) });
   const cal = await A.text('/edition/1/calendar?month=2027-01');
+  check('calendrier : chaque tâche porte ses détails pour la bulle au survol (titre, date, état, contenu)', /data-tip="[^"]*&quot;title&quot;:&quot;[^"]+&quot;when&quot;:/.test(cal) && /&quot;state&quot;:/.test(cal));
   check('le calendrier affiche les étapes, avec responsables', /Préparer textes/.test(cal) && /Réunion de lancement/.test(cal) && /2027-01-10|Relecture/.test(cal));
   check('étapes cochées automatiquement quand la réalité les rattrape (variante approuvée et exportée)', (cal.match(/s-ok/g) || []).length >= 3, `${(cal.match(/s-ok/g) || []).length} étape(s) faites`);
   const cal2 = await A.get('/edition/1/calendar?month=2027-02'); check('navigation de mois', cal2.status === 200);
@@ -771,6 +796,149 @@ await step('11. Reprise après erreur sans doublon (vidéo)', async () => {
   check('la reprise relance la MÊME tâche (pas de doublon) et réussit', js.length === before && js.find((j) => j.id === errJob.id)?.status === 'done', `${before} → ${js.length} tâches`);
   const vids = (await A.text('/edition/1/contents')).match(/Version japonaise · 9:16 \(vidéo\)/g) || [];
   check('un seul contenu vidéo issu de cette reprise', vids.length === 1, `${vids.length}`);
+});
+
+await step('11d. Timeline vidéo : clips bout à bout, éléments (échelle, rotation, opacité, début/fin), texte libre — l’export suit exactement', async () => {
+  const t = await A.post('/edition/test'); const T = Number(/edition\/(\d+)/.exec(t.headers.get('location'))?.[1]);
+  const clip = (color, name) => { const f = join(TMP, name); spawnSync(FF, ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'color=c=' + color + ':size=640x360:rate=25:duration=1.5', '-f', 'lavfi', '-i', 'sine=frequency=330:duration=1.5', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', f]); return f; };
+  const vA = await A.up(T, 'video', 'rouge.mp4', readFileSync(clip('red', 'rouge.mp4'))), vB = await A.up(T, 'video', 'bleu.mp4', readFileSync(clip('blue', 'bleu.mp4')));
+  const im = async (name, rgb) => String(await A.up(T, 'logo', name, png(200, 100, 0, rgb)));
+  const mag = await im('magenta.png', [255, 0, 255]), grn = await im('vert.png', [0, 255, 0]), yel = await im('jaune.png', [255, 255, 0]);
+  const P = (x, y) => ({ '9x16': { x, y } });
+  const tl = { clips: [{ id: 'c1', asset: String(vA), in: 0, out: 0, reframe: {} }, { id: 'c2', asset: String(vB), in: 0, out: 0, reframe: {} }], els: [
+    { id: 'e1', type: 'logo', asset: mag, start: 0, end: 0, pos: P(540, 500), s: 100 },
+    { id: 'e2', type: 'image', asset: grn, start: 1.8, end: 0, pos: P(300, 1000), s: 100, rot: 90 },
+    { id: 'e3', type: 'image', asset: yel, start: 0, end: 0, pos: P(800, 1500), s: 100, op: 50 },
+    { id: 'e4', type: 'text', text: 'HELLO', color: '#00ffff', bold: true, outline: false, start: 0, end: 0, pos: P(540, 1300), s: 100 },
+    { id: 'e5', type: 'subs', start: 0, end: 0, pos: P(300, 1700), s: 100 }] };
+  const design = { asset: '', start: 0, end: 0, logo: { asset: '', corner: 'tr', size: 14, margin: 4 }, endcard: { on: false, seconds: 0 }, subs: { on: false, size: 100 }, reframe: {}, formats: ['9x16'], tl };
+  await A.post('/edition/' + T + '/video/save', { design: JSON.stringify(design), cues: JSON.stringify([{ start: 0, end: 3, text: 'HELLO' }]) });
+  const page = await A.text('/edition/' + T + '/video');
+  check('le montage enregistré est relu tel quel (2 clips, 5 éléments, positions par format)', /rouge\.mp4|bleu\.mp4/.test(page) && (page.match(/&quot;type&quot;:&quot;/g) || []).length >= 5, '');
+  await A.post('/edition/' + T + '/video/export', {});
+  let job = null;
+  for (let i = 0; i < 120; i++) { const js = await A.json('/api/jobs/' + T); job = js[0]; if (job && ['done', 'error'].includes(job.status)) break; await sleep(500); }
+  check('export du montage terminé', job?.status === 'done', job?.message);
+  if (job?.status !== 'done') return;
+  const mp4 = join(TMP, 'tl-' + job.id + '.mp4');
+  writeFileSync(mp4, Buffer.from(await (await A.get('/exports/' + job.export_id)).arrayBuffer()));
+  const dur = Number(spawnSync(join(ROOT, 'tools/ffmpeg/ffprobe.exe'), ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', mp4]).stdout.toString());
+  check('durée = somme des deux clips (3 s)', Math.abs(dur - 3) < 0.25, String(dur));
+  const frame = (sec) => spawnSync(FF, ['-v', 'error', '-ss', String(sec), '-i', mp4, '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'], { maxBuffer: 30e6 }).stdout;
+  const W = 1080, H = 1920, at = (rgb, x, y) => { const o = (y * W + x) * 3; return [rgb[o], rgb[o + 1], rgb[o + 2]]; };
+  const bbox = (rgb, test) => { let x0 = 1e9, y0 = 1e9, x1 = -1, y1 = -1; for (let y = 120; y < H; y++) for (let x = 0; x < W; x++) { const o = (y * W + x) * 3; if (test(rgb[o], rgb[o + 1], rgb[o + 2])) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; } } return x1 < 0 ? null : { cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, w: x1 - x0 + 1, h: y1 - y0 + 1 }; };
+  const f1 = frame(0.5), f2 = frame(2.2);
+  const bg1 = at(f1, 100, 1800), bg2 = at(f2, 100, 1800);
+  check('clips bout à bout : rouge au début, bleu ensuite', bg1[0] > 200 && bg1[1] < 70 && bg1[2] < 70 && bg2[2] > 200 && bg2[0] < 70, JSON.stringify([bg1, bg2]));
+  const mg = (r, g, b) => r > 180 && g < 90 && b > 180, gr = (r, g, b) => g > 200 && r < 80 && b < 80, cy = (r, g, b) => r < 80 && g > 200 && b > 200, wh = (r, g, b) => r > 200 && g > 200 && b > 200;
+  const m1 = bbox(f1, mg), m2 = bbox(f2, mg);
+  check('logo : centre (540 × 500), largeur 20 % du format (216 px), sur toute la durée', !!m1 && !!m2 && Math.abs(m1.cx - 540) <= 3 && Math.abs(m1.cy - 500) <= 3 && Math.abs(m1.w - 216) <= 4 && Math.abs(m2.cx - 540) <= 3, JSON.stringify([m1, m2]));
+  const g1 = bbox(f1, gr), g2 = bbox(f2, gr);
+  check('image avec début différé (1,8 s) : absente avant, présente après', !g1 && !!g2, JSON.stringify([g1, g2]));
+  check('rotation 90° : 200×100 devient 108×216 (taille 216 px de large), centre inchangé (300 × 1000)', !!g2 && Math.abs(g2.cx - 300) <= 3 && Math.abs(g2.cy - 1000) <= 3 && Math.abs(g2.w - 108) <= 4 && Math.abs(g2.h - 216) <= 4, JSON.stringify(g2));
+  const op1 = at(f1, 800, 1500), op2 = at(f2, 800, 1500);
+  check('opacité 50 % : jaune mêlé au fond rouge puis au fond bleu', op1[0] > 200 && op1[1] > 90 && op1[1] < 170 && op1[2] < 60 && op2[1] > 90 && op2[1] < 170 && op2[2] > 90 && op2[2] < 170, JSON.stringify([op1, op2]));
+  const tx = bbox(f1, cy);
+  check('texte libre : rendu par le navigateur, centre (540 × 1300)', !!tx && Math.abs(tx.cx - 540) <= 6 && Math.abs(tx.cy - 1300) <= 25, JSON.stringify(tx));
+  const sb = bbox(f1, wh);
+  check('sous-titres de la timeline : centre (300 × 1700)', !!sb && Math.abs(sb.cx - 300) <= 12 && Math.abs(sb.cy - 1700) <= 30, JSON.stringify(sb));
+  // un montage dont le premier clip est remplacé par un autre écran (matériel du contenu) : la timeline suit
+  const again = await A.post('/edition/' + T + '/video/export', {});
+  check('relancer le même montage ne refait pas le travail (même clé)', /déjà produit/.test(A.loc(again)), A.loc(again));
+});
+
+await step('11c. Vidéo : logo et sous-titres placés par leur centre ; l’export suit exactement ce qui est choisi', async () => {
+  const t = await A.post('/edition/test'); const T = Number(/edition\/(\d+)/.exec(t.headers.get('location'))?.[1]);
+  const vf = join(TMP, 'noir.mp4');
+  spawnSync(FF, ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'color=c=black:size=640x360:rate=25:duration=2', '-f', 'lavfi', '-i', 'sine=frequency=330:duration=2', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', vf]);
+  const vid = await A.up(T, 'video', 'noir.mp4', readFileSync(vf));
+  const logo = await A.up(T, 'logo', 'magenta.png', png(200, 100, 0, [255, 0, 255]));
+  const cues = [{ start: 0, end: 2, text: 'HELLO' }];
+  const mk = (lsize, ssize, lpos, spos) => ({ asset: String(vid), start: 0, end: 0, logo: { asset: String(logo), corner: 'tr', size: lsize, margin: 4, ...(lpos ? { pos: { '9x16': lpos } } : {}) }, endcard: { on: false, seconds: 0 }, subs: { on: true, size: ssize, ...(spos ? { pos: { '9x16': spos } } : {}) }, reframe: {}, formats: ['9x16'] });
+  const exportFrame = async (design) => {
+    const before = (await A.json('/api/jobs/' + T)).length;
+    await A.post('/edition/' + T + '/video/save', { design: JSON.stringify(design), cues: JSON.stringify(cues) });
+    await A.post('/edition/' + T + '/video/export', {});
+    let job = null;
+    for (let i = 0; i < 90; i++) { const js = await A.json('/api/jobs/' + T); job = js[0]; if (js.length > before && job && ['done', 'error'].includes(job.status)) break; await sleep(500); }
+    if (!job || job.status !== 'done') return { err: job ? job.message : 'aucun export' };
+    const mp4 = join(TMP, 'pos-' + job.id + '.mp4');
+    writeFileSync(mp4, Buffer.from(await (await A.get('/exports/' + job.export_id)).arrayBuffer()));
+    const r = spawnSync(FF, ['-v', 'error', '-ss', '0.5', '-i', mp4, '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'], { maxBuffer: 30e6 });
+    return { rgb: r.stdout, W: 1080, H: 1920 };
+  };
+  // boîte englobante des pixels qui répondent au test, hors bandeau BROUILLON du haut
+  const bbox = ({ rgb, W, H }, test) => { let x0 = 1e9, y0 = 1e9, x1 = -1, y1 = -1; for (let y = 120; y < H; y++) for (let x = 0; x < W; x++) { const o = (y * W + x) * 3; if (test(rgb[o], rgb[o + 1], rgb[o + 2])) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; } } return x1 < 0 ? null : { cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, w: x1 - x0 + 1, h: y1 - y0 + 1 }; };
+  const magenta = (r, g, b) => r > 180 && g < 90 && b > 180, white = (r, g, b) => r > 200 && g > 200 && b > 200;
+  const a = await exportFrame(mk(20, 100, { x: 540, y: 600 }, { x: 300, y: 1300 }));
+  const b = await exportFrame(mk(40, 160, { x: 540, y: 600 }, { x: 300, y: 1300 }));
+  check('export vidéo avec positions choisies : terminé', !a.err && !b.err, a.err || b.err);
+  const la = a.rgb && bbox(a, magenta), lb = b.rgb && bbox(b, magenta), sa = a.rgb && bbox(a, white), sb = b.rgb && bbox(b, white);
+  check('logo : placé par son centre (540 × 600) dans la vidéo exportée', !!la && Math.abs(la.cx - 540) <= 3 && Math.abs(la.cy - 600) <= 3, JSON.stringify(la));
+  check('logo : agrandi (20 % → 40 %), son centre ne bouge pas', !!lb && lb.w > la.w * 1.8 && Math.abs(lb.cx - 540) <= 3 && Math.abs(lb.cy - 600) <= 3, JSON.stringify([la, lb]));
+  check('sous-titres : placés par leur centre (300 × 1300), à la tolérance des polices près', !!sa && Math.abs(sa.cx - 300) <= 12 && Math.abs(sa.cy - 1300) <= 30, JSON.stringify(sa));
+  check('sous-titres : taille 100 % → 160 %, leur centre ne bouge pas', !!sb && sb.w > sa.w * 1.4 && Math.abs(sb.cx - 300) <= 12 && Math.abs(sb.cy - 1300) <= 30, JSON.stringify([sa, sb]));
+  const c = await exportFrame(mk(20, 100, null, null));
+  const lc = c.rgb && bbox(c, magenta), sc = c.rgb && bbox(c, white);
+  check('sans position choisie : le logo reste dans son coin d’origine (haut droite) et les sous-titres en bas, comme avant', !!lc && lc.cx > 800 && lc.cy < 400 && !!sc && Math.abs(sc.cx - 540) <= 12 && sc.cy > 1500, JSON.stringify([lc, sc]));
+  const d = await A.json('/api/jobs/' + T);
+  const saved = await A.text('/edition/' + T + '/video');
+  check('l’éditeur vidéo est un éditeur à timeline : aperçu, réglages, pistes et boutons d’ajout', /id="tlinner"/.test(saved) && /id="vprops"/.test(saved) && /id="t_addclip"/.test(saved) && /id="t_addtext"/.test(saved) && /id="t_split"/.test(saved));
+});
+
+await step('11e. Montage à timeline approuvé : l’export part de la version figée, une modification ne la touche pas', async () => {
+  const t = await A.post('/edition/test'); const T = Number(/edition\/(\d+)/.exec(t.headers.get('location'))?.[1]);
+  const clip = (color, name) => { const f = join(TMP, name); spawnSync(FF, ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'color=c=' + color + ':size=640x360:rate=25:duration=1.5', '-f', 'lavfi', '-i', 'sine=frequency=330:duration=1.5', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', f]); return f; };
+  const ok = async (name, f) => { const id = await A.up(T, 'video', name, readFileSync(f)); await A.post('/assets/' + id + '/update', { role: 'video', status: 'approuvé', rights: 'OK (test)' }); return id; };
+  const vA = await ok('rouge-e.mp4', clip('red', 'rouge-e.mp4')), vB = await ok('bleu-e.mp4', clip('blue', 'bleu-e.mp4'));
+  const c = await A.post('/edition/' + T + '/variants/new', { type: 'video', name: 'Montage à timeline', asset: String(vA) });
+  const V = Number(/variants\/(\d+)/.exec(c.headers.get('location') || '')?.[1]);
+  const mk = (text) => ({ asset: String(vA), start: 0, end: 0, logo: { asset: '', corner: 'tr', size: 14, margin: 4 }, endcard: { on: false, seconds: 0 }, subs: { on: false, size: 100 }, reframe: {}, formats: ['9x16'],
+    tl: { clips: [{ id: 'c1', asset: String(vA), in: 0, out: 0, reframe: {} }, { id: 'c2', asset: String(vB), in: 0, out: 0, reframe: {} }], els: [{ id: 'e1', type: 'text', text, color: '#00ffff', bold: true, outline: false, start: 0, end: 0, pos: { '9x16': { x: 540, y: 900 } }, s: 100 }] } });
+  await A.post('/edition/' + T + '/video/save?variant=' + V, { design: JSON.stringify(mk('FIGE')) });
+  const ae = await A.post('/edition/' + T + '/variants/' + V + '/approve-export', {});
+  check('approuver et exporter un montage à timeline', /Approuvée \(v1\) et exportée/.test(A.loc(ae)), A.loc(ae));
+  let job = null;
+  for (let i = 0; i < 120; i++) { const js = await A.json('/api/jobs/' + T); job = js[0]; if (job && ['done', 'error'].includes(job.status)) break; await sleep(500); }
+  check('l’export de la version approuvée est terminé', job?.status === 'done', job?.message);
+  if (job?.status !== 'done') return;
+  const mp4 = join(TMP, 'fige-' + job.id + '.mp4');
+  writeFileSync(mp4, Buffer.from(await (await A.get('/exports/' + job.export_id)).arrayBuffer()));
+  const W = 1080, frame = (sec) => spawnSync(FF, ['-v', 'error', '-ss', String(sec), '-i', mp4, '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'], { maxBuffer: 30e6 }).stdout;
+  const at = (rgb, x, y) => { const o = (y * W + x) * 3; return [rgb[o], rgb[o + 1], rgb[o + 2]]; };
+  const f1 = frame(0.5), f2 = frame(2.2), b1 = at(f1, 100, 1800), b2 = at(f2, 100, 1800);
+  let x0 = 1e9, x1 = -1; for (let x = 0; x < W; x++) { const [r, g, b] = at(f1, x, 905); if (r < 80 && g > 200 && b > 200) { if (x < x0) x0 = x; if (x > x1) x1 = x; } }
+  check('version approuvée : clips rouge puis bleu, texte « FIGE » centré (540) sur l’export', b1[0] > 200 && b2[2] > 200 && x1 > 0 && Math.abs((x0 + x1) / 2 - 540) <= 8, JSON.stringify([b1, b2, x0, x1]));
+  await A.post('/edition/' + T + '/video/save?variant=' + V, { design: JSON.stringify(mk('AUTRE')) });
+  const page = await A.text('/edition/' + T + '/variants/' + V);
+  check('modifier le montage : le contenu repasse « à relire », la version approuvée v1 reste intacte', /modifi[ée]+ depuis son approbation/.test(page) && /v1/.test(page), '');
+});
+
+await step('11f. Plusieurs blocs de sous-titres : chacun a ses lignes, sa position, sa taille et son timing', async () => {
+  const t = await A.post('/edition/test'); const T = Number(/edition\/(\d+)/.exec(t.headers.get('location'))?.[1]);
+  const vf = join(TMP, 'noir-f.mp4');
+  spawnSync(FF, ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'color=c=black:size=640x360:rate=25:duration=2', '-f', 'lavfi', '-i', 'sine=frequency=330:duration=2', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', vf]);
+  const vid = await A.up(T, 'video', 'noir-f.mp4', readFileSync(vf));
+  const P = (x, y) => ({ '9x16': { x, y } });
+  const tl = { clips: [{ id: 'c1', asset: String(vid), in: 0, out: 0, reframe: {} }], els: [
+    { id: 'e1', type: 'subs', start: 0, end: 0, pos: P(300, 1700), s: 100, cues: [{ start: 0, end: 1, text: 'AAAA' }] },
+    { id: 'e2', type: 'subs', start: 0, end: 0, pos: P(800, 1200), s: 160, cues: [{ start: 1, end: 2, text: 'BBBB' }] }] };
+  const design = { asset: '', start: 0, end: 0, logo: { asset: '', corner: 'tr', size: 14, margin: 4 }, endcard: { on: false, seconds: 0 }, subs: { on: false, size: 100 }, reframe: {}, formats: ['9x16'], tl };
+  await A.post('/edition/' + T + '/video/save', { design: JSON.stringify(design), cues: JSON.stringify([]) });
+  const page = await A.text('/edition/' + T + '/video');
+  check('deux blocs de sous-titres enregistrés, chacun avec ses lignes', /AAAA/.test(page) && /BBBB/.test(page) && (page.match(/&quot;type&quot;:&quot;subs&quot;/g) || []).length >= 2);
+  await A.post('/edition/' + T + '/video/export', {});
+  let job = null;
+  for (let i = 0; i < 120; i++) { const js = await A.json('/api/jobs/' + T); job = js[0]; if (job && ['done', 'error'].includes(job.status)) break; await sleep(500); }
+  check('export terminé', job?.status === 'done', job?.message);
+  if (job?.status !== 'done') return;
+  const mp4 = join(TMP, 'subs2-' + job.id + '.mp4');
+  writeFileSync(mp4, Buffer.from(await (await A.get('/exports/' + job.export_id)).arrayBuffer()));
+  const W = 1080, H = 1920, frame = (sec) => spawnSync(FF, ['-v', 'error', '-ss', String(sec), '-i', mp4, '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'], { maxBuffer: 30e6 }).stdout;
+  const bbox = (rgb) => { let x0 = 1e9, y0 = 1e9, x1 = -1, y1 = -1; for (let y = 120; y < H; y++) for (let x = 0; x < W; x++) { const o = (y * W + x) * 3; if (rgb[o] > 200 && rgb[o + 1] > 200 && rgb[o + 2] > 200) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; } } return x1 < 0 ? null : { cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, w: x1 - x0 + 1 }; };
+  const a = bbox(frame(0.5)), b = bbox(frame(1.5));
+  check('premier bloc : sa ligne seule à 0,5 s, centrée (300 × 1700)', !!a && Math.abs(a.cx - 300) <= 12 && Math.abs(a.cy - 1700) <= 30, JSON.stringify(a));
+  check('second bloc : sa ligne seule à 1,5 s, centrée (800 × 1200), plus grand (taille 160 %)', !!b && Math.abs(b.cx - 800) <= 14 && Math.abs(b.cy - 1200) <= 30 && b.w > a.w * 1.4, JSON.stringify([a, b]));
 });
 
 await step('12. Sauvegarde externe et vérification d’intégrité', async () => {
@@ -861,6 +1029,15 @@ await step('14. Pages dans un vrai navigateur (assistant, éditeur de variante, 
     await br.sleep(500);
     const c = await br.ev(String.raw`(() => { const e = document.getElementById('pframe').contentDocument.querySelector('[data-el=title]').getBoundingClientRect(); return [Math.round(e.left + e.width / 2), Math.round(e.top + e.height / 2)]; })()`);
     check('position : centre de l’élément placé à 456 × 345 px', Math.abs(c[0] - 456) <= 2 && Math.abs(c[1] - 345) <= 2, JSON.stringify(c));
+    // la taille se règle autour du centre : agrandir ou réduire ne déplace pas l'élément (la position en px reste vraie)
+    const probe = String.raw`(() => { const e = document.getElementById('pframe').contentDocument.querySelector('[data-el=title]').getBoundingClientRect(); return [Math.round(e.left + e.width / 2), Math.round(e.top + e.height / 2), Math.round(e.width)]; })()`;
+    const seen = [];
+    for (const s of [200, 50, 100]) {
+      await br.ev(String.raw`(() => { const r = document.getElementById('el_s'); r.value = ${s}; r.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+      await br.sleep(400);
+      seen.push(await br.ev(probe));
+    }
+    check('taille : l’élément se redimensionne autour de son centre, sa position ne bouge pas', seen.every((p) => Math.abs(p[0] - 456) <= 2 && Math.abs(p[1] - 345) <= 2) && seen[0][2] > seen[2][2] && seen[1][2] < seen[2][2], JSON.stringify(seen));
     await shot('editeur-variante');
     for (const [p, n, re] of [['/edition/1/calendar?month=2027-01', 'calendrier', 'Réunion de lancement'], [`/edition/1/campaigns/${ids.c}`, 'campagne', 'Configuration Meta'], [`/edition/1/campaigns/${ids.c}/guide`, 'guide-meta', 'Guide Ads Manager'], ['/edition/1/variants', 'variantes', 'Tous les contenus'], ['/settings', 'reglages', 'Sauvegardes'], ['/edition/1/contents', 'contenus', 'Associé']]) {
       await br.go(U + p);
@@ -868,7 +1045,7 @@ await step('14. Pages dans un vrai navigateur (assistant, éditeur de variante, 
       await shot(n);
     }
     for (const [p, n, re] of [['/edition/1', 'accueil', 'Production à reprendre'], ['/edition/1/settings', 'parametres', 'Paramètres du projet'], ['/edition/1/assets', 'bibliotheque', 'Fichiers sources'], ['/edition/3/poster/4x5', 'affiche-recue', 'Affiche'],
-      ['/edition/3/variants/new', 'creer-contenu', 'Créer un contenu'], [`/edition/3/variants/${ids.w.v1}?step=materiel`, 'ws-materiel', 'Importer un fichier'], [`/edition/3/variants/${ids.w.v1}?step=creation`, 'ws-creation', 'Modifier ce format'],
+      ['/edition/3/variants/new', 'creer-contenu', 'Ajouter un contenu'], [`/edition/3/variants/${ids.w.v1}?step=materiel`, 'ws-materiel', 'Ajouter un fichier'], [`/edition/3/variants/${ids.w.v1}?step=creation&all=1`, 'ws-creation', 'Modifier ce format'],
       [`/edition/3/variants/${ids.w.v1}`, 'ws-verification', 'Contrôles automatiques'], [`/edition/3/variants/${ids.w.v1}?step=diffusion`, 'ws-diffusion', 'Télécharger uniquement'],
       [`/edition/3/poster/1x1?variant=${ids.w.v1}`, 'ws-editeur-affiche', 'Création'], [`/edition/3/video?variant=${ids.w.v2}`, 'ws-editeur-video', 'Création'], [`/edition/3/texts/${ids.w.tid}?step=creation`, 'ws-texte', 'Rédaction'], ['/edition/3/variants', 'contenus-liste', 'Script teaser'], ['/edition/1/campaigns', 'campagnes-liste', 'Meta :'], [`/edition/1/campaigns/${ids.c}`, 'campagne-detail', 'Contenus de cette campagne'], ['/edition/1/settings#connexions', 'connexions', 'Connexions du projet'], ['/edition/1/designs', 'designs-liste', 'Kit graphique du projet']]) {
       await br.go(U + p);
@@ -876,6 +1053,133 @@ await step('14. Pages dans un vrai navigateur (assistant, éditeur de variante, 
       check(`page ${n} : pas de défilement horizontal (bureau)`, await br.ev('document.documentElement.scrollWidth <= window.innerWidth + 1'));
       await shot(n);
     }
+    await br.go(U + '/edition/1/calendar?month=2027-01');
+    await br.ev("(() => { document.querySelector('table.cal [data-tip]').dispatchEvent(new MouseEvent('mouseenter')); return true; })()");
+    check('calendrier : au survol, une bulle montre le détail de la tâche (sans cliquer)', await br.ev("(() => { const t = document.getElementById('caltip'); return !!t && !t.hidden && /Quand/.test(t.innerText) && t.innerText.length > 20; })()"));
+    await shot('calendrier-survol');
+    await br.ev("(() => { document.querySelector('table.cal [data-tip]').dispatchEvent(new MouseEvent('mouseleave')); return true; })()");
+    check('calendrier : la bulle disparaît quand la souris s’en va', await br.ev("document.getElementById('caltip').hidden"));
+    // éditeur vidéo à timeline : sélection, X/Y au centre, échelle, rotation, opacité, glisser, timeline, ajout, scission, suppression, enregistrement
+    const press = (sel, dx = 0) => `(() => { const b = document.querySelector(${JSON.stringify(sel)}), r = b.getBoundingClientRect(), o = { bubbles: true, cancelable: true, pointerId: 5, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 }; const tl = document.getElementById('tlinner'); b.dispatchEvent(new PointerEvent('pointerdown', o)); tl.dispatchEvent(new PointerEvent('pointermove', { ...o, clientX: o.clientX + ${dx} })); tl.dispatchEvent(new PointerEvent('pointerup', { ...o, clientX: o.clientX + ${dx} })); return true; })()`;
+    const setK = (k, v) => `(() => { const i = document.querySelector('#vprops input[type=number][data-k="${k}"]'); i.value = ${JSON.stringify(v)}; i.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`;
+    const nodeC = (i) => `(() => { const l = document.querySelectorAll('#vlayer .vel')[${i}], f = document.getElementById('vframe'), r = l.getBoundingClientRect(), fr = f.getBoundingClientRect(), k = fr.width / f.offsetWidth; return [Math.round((r.left + r.width / 2 - fr.left) / k), Math.round((r.top + r.height / 2 - fr.top) / k), Math.round(l.offsetWidth), +k.toFixed(4)]; })()`;
+    await br.go(U + '/edition/1/video?variant=' + ids.v1);
+    await br.sleep(2200);
+    check('éditeur vidéo : aperçu, réglages, timeline et boutons d’ajout présents', await br.ev("['vframe', 'vprops', 'tlinner', 't_addclip', 't_addtext', 't_addimg', 't_addsubs', 't_split', 't_del', 'vplay'].every((id) => !!document.getElementById(id))"));
+    check('ancien design converti en timeline : 1 clip de 6 s, un logo et des sous-titres, chacun sur sa piste', await br.ev("(() => { const S = window.__video; return S.tl.clips.length === 1 && S.tl.els.map((e) => e.type).join() === 'logo,subs' && document.querySelectorAll('#tltracks .tlb').length === 3 && /6 s/.test(document.querySelector('.tlb.clip').textContent); })()"));
+    await shot('video-timeline');
+    await br.ev(press('.tlb.el.t-logo'));
+    check('timeline : cliquer un bloc sélectionne l’élément (même panneau de réglages pour tous)', await br.ev("document.querySelector('#vprops h3').textContent === 'Logo' && !!document.querySelector('#vprops [data-k=x]') && !!document.querySelector('#vprops [data-k=rot]') && !!document.querySelector('#vprops [data-k=op]') && !document.getElementById('vsel').hidden"));
+    await br.ev(setK('x', 540)); await br.ev(setK('y', 700));
+    const c1 = await br.ev(nodeC(0));
+    check('réglages : X/Y placent le centre de l’élément exactement là', Math.abs(c1[0] - 540) <= 2 && Math.abs(c1[1] - 700) <= 2, JSON.stringify(c1));
+    await br.ev(setK('s', 150));
+    const c2 = await br.ev(nodeC(0));
+    check('réglages : l’échelle grandit l’élément autour de son centre (ne le déplace pas)', c2[2] > c1[2] * 1.9 && Math.abs(c2[0] - 540) <= 2 && Math.abs(c2[1] - 700) <= 2, JSON.stringify([c1, c2]));
+    await br.ev(setK('rot', 90)); await br.ev(setK('op', 50));
+    const c3 = await br.ev(nodeC(0));
+    check('réglages : rotation et opacité, centre inchangé', await br.ev("window.__video.tl.els[0].rot === 90 && document.querySelectorAll('#vlayer .vel')[0].style.opacity === '0.5' && /rotate\\(90deg\\)/.test(document.querySelectorAll('#vlayer .vel')[0].style.transform)") && Math.abs(c3[0] - 540) <= 2 && Math.abs(c3[1] - 700) <= 2, JSON.stringify(c3));
+    await br.ev(setK('rot', 0)); await br.ev(setK('s', 100)); await br.ev(setK('op', 100));
+    await br.ev(`(() => { const l = document.querySelectorAll('#vlayer .vel')[0], r = l.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + r.height / 2, f = document.getElementById('vframe'); const ev = (t, el, dx) => el.dispatchEvent(new PointerEvent(t, { bubbles: true, cancelable: true, pointerId: 7, clientX: x + dx, clientY: y + dx / 2 })); ev('pointerdown', l, 0); ev('pointermove', f, 60); ev('pointerup', f, 60); return true; })()`);
+    const c4 = await br.ev(nodeC(0)), kk = c4[3];
+    check('aperçu : glisser un élément le déplace du même nombre de px dans le format', Math.abs(c4[0] - (540 + 60 / kk)) <= 3 && Math.abs(c4[1] - (700 + 30 / kk)) <= 3, JSON.stringify([c1, c4]));
+    await br.ev("(() => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', shiftKey: true, bubbles: true })); return true; })()");
+    const c5 = await br.ev(nodeC(0));
+    check('aperçu : les flèches ajustent la position (Maj = 10 px)', Math.abs(c5[0] - (c4[0] + 10)) <= 2, JSON.stringify([c4, c5]));
+    await br.ev(press('.tlb.el.t-logo', 60));
+    check('timeline : glisser un bloc d’élément change son début (60 px = 1 s)', await br.ev("Math.abs(window.__video.tl.els[0].start - 1) <= 0.15"), await br.ev("String(window.__video.tl.els[0].start)"));
+    await br.ev(setK('start', 0));
+    await br.ev("(() => { document.getElementById('t_addtext').click(); return true; })()");
+    check('+ Texte : un texte apparaît sur la timeline avec son éditeur (texte, police, couleur, contour)', await br.ev("(() => { const S = window.__video, e = S.tl.els[S.tl.els.length - 1]; return e.type === 'text' && !!document.querySelector('#vprops textarea[data-k=text]') && !!document.querySelector('#vprops select[data-k=font]') && !!document.querySelector('#vprops input[data-k=color]'); })()"));
+    await br.ev("(() => { const i = document.querySelector('#vprops textarea[data-k=text]'); i.value = 'BONJOUR'; i.dispatchEvent(new Event('input', { bubbles: true })); return true; })()");
+    check('texte : le contenu saisi s’affiche sur l’aperçu et sur la timeline', await br.ev("[...document.querySelectorAll('#vlayer .vel')].some((n) => n.textContent === 'BONJOUR') && /BONJOUR/.test(document.getElementById('tltracks').textContent)"));
+    await br.ev("(() => { document.getElementById('t_addclip').click(); return true; })()");
+    check('+ Clip : la fenêtre de choix liste les vidéos de la bibliothèque', await br.ev("!document.getElementById('vpick').hidden && document.querySelectorAll('#vpick-list .pk').length >= 1"));
+    await br.ev("(() => { document.querySelector('#vpick-list .pk').click(); return true; })()");
+    await br.sleep(1200);
+    check('+ Clip : le clip s’ajoute à la suite des autres (la durée du film augmente)', await br.ev("window.__video.tl.clips.length === 2 && document.querySelectorAll('.tlb.clip').length === 2"));
+    await br.ev(`(() => { const r = document.getElementById('tlruler'), b = r.getBoundingClientRect(), o = { bubbles: true, cancelable: true, pointerId: 6, clientX: b.left + 2 * window.__video.zoom, clientY: b.top + 8 }; r.dispatchEvent(new PointerEvent('pointerdown', o)); r.dispatchEvent(new PointerEvent('pointerup', o)); return true; })()`);
+    await br.sleep(300);
+    check('timeline : cliquer sur la règle place la tête de lecture', await br.ev("Math.abs(window.__video.t - 2) < 0.3"), await br.ev("String(window.__video.t)"));
+    await br.ev("(() => { document.getElementById('t_split').click(); return true; })()");
+    check('✂ Scinder : le clip est coupé en deux à la tête de lecture', await br.ev("window.__video.tl.clips.length === 3 && Math.abs(window.__video.tl.clips[0].out - 3) < 0.3"), await br.ev("JSON.stringify(window.__video.tl.clips.map((c) => [c.in, c.out]))"));
+    await br.ev(press('.tlb.el.t-text'));
+    await br.ev("(() => { document.getElementById('t_del').click(); return true; })()");
+    check('Supprimer : le texte sélectionné disparaît de la timeline et de l’aperçu', await br.ev("window.__video.tl.els.every((e) => e.type !== 'text') && ![...document.querySelectorAll('#vlayer .vel')].some((n) => n.textContent === 'BONJOUR')"));
+    check('les modifications non enregistrées sont signalées', await br.ev("!document.getElementById('vdirty').hidden"));
+    await shot('video-elements');
+    // enregistrement : le montage est relu tel quel après rechargement (page d'un autre projet : rien n'est exporté)
+    await br.ev('window.__video.dirty = false'); // pas de vrai geste utilisateur ici : on évite l'avertissement « quitter la page »
+    await br.go(U + '/edition/3/video?variant=' + ids.w.v2);
+    await br.sleep(1800);
+    await br.ev("(() => { document.getElementById('t_addtext').click(); const i = document.querySelector('#vprops textarea[data-k=text]'); i.value = 'PERSISTE'; i.dispatchEvent(new Event('input', { bubbles: true })); document.getElementById('vform').requestSubmit(); return true; })()");
+    await br.sleep(2500);
+    check('enregistrer : le montage (clips, éléments, positions) est relu tel quel après rechargement', await br.ev("window.__video.tl.els.some((e) => e.type === 'text' && e.text === 'PERSISTE') && window.__video.tl.clips.length >= 1 && document.getElementById('vdirty').hidden"));
+    // clips : réordonner par glisser, rogner un bord, atteindre le 2e clip en cliquant sur la règle
+    await br.ev("(() => { document.getElementById('t_addclip').click(); return true; })()");
+    await br.ev("(() => { document.querySelector('#vpick-list .pk').click(); return true; })()");
+    await br.sleep(1200);
+    const ids0 = await br.ev("window.__video.tl.clips.map((c) => c.id).join()");
+    check('timeline : deux clips à la suite', ids0.split(',').length === 2, ids0);
+    const wFirst = await br.ev("document.querySelector('.tlb.clip').getBoundingClientRect().width");
+    await br.ev(press('.tlb.clip[data-id="' + ids0.split(',')[1] + '"]', -Math.round(wFirst) - 30));
+    check('timeline : glisser un clip avant l’autre change leur ordre', await br.ev("window.__video.tl.clips.map((c) => c.id).join()") === ids0.split(',').reverse().join(), await br.ev("window.__video.tl.clips.map((c) => c.id).join()"));
+    const dur0 = await br.ev("window.__video.tl.clips[0].out");
+    await br.ev(press('.tlb.clip .tlh.r', -30));
+    check('timeline : tirer le bord droit d’un clip le raccourcit (30 px = 0,5 s)', await br.ev("(() => { const c = window.__video.tl.clips[0]; return c.out > 0 && c.out > c.in + 0.2; })()"), await br.ev("JSON.stringify(window.__video.tl.clips[0])"));
+    await br.ev(`(() => { const r = document.getElementById('tlruler'), b = r.getBoundingClientRect(), o = { bubbles: true, cancelable: true, pointerId: 6, clientX: b.left + (window.__video.tl.clips[0].out - window.__video.tl.clips[0].in + 0.5) * window.__video.zoom, clientY: b.top + 8 }; r.dispatchEvent(new PointerEvent('pointerdown', o)); r.dispatchEvent(new PointerEvent('pointerup', o)); return true; })()`);
+    await br.sleep(500);
+    check('lecture : la tête de lecture dans le 2e clip charge sa vidéo dans l’aperçu', await br.ev("document.getElementById('vplayer').src.endsWith('/files/' + window.__video.tl.clips[1].asset)"), await br.ev("document.getElementById('vplayer').src"));
+    await br.ev('window.__video.dirty = false');
+    // annuler / rétablir
+    const key = (k, extra = '') => `(() => { document.dispatchEvent(new KeyboardEvent('keydown', { key: '${k}', ctrlKey: true, ${extra} bubbles: true, cancelable: true })); return true; })()`;
+    const nEls = () => br.ev('window.__video.tl.els.length');
+    const n0 = await nEls();
+    await br.ev("(() => { document.getElementById('t_addtext').click(); return true; })()");
+    await br.sleep(600);
+    check('annuler : le bouton « Annuler » est actif après une modification', await br.ev("!document.getElementById('t_undo').disabled"));
+    check('+ Texte : un élément de plus', (await nEls()) === n0 + 1);
+    await br.ev(key('z')); await br.sleep(200);
+    check('Ctrl+Z annule l’ajout du texte', (await nEls()) === n0, String(await nEls()));
+    check('rétablir : le bouton « Rétablir » devient actif', await br.ev("!document.getElementById('t_redo').disabled"));
+    await br.ev(key('y')); await br.sleep(200);
+    check('Ctrl+Y rétablit le texte', (await nEls()) === n0 + 1, String(await nEls()));
+    await br.ev(key('z')); await br.sleep(100); await br.ev(key('z', 'shiftKey: true,')); await br.sleep(200);
+    check('Ctrl+Maj+Z rétablit aussi', (await nEls()) === n0 + 1);
+    await br.ev(press('.tlb.el.t-text')); // l'annulation désélectionne un élément qui n'existait plus : on le sélectionne de nouveau
+    await br.ev(setK('s', 180)); await br.sleep(600);
+    await br.ev(setK('s', 90)); await br.sleep(600);
+    await br.ev(key('z')); await br.sleep(200);
+    check('annuler un réglage (échelle 90 → 180) : un Ctrl+Z revient à l’étape précédente', await br.ev("window.__video.tl.els[window.__video.tl.els.length - 1].s") === 180);
+    await br.ev(key('z')); await br.sleep(200);
+    check('et un second Ctrl+Z revient à l’échelle d’origine', await br.ev("window.__video.tl.els[window.__video.tl.els.length - 1].s") === 100);
+    // plusieurs blocs de sous-titres, scission d'un bloc et d'une ligne
+    const s0n = await br.ev("window.__video.tl.els.filter((e) => e.type === 'subs').length");
+    await br.ev("(() => { document.getElementById('t_addsubs').click(); document.getElementById('t_addsubs').click(); return true; })()");
+    await br.sleep(500);
+    check('+ Sous-titres : chaque clic crée un nouveau bloc avec sa première ligne', await br.ev(`(() => { const s = window.__video.tl.els.filter((e) => e.type === 'subs'); return s.length === ${s0n + 2} && s.slice(-2).every((e) => e.cues.length === 1); })()`));
+    const st = await br.ev(`window.__video.tl.els.filter((e) => e.type === 'subs')[${s0n}].start`);
+    await br.ev(`(() => { const r = document.getElementById('tlruler'), b = r.getBoundingClientRect(), o = { bubbles: true, cancelable: true, pointerId: 6, clientX: b.left + (${st} + 1.5) * window.__video.zoom, clientY: b.top + 8 }; r.dispatchEvent(new PointerEvent('pointerdown', o)); r.dispatchEvent(new PointerEvent('pointerup', o)); return true; })()`);
+    await br.sleep(400);
+    await br.ev("(() => { document.querySelectorAll('.tlb.el.t-subs')[0].dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, pointerId: 5, clientX: document.querySelectorAll('.tlb.el.t-subs')[0].getBoundingClientRect().left + 40, clientY: document.querySelectorAll('.tlb.el.t-subs')[0].getBoundingClientRect().top + 8 })); document.getElementById('tlinner').dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 5 })); return true; })()");
+    await br.sleep(300);
+    const tt = await br.ev("window.__video.t");
+    await br.ev("(() => { document.getElementById('t_split').click(); return true; })()");
+    await br.sleep(300);
+    check('Scinder un bloc de sous-titres : deux blocs indépendants, leurs lignes réparties à la coupe', await br.ev(`(() => { const s = window.__video.tl.els.filter((e) => e.type === 'subs'); if (s.length !== ${s0n + 3}) return false; const a = s.find((e) => e.cues.length && Math.abs(e.cues[0].end - ${tt}) < 0.15), b = s.find((e) => e.cues.length && Math.abs(e.cues[0].start - ${tt}) < 0.15); return !!a && !!b && a.id !== b.id; })()`), await br.ev("JSON.stringify(window.__video.tl.els.filter((e) => e.type === 'subs').map((e) => [e.start, e.end, e.cues]))"));
+    await br.ev(key('z')); await br.sleep(200);
+    check('Ctrl+Z annule la scission', await br.ev("window.__video.tl.els.filter((e) => e.type === 'subs').length") === s0n + 2);
+    await br.ev('window.__video.dirty = false');
+    // ajout de plusieurs fichiers d'un coup (sélection multiple), puis glisser-déposer : sans choisir de type
+    await br.go(U + '/edition/3/assets');
+    await shot('bibliotheque-ajout');
+    check('ajout de fichiers : sélection multiple, zone de dépôt, aucun choix de type', await br.ev("(() => { const i = document.getElementById('upfile'); return i.multiple && !!document.querySelector('form#up.dropbox') && !document.getElementById('uprole'); })()"));
+    await br.ev("(() => { const f = document.getElementById('up'), dt = new DataTransfer(); dt.items.add(new File(['a'], 'multi-a.png', { type: 'image/png' })); dt.items.add(new File(['b'], 'multi-b.png', { type: 'image/png' })); document.getElementById('upfile').files = dt.files; f.requestSubmit(); return true; })()");
+    await br.sleep(2500);
+    check('plusieurs fichiers ajoutés en une fois', await br.ev("location.search.includes('m=') && /2 fichiers ajoutés/.test(document.body.innerText) && /multi-a\\.png/.test(document.body.innerText) && /multi-b\\.png/.test(document.body.innerText)"));
+    await br.ev("(() => { const dt = new DataTransfer(); dt.items.add(new File(['c'], 'depose-c.png', { type: 'image/png' })); document.getElementById('up').dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true })); return true; })()");
+    await br.sleep(2500);
+    check('glisser-déposer : le fichier déposé est ajouté', await br.ev("/1 fichier ajouté/.test(document.body.innerText) && /depose-c\\.png/.test(document.body.innerText)"));
     // geste réel : choisir un fichier dans la page et l'envoyer (exécute le JavaScript des formulaires d'import)
     const pick = (sel, name, mime, text) => "(() => { const f = document.querySelector(" + JSON.stringify(sel) + "); const dt = new DataTransfer(); dt.items.add(new File([" + JSON.stringify(text) + "], " + JSON.stringify(name) + ", { type: " + JSON.stringify(mime) + " })); f.querySelector('input[type=file]').files = dt.files; f.requestSubmit(); return true; })()";
     await br.go(U + '/edition/3/variants/' + ids.w.v1 + '?step=materiel');

@@ -139,23 +139,24 @@ import { CHANNELS, channelsOf } from './formats.js';
 
 // Navigation d'un projet : cinq destinations, dans l'ordre du travail, et les paramètres à part (secondaires).
 // `active` est la clé de la page courante ; chaque destination regroupe plusieurs pages qui servent le même travail.
+// Un contenu (affiche, vidéo, texte) naît TOUJOURS dans une campagne : il n'y a donc pas de destination « Contenus » à part,
+// les pages de contenu restent sous « Campagnes ». Le calendrier du projet a sa propre entrée.
 const SECTIONS_NAV = [
-  ['accueil', 'Accueil', (id) => `/edition/${id}`, ['accueil', 'calendrier']],
-  ['contenus', 'Contenus', (id) => `/edition/${id}/variants`, ['variantes', 'affiches', 'videos', 'contenus']],
-  ['campagnes', 'Campagnes', (id) => `/edition/${id}/campaigns`, ['campagnes']],
-  ['biblio', 'Bibliothèque', (id) => `/edition/${id}/assets`, ['assets', 'designs']],
+  ['accueil', 'Accueil', (id) => `/edition/${id}`, ['accueil']],
+  ['campagnes', 'Campagnes', (id) => `/edition/${id}/campaigns`, ['campagnes', 'variantes', 'affiches', 'videos', 'contenus']],
+  ['calendrier', 'Calendrier', (id) => `/edition/${id}/calendar`, ['calendrier']],
   ['site', 'Site web', (id) => `/edition/${id}/site`, ['site']],
+  ['biblio', 'Bibliothèque', (id) => `/edition/${id}/assets`, ['assets', 'designs']],
 ];
 const SUBTABS = {
-  accueil: (id) => [['accueil', 'Tableau de travail', `/edition/${id}`], ['calendrier', 'Calendrier', `/edition/${id}/calendar`]],
-  contenus: (id) => [['variantes', 'Tous les contenus', `/edition/${id}/variants`], ['contenus', 'Textes et fichiers prêts', `/edition/${id}/contents`], ['calendrier-lien', 'Calendrier', `/edition/${id}/calendar`]],
+  campagnes: (id) => [['campagnes', 'Mes campagnes', `/edition/${id}/campaigns`], ['variantes', 'Tous les contenus', `/edition/${id}/variants`], ['contenus', 'Textes et fichiers prêts', `/edition/${id}/contents`]],
   biblio: (id) => [['assets', 'Fichiers sources', `/edition/${id}/assets`], ['designs', 'Designs et modèles', `/edition/${id}/designs`]],
 };
 export const tabs = (ed, active) => {
   const sec = SECTIONS_NAV.find((x) => x[3].includes(active));
   const params = active === 'fiche' || active === 'parametres';
   const sub = sec && SUBTABS[sec[0]] ? SUBTABS[sec[0]](ed.id) : null;
-  const subActive = sub && (sub.find(([k]) => k === active) || (sec[0] === 'contenus' ? sub[0] : null));
+  const subActive = sub && sub.find(([k]) => k === active);
   return `<h1>${esc(ed.label)} <small class="crumb">projet</small></h1>
 <div class="pnav"><div class="pnav-main">${SECTIONS_NAV.map(([k, n, href]) => `<a href="${href(ed.id)}"${sec && sec[0] === k ? ' class="on" aria-current="page"' : ''}>${n}</a>`).join('')}</div>
 <a href="/edition/${ed.id}/settings" class="pnav-set${params ? ' on' : ''}">Paramètres du projet</a></div>
@@ -194,7 +195,7 @@ export function assetsPage(ed, assets, msg, storageInfo = '', filter = {}) {
         : `<span>${esc(KIND_NAMES[a.kind] || a.kind)}</span>`}<a href="/files/${a.id}" target="_blank"><small>Ouvrir</small></a></div>
 <div class="meta"><b>${esc(a.label || a.name)}</b>
 <p><span class="tag">${esc(ROLES[a.role] || a.role)}</span> <span class="tag ${a.status === 'approuvé' ? 'st-2' : ''}">${esc(a.status)}</span>${a.provisional ? ' <span class="tag warn">provisoire</span>' : ''} <small>${kb(a.size)} · ${fr(a.created)}</small></p>
-<p><a class="btn sm primary" href="/edition/${ed.id}/variants/new?asset=${a.id}" title="Crée un contenu qui utilise déjà ce fichier">Créer un contenu avec ce fichier</a>${a.kind === 'image' && ['poster', 'other'].includes(a.role) ? ` <button formaction="/assets/${a.id}/use-poster" title="Remplace l’affiche de chaque format par ce fichier">Utiliser comme affiche reçue</button>` : ''}${['document', 'text', 'source'].includes(a.kind) ? ` <button formaction="/assets/${a.id}/to-content" title="Crée un contenu texte dans la bibliothèque">Créer un contenu texte</button>` : ''}</p>
+<p><a class="btn sm primary" href="/edition/${ed.id}/variants/new?asset=${a.id}" title="Crée un contenu qui utilise déjà ce fichier">Créer un contenu avec ce fichier</a>${a.kind === 'image' ? ` <button formaction="/assets/${a.id}/use-poster" title="Remplace l’affiche de chaque format par ce fichier">Utiliser comme affiche reçue</button>` : ''}${['document', 'text', 'source'].includes(a.kind) ? ` <button formaction="/assets/${a.id}/to-content" title="Crée un contenu texte dans la bibliothèque">Créer un contenu texte</button>` : ''}</p>
 <details><summary>Modifier le nom, le rôle, le statut, les droits</summary><div class="grid">
 <label>Nom affiché<input name="label" value="${esc(a.label || '')}" placeholder="${esc(a.name)}"></label>
 <label>Rôle<select name="role">${Object.entries(ROLES).map(([k, v]) => `<option value="${k}"${k === a.role ? ' selected' : ''}>${esc(v)}</option>`).join('')}</select></label>
@@ -204,8 +205,9 @@ export function assetsPage(ed, assets, msg, storageInfo = '', filter = {}) {
 <small>Fichier d’origine conservé : ${esc(a.name)} · envoyé par ${esc(a.uploaded_by)}.</small> <button>Enregistrer</button></details></div></form>`;
   return `${tabs(ed, 'assets')}${msg ? `<p class="flash">${esc(msg)}</p>` : ''}
 <div class="card"><h2>Ajouter des fichiers</h2>
-<form id="up" data-edition="${ed.id}" class="inline"><input type="file" id="upfile" required>
-<select id="uprole" title="Ce que représente le fichier">${Object.entries(ROLES).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join('')}</select><button class="primary">Ajouter</button></form><p id="upmsg"></p>
+<form id="up" data-edition="${ed.id}" class="dropbox"><p><b>Glissez-déposez vos fichiers ici</b>, un seul ou plusieurs</p>
+<label class="btn primary filebtn">Choisir des fichiers<input type="file" id="upfile" multiple hidden></label></form><p id="upmsg"></p>
+<small>Le type (photo, logo, vidéo, document…) est reconnu automatiquement à l’ajout ; vous pouvez le corriger ensuite dans la liste (« Modifier le nom, le rôle… »).</small>
 <details><summary>Aide : formats acceptés, affiche déjà faite, stockage</summary>
 <small>Photos (JPG, PNG, WebP, GIF), vidéos (MP4, MOV, WebM), audio (MP3, WAV, M4A), sous-titres (SRT, VTT) et fichiers sources du graphiste (PSD, AI, PDF, ZIP, FIG), SVG, documents Word / OpenDocument / Markdown. Stockage actuel : ${esc(storageInfo)}.
 Une affiche déjà faite (rôle « Affiche reçue ») ne permet pas de déplacer ses éléments : seuls le cadrage et les formats se règlent ; pour tout recomposer, demandez les fichiers sources. Un .ai s’exporte en SVG depuis Illustrator (Fichier › Exporter › Exporter sous… › SVG).</small></details></div>
@@ -221,9 +223,9 @@ ${shown.map(card).join('') || (active ? '<p>Aucun fichier ne correspond à ces f
 // Matériel → Création → Vérification et exports → Diffusion ; on peut revenir à n'importe quelle étape.
 const wsChip = (st) => `<span class="tag ${st === 'approuvé' ? 'st-2' : st === 'à relire' ? 'warn' : ''}">${esc(st)}</span>`;
 export function workspaceHeader(ed, w) {
-  return `<div class="ws"><div class="ws-top"><a href="${w.backHref}">← Contenus</a> <b>${esc(w.name)}</b> <span class="tag">${esc(w.type)}</span> ${wsChip(w.status)}${w.version ? ` <span class="tag">version ${w.version} approuvée</span>` : ''}</div>
+  return `<div class="ws"><div class="ws-top"><a href="${w.backHref}">← ${esc(w.backLabel || 'Campagnes')}</a> <b>${esc(w.name)}</b> <span class="tag">${esc(w.type)}</span> ${wsChip(w.status)}${w.version ? ` <span class="tag">version ${w.version} approuvée</span>` : ''}</div>
 <ol class="steps">${w.steps.map((st, i) => `<li class="${st.done ? 'done' : ''}${st.key === w.step ? ' here' : ''}"><a href="${w.base}?step=${st.key}"><b>${st.done ? '✓' : i + 1}</b><span>${esc(st.label)}${st.note ? `<small>${esc(st.note)}</small>` : ''}</span></a></li>`).join('')}</ol>
-${w.summary ? `<p class="ws-sum">${esc(w.summary)}</p>` : ''}${w.note ? `<small class="ws-note">${esc(w.note)}</small>` : ''}</div>`;
+${w.summary ? `<p class="ws-sum">${esc(w.summary)}</p>` : ''}${w.note ? `<small class="ws-note">${esc(w.note)}</small>` : ''}${w.overview ? `<small class="ws-note"><a href="${w.base}?step=creation&all=1">Textes communs à tous les formats, vidéo, enregistrer comme modèle</a></small>` : ''}</div>`;
 }
 
 // Panneau d'une affiche reçue : seuls le cadrage et l'ajustement au format ont un sens, les textes sont dans l'image.
@@ -251,7 +253,7 @@ export function posterPage(ed, fmt, design, assets, exports, msg, blockers, hist
   const range = (k, label, lo, hi) => `<label>${label}<span class="rng"><input type="range" name="${k}" min="${lo}" max="${hi}" value="${design[k]}"></span></label>`;
   const f = POSTER_FORMATS[fmt];
   return `<span id="lockpage"></span>${tabs(ed, variant ? 'variantes' : 'affiches')}${msg ? `<p class="flash">${esc(msg)}</p>` : ''}
-${variant ? workspaceHeader(ed, { name: variant.name, type: extra.ws?.type || 'Affiche', status: variant.status, version: variant.approved_version, base: `/edition/${ed.id}/variants/${variant.id}`, backHref: `/edition/${ed.id}/variants`, steps: extra.ws?.steps || [], summary: extra.ws?.summary, step: 'creation', note: 'Ici « Exporter » produit un essai ; l’export officiel se fait à l’étape Vérification et exports.' }) : ''}
+${variant ? workspaceHeader(ed, { name: variant.name, type: extra.ws?.type || 'Affiche', status: variant.status, version: variant.approved_version, base: `/edition/${ed.id}/variants/${variant.id}`, backHref: variant.campaign_id ? `/edition/${ed.id}/campaigns/${variant.campaign_id}` : `/edition/${ed.id}/campaigns`, backLabel: variant.campaign_id ? 'Retour à la campagne' : 'Campagnes', steps: extra.ws?.steps || [], summary: extra.ws?.summary, step: 'creation', overview: true, note: 'Ici « Exporter » produit un essai ; l’export officiel se fait à l’étape Vérification et exports.' }) : ''}
 ${design.ext || variant ? '' : entryCards(ed, 'svg')}
 <div class="tabs sub">${Object.entries(POSTER_FORMATS).filter(([k]) => !variant || variant.formats.includes(k)).map(([k, v]) => `<a href="/edition/${ed.id}/poster/${k}${qs}"${k === fmt ? ' class="on"' : ''}>${v.label}</a>`).join('')}<button type="button" id="bigtoggle" class="link bigtoggle" title="Masque le menu du haut pour donner toute la hauteur à l’affiche">Agrandir l’aperçu</button></div>
 <p class="fmtnote"><b>${esc(f.ratio)} · ${f.w}×${f.h}</b> — utilisé pour : ${esc(channelsOf(fmt).join(', ') || '—')}. Zones de sécurité (haut / bas) : ${f.safe.top} / ${f.safe.bottom} px. <small>Tailles courantes recommandées par les plateformes : à re-vérifier avant campagne.</small></p>
@@ -263,8 +265,9 @@ ${variant ? `<small>Essai = image non officielle pour vérifier. SVG, PDF et exp
 <small>Titre, dates, lieu et couleurs viennent des <a href="/edition/${ed.id}/settings">infos du spectacle</a>. ${blockers ? 'L’export sera marqué BROUILLON tant que la fiche n’est pas prête.' : ''}</small>
 ${design.ext ? importedPanel(ed, design, assets, variant, extra) + '<div hidden>' : ''}<div class="elpanel"><h2>Éléments de l’affiche</h2>
 <small>Sur l’aperçu : <b>clic</b> pour sélectionner, <b>glisser</b> pour déplacer, <b>poignée</b> bleue pour la taille, <b>double-clic</b> pour modifier le texte, <b>flèches</b> pour ajuster (Maj = plus vite), <b>Suppr</b> pour masquer. Glisser dans le vide recadre la photo, la molette la zoome.</small>
+<p id="elhint" class="status">Choisissez un élément dans la liste (ou cliquez dessus sur l’aperçu) pour régler sa position, sa taille, sa couleur et son texte. La case à gauche l’affiche ou le masque.</p>
 <ul id="ellist" class="ellist"></ul>
-<div id="elsel" hidden><h3 id="elname"></h3>
+<div id="elsel" hidden><h3>Réglages : <span id="elname"></span></h3>
 <label>Position X (px depuis la gauche, centre de l’élément)<span class="rng"><input type="range" id="el_dx" min="0" max="${f.w}" value="0"></span></label>
 <label>Position Y (px depuis le haut, centre de l’élément)<span class="rng"><input type="range" id="el_dy" min="0" max="${f.h}" value="0"></span></label>
 <span class="inline"><button type="button" id="el_cx" class="link">Centrer horizontalement</button><button type="button" id="el_cy" class="link">Centrer verticalement</button></span>
@@ -297,70 +300,51 @@ ${variant ? '' : `<form class="card" method="post" action="/edition/${ed.id}/pac
 import { FORMATS, VIDEO_FORMATS } from './formats.js';
 
 export function videoPage(ed, c) {
-  const { design: d, cues, info, assets, ready, draft, msg, variant } = c;
+  const { design: d, tl, cues, infos, assets, ready, draft, msg, variant } = c;
   const qs = variant ? `?variant=${variant.id}` : '';
-  const videos = assets.filter((a) => a.kind === 'video');
-  const logos = assets.filter((a) => a.kind === 'image' && (a.role === 'logo' || a.role === 'partner'));
   const texts = assets.filter((a) => a.kind === 'text');
-  const opt = (list, cur, none = '— aucun —') => `<option value="">${none}</option>${list.map((a) => `<option value="${a.id}"${String(a.id) === String(cur) ? ' selected' : ''}>${esc(a.name)}${a.provisional ? ' (provisoire)' : ''}</option>`).join('')}`;
-  const rng = (id, label, lo, hi, v, step = 1) => `<label>${label}<span class="rng"><input type="range" id="${id}" min="${lo}" max="${hi}" step="${step}" value="${v}"></span></label>`;
+  const opt = (list, none) => `<option value="">${none}</option>${list.map((a) => `<option value="${a.id}">${esc(a.name)}</option>`).join('')}`;
   const fm = Object.fromEntries(VIDEO_FORMATS.map((k) => [k, { w: FORMATS[k].w, h: FORMATS[k].h, safe: FORMATS[k].safe, label: FORMATS[k].label }]));
-  return `<span id="lockpage"></span>${tabs(ed, variant ? 'variantes' : 'videos')}${variant ? workspaceHeader(ed, { name: variant.name, type: c.ws?.type || 'Vidéo', status: variant.status, version: variant.approved_version, base: `/edition/${ed.id}/variants/${variant.id}`, backHref: `/edition/${ed.id}/variants`, steps: c.ws?.steps || [], summary: c.ws?.summary, step: 'creation', note: 'Ici « Lancer les exports » produit des essais ; l’export officiel se fait à l’étape Vérification et exports.' }) : ''}${msg ? `<p class="flash">${esc(msg)}</p>` : ''}
+  const videos = assets.filter((a) => a.kind === 'video').map((a) => ({ id: a.id, name: a.label || a.name, provisional: !!a.provisional }));
+  const images = assets.filter((a) => a.kind === 'image' && !/\.svg$/i.test(a.name)).map((a) => ({ id: a.id, name: a.label || a.name, role: a.role, provisional: !!a.provisional }));
+  const data = { design: d, tl, cues, infos, formats: fm, fonts: FONTS, videos, images };
+  const attrs = Object.entries(data).map(([k, v]) => `data-${k}="${esc(JSON.stringify(v))}"`).join(' ');
+  const head = variant ? workspaceHeader(ed, { name: variant.name, type: c.ws?.type || 'Vidéo', status: variant.status, version: variant.approved_version, base: `/edition/${ed.id}/variants/${variant.id}`, backHref: variant.campaign_id ? `/edition/${ed.id}/campaigns/${variant.campaign_id}` : `/edition/${ed.id}/campaigns`, backLabel: variant.campaign_id ? 'Retour à la campagne' : 'Campagnes', steps: c.ws?.steps || [], summary: c.ws?.summary, step: 'creation', note: 'Ici « Lancer les exports » produit des essais ; l’export officiel se fait à l’étape Vérification et exports.' }) : '';
+  return `${tabs(ed, variant ? 'variantes' : 'videos')}${head}${msg ? `<p class="flash">${esc(msg)}</p>` : ''}
 ${ready ? '' : '<p class="status warn"><b>ffmpeg est introuvable</b> : les exports vidéo sont impossibles. Il doit se trouver dans <code>tools/ffmpeg/</code>.</p>'}
-<div class="studio"><div class="stack">
-<form id="vform" method="post" action="/edition/${ed.id}/video/save${qs}" class="card" data-edition="${ed.id}" data-draft="${draft ? 1 : 0}"
- data-design="${esc(JSON.stringify(d))}" data-cues="${esc(JSON.stringify(cues))}" data-info="${esc(JSON.stringify(info || null))}" data-formats="${esc(JSON.stringify(fm))}">
+<form id="vform" method="post" action="/edition/${ed.id}/video/save${qs}" class="vs" data-edition="${ed.id}" data-draft="${draft ? 1 : 0}" ${attrs}>
 <input type="hidden" name="design"><input type="hidden" name="cues">
-<div class="actions"><button class="primary">Enregistrer</button><button formaction="/edition/${ed.id}/video/export${qs}"${ready ? '' : ' disabled'}>Lancer les exports</button></div>
-<small>Rien n’est publié : un export est un fichier produit. ${draft ? 'Les vidéos seront marquées BROUILLON (fiche non prête ou source provisoire).' : ''}</small>
-
-<div class="elpanel"><h2>1 · Vidéo source</h2>
-<label>Fichier<select id="v_asset">${opt(videos, d.asset, '— choisir une vidéo —')}</select></label>
-${videos.length ? '' : `<small>Aucune vidéo : ajoutez-en une dans l’onglet <a href="/edition/${ed.id}/assets">Assets</a> (rôle « Vidéo »).</small>`}
-${info ? `<small>${info.w}×${info.h} · ${info.duration.toFixed(1)} s · ${info.fps} i/s · ${info.hasAudio ? 'avec son' : 'sans son'}</small>` : ''}</div>
-
-<div class="elpanel"><h2>2 · Extrait à exporter</h2>
-${rng('v_start', 'Début (s)', 0, Math.max(1, Math.floor(info?.duration || 60)), d.start, 0.1)}
-${rng('v_end', 'Fin (s) — 0 = jusqu’à la fin', 0, Math.max(1, Math.floor(info?.duration || 60)), d.end, 0.1)}
-<span class="inline"><button type="button" id="v_setstart" class="link">Début = position du lecteur</button><button type="button" id="v_setend" class="link">Fin = position du lecteur</button><button type="button" id="v_playclip" class="link">▶ Lire l’extrait</button></span></div>
-
-<div class="elpanel"><h2>3 · Cadrage par format</h2>
-<small>Chaque format a son propre cadrage : l’aperçu montre exactement ce qui sera exporté.</small>
+<div class="vs-top">
+<button class="primary">Enregistrer</button><button formaction="/edition/${ed.id}/video/export${qs}"${ready ? '' : ' disabled'}>Lancer les exports</button>
+<span id="vdirty" class="tag warn" hidden>Modifications non enregistrées</span>
+<small class="grow">Rien n’est publié : un export est un fichier produit. ${draft ? 'Les vidéos seront marquées BROUILLON (fiche non prête ou source provisoire).' : ''}</small>
 <div class="tabs sub" id="v_fmtTabs">${VIDEO_FORMATS.map((k) => `<a href="#" data-fmt="${k}">${esc(FORMATS[k].label)}</a>`).join('')}</div>
-${rng('v_posx', 'Cadrage horizontal', 0, 100, 50)}${rng('v_posy', 'Cadrage vertical', 0, 100, 50)}${rng('v_zoom', 'Zoom', 100, 300, 100)}
-<label class="check"><input type="checkbox" id="v_guides" checked> Afficher les zones de sécurité (interfaces des Stories / TikTok)</label></div>
-
-<div class="elpanel"><h2>4 · Logo</h2>
-<label>Logo à incruster<select id="v_logo">${opt(logos, d.logo.asset)}</select></label>
-<label>Coin<select id="v_corner">${[['tl', 'Haut gauche'], ['tr', 'Haut droite'], ['bl', 'Bas gauche'], ['br', 'Bas droite']].map(([k, n]) => `<option value="${k}"${k === d.logo.corner ? ' selected' : ''}>${n}</option>`).join('')}</select></label>
-${rng('v_lsize', 'Taille (% de la largeur)', 5, 40, d.logo.size)}${rng('v_lmargin', 'Marge (% de la largeur)', 0, 15, d.logo.margin)}</div>
-
-<div class="elpanel"><h2>5 · Écran de fin</h2>
-<label class="check"><input type="checkbox" id="v_end"${d.endcard.on ? ' checked' : ''}> Ajouter un écran de fin</label>
-${rng('v_endsec', 'Durée (s)', 1, 10, d.endcard.seconds)}
-<small>Reprend l’affiche de ce format (onglet <a href="/edition/${ed.id}/poster/4x5">Affiches</a>) : même direction artistique, titre, dates et bouton.</small></div>
-
-<div class="elpanel"><h2>6 · Sous-titres</h2>
-<label class="check"><input type="checkbox" id="v_subs"${d.subs.on ? ' checked' : ''}> Incruster les sous-titres</label>
-${rng('v_ssize', 'Taille (%)', 60, 160, d.subs.size)}
-<small>Placés au-dessus de la zone réservée par chaque plateforme. À relire avant export : les temps sont ceux de la vidéo complète.</small>
-<div id="v_cues" class="cues"></div>
-<span class="inline"><button type="button" id="v_addcue" class="link">+ Ajouter à la position du lecteur</button><a href="/edition/${ed.id}/video/subs.srt${qs}">Télécharger .srt</a></span></div>
-
-<div class="elpanel"><h2>7 · Formats à exporter</h2>
-${VIDEO_FORMATS.map((k) => `<label class="check"><input type="checkbox" class="v_fmtchk" value="${k}"${d.formats.includes(k) ? ' checked' : ''}> ${esc(FORMATS[k].label)} <small>${FORMATS[k].w}×${FORMATS[k].h}</small></label>`).join('')}</div>
+</div>
+<div class="vs-main">
+<div class="vs-preview" id="pwrap"><div id="vframe" class="vframe"><video id="vplayer" playsinline preload="auto"></video><div id="vlayer"></div><div id="vguides"></div><div id="vdraft">DRAFT — NOT FOR PUBLICATION</div>
+<div id="vsel" hidden><span class="vh vh-rot" data-h="rot" title="Tourner"></span><span class="vh vh-scale" data-h="scale" title="Changer la taille"></span></div></div>
+<div class="vbar"><button type="button" id="vplay" title="Lecture / pause (Espace)">▶</button><span id="vtime">0:00 / 0:00</span><label class="check"><input type="checkbox" id="v_guides" checked> Zones de sécurité</label></div></div>
+<div class="vs-props" id="vprops"></div>
+</div>
+<div class="vs-tl">
+<div class="vs-tltools">
+<button type="button" id="t_addclip">+ Clip vidéo</button><button type="button" id="t_addtext">+ Texte</button><button type="button" id="t_addimg">+ Logo / image</button><button type="button" id="t_addsubs">+ Sous-titres</button>
+<span class="sep"></span><button type="button" id="t_split" title="Coupe le clip sous la tête de lecture">✂ Scinder au curseur</button><button type="button" id="t_del">Supprimer</button><span class="sep"></span><button type="button" id="t_undo" title="Annuler (Ctrl+Z)" disabled>↶ Annuler</button><button type="button" id="t_redo" title="Rétablir (Ctrl+Y)" disabled>↷ Rétablir</button>
+<label class="zoom">Zoom <input type="range" id="t_zoom" min="20" max="200" value="60"></label>
+</div>
+<div class="vs-tlscroll" id="tlscroll"><div id="tlinner"><div id="tlruler"></div><div id="tltracks"></div><div id="tlhead"></div></div></div>
+<small>Cliquez sur un bloc pour le régler. Glissez un bloc pour le déplacer, ses bords pour le raccourcir. Les clips se suivent ; les éléments se posent par-dessus, à l’instant choisi.</small>
+</div>
 </form>
+<div id="vpick" hidden><div class="vpick-box"><div class="vpick-head"><b id="vpick-title"></b><button type="button" id="vpick-close" class="link">Fermer</button></div><div id="vpick-list"></div></div></div>
 
 <form class="card" method="post" action="/edition/${ed.id}/video/subs-import${qs}"><h2>Importer des sous-titres</h2>
-<label>Fichier SRT / VTT (asset)<select name="asset">${opt(texts, '', '— choisir —')}</select></label>
-<small>Remplace les sous-titres actuels (${cues.length} ligne(s)). Pour ajouter un fichier : onglet <a href="/edition/${ed.id}/assets">Assets</a>, rôle « Sous-titres ».
-La transcription automatique et la traduction ne sont pas encore disponibles.</small>
+<label>Fichier SRT / VTT (asset)<select name="asset">${opt(texts, '— choisir —')}</select></label>
+<small>Remplace les lignes du premier bloc de sous-titres (créé au besoin) ; leurs temps sont ceux de la timeline. Pour ajouter un fichier : onglet <a href="/edition/${ed.id}/assets">Bibliothèque</a>.
+La transcription automatique et la traduction ne sont pas encore disponibles. Enregistrez d’abord vos modifications avant d’importer.</small>
 <button>Importer</button></form>
 
 <div class="card"><h2>Exports vidéo</h2><div id="v_jobs"><small>Chargement…</small></div></div>
-</div>
-<div class="preview" id="pwrap"><div id="vframe" class="vframe"><video id="vplayer" playsinline preload="metadata"></video><img id="vlogo" alt=""><div id="vguides"></div><div id="vsub"></div><div id="vdraft">DRAFT — NOT FOR PUBLICATION</div></div>
-<div class="vbar"><button type="button" id="vplay">▶</button><input type="range" id="vscrub" min="0" max="1000" value="0"><span id="vtime">0:00</span></div></div></div>
 <script src="/video.js" defer></script>`;
 }
 

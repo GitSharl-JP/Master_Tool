@@ -404,10 +404,10 @@ export function checks(id) {
   }
   if (!allImported && Object.values(st.designs).length && Object.values(st.designs).filter((g) => !g.ext).every((g) => !g.logo)) add('conseil', 'Aucun logo choisi sur les affiches.', posterHref(v.formats[0]));
   const title = (v.msg_title || d.title_en || '').trim();
-  if (!title && !allImported && hasPosters) add('bloquant', 'Le titre est vide (ni titre de variante, ni titre dans la fiche).', `/edition/${v.project_id}/variants/${id}?step=creation`);
-  if (!allImported && hasPosters && title.length > 48) add('conseil', `Titre long (${title.length} caractères) : il risque de déborder sur les petits formats. Vérifiez les aperçus.`, `/edition/${v.project_id}/variants/${id}?step=creation`);
+  if (!title && !allImported && hasPosters) add('bloquant', 'Le titre est vide (ni titre de variante, ni titre dans la fiche).', `/edition/${v.project_id}/variants/${id}?step=creation&all=1`);
+  if (!allImported && hasPosters && title.length > 48) add('conseil', `Titre long (${title.length} caractères) : il risque de déborder sur les petits formats. Vérifiez les aperçus.`, `/edition/${v.project_id}/variants/${id}?step=creation&all=1`);
   const shown = [title, v.msg_tagline || d.tagline_en, v.msg_top || d.top_line_en, v.msg_cta || d.cta_book_en].join(' ');
-  if (!allImported && hasPosters && /placeholder|provisoire|lorem/i.test(shown)) add('conseil', 'Un texte affiché contient encore « placeholder » ou « provisoire ».', `/edition/${v.project_id}/variants/${id}?step=creation`);
+  if (!allImported && hasPosters && /placeholder|provisoire|lorem/i.test(shown)) add('conseil', 'Un texte affiché contient encore « placeholder » ou « provisoire ».', `/edition/${v.project_id}/variants/${id}?step=creation&all=1`);
   const ctaShown = Object.entries(st.designs).some(([, g]) => !g.ext && !g.els?.cta?.hide && !g.els?.host?.hide);
   if (!d.booking_url && ctaShown) add('conseil', 'Un bouton ou une adresse de réservation est affiché sans lien de réservation dans les infos du spectacle : il ne mènera nulle part (masquez-le dans l’éditeur ou renseignez l’adresse).', `/edition/${v.project_id}/settings#sec-booking`);
   const why = explainNeeds(ed, contentNeeds(st, v));

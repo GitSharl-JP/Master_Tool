@@ -56,11 +56,22 @@ export const assetPath = (a) => storage.path(a.stored);
 export const assetsByRole = (editionId, role) => listAssets(editionId).filter((a) => a.role === role);
 
 // Réception en flux (le navigateur envoie le fichier brut).
+// À l'ajout, on ne demande pas ce que représente le fichier : le rôle est deviné d'après son type et son nom, et se corrige ensuite dans la liste (tri).
+export function autoRole(name, kind) {
+  const n = String(name).toLowerCase();
+  if (kind === 'video') return 'video';
+  if (kind === 'audio') return 'audio';
+  if (/\.(srt|vtt)$/.test(n)) return 'subtitle';
+  if (kind === 'image') return /logo/.test(n) ? (/partner|partenaire|sponsor/.test(n) ? 'partner' : 'logo') : 'hero';
+  if (kind === 'source') return 'source';
+  if (kind === 'document' || kind === 'text') return 'brief';
+  return 'other';
+}
 export function saveUpload(req, { editionId, name, role, who }) {
   return new Promise((resolve, reject) => {
     const ext = extname(name).toLowerCase();
     if (!KINDS[ext]) return reject(new Error(`Type de fichier non accepté (${ext || 'inconnu'}).`));
-    if (!ROLES[role]) role = 'other';
+    if (!ROLES[role]) role = autoRole(name, KINDS[ext]);
     const safe = name.replace(/[^\w.\- ]+/g, '_').slice(-80);
     const stored = `${Date.now()}_${safe}`;
     const out = storage.write(stored);
@@ -259,6 +270,35 @@ export function htmlToPng(html, fmt, pngFile) {
     p.on('close', () => { clearTimeout(timer); prof.cleanup(); try { unlinkSync(htmlFile); } catch {} resolve(existsSync(pngFile)); });
     p.on('error', () => { clearTimeout(timer); resolve(false); });
   });
+}
+
+// Texte libre d'un montage vidéo : un bloc HTML (même moteur que les affiches : polices, contours) rendu en PNG transparent à sa taille exacte.
+// Deux passes : mesure du bloc (--dump-dom) puis capture à cette taille. Retourne { ok, w, h }.
+function runBrowser(args, capture = false) {
+  return new Promise((resolve) => {
+    const exe = browser();
+    if (!exe) return resolve({ ok: false, out: '' });
+    const prof = isolatedProfile();
+    const p = spawn(exe, [...prof.args, '--headless=new', '--disable-gpu', '--hide-scrollbars', ...args], { stdio: ['ignore', capture ? 'pipe' : 'ignore', 'ignore'], windowsHide: true });
+    let out = '';
+    if (capture) p.stdout.on('data', (c) => { out += c; });
+    const timer = setTimeout(() => p.kill(), 60000);
+    p.on('close', () => { clearTimeout(timer); prof.cleanup(); resolve({ ok: true, out }); });
+    p.on('error', () => { clearTimeout(timer); prof.cleanup(); resolve({ ok: false, out: '' }); });
+  });
+}
+export async function renderTextBox(blockHtml, pngFile) {
+  const htmlFile = pngFile.replace(/\.png$/, '.html'), url = 'file:///' + htmlFile.replace(/\\/g, '/');
+  const doc = (script) => `<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;background:transparent}#t{display:inline-block}</style></head><body><div id="t">${blockHtml}</div>${script}</body></html>`;
+  writeFileSync(htmlFile, doc('<script>const r=document.getElementById("t").getBoundingClientRect();document.documentElement.setAttribute("data-size",Math.ceil(r.width)+"x"+Math.ceil(r.height));</script>'));
+  const m = await runBrowser(['--dump-dom', url], true);
+  const sz = /data-size="(\d+)x(\d+)"/.exec(m.out);
+  if (!m.ok || !sz) { try { unlinkSync(htmlFile); } catch {} return { ok: false }; }
+  const w = Math.max(1, Number(sz[1])), h = Math.max(1, Number(sz[2]));
+  writeFileSync(htmlFile, doc(''));
+  await runBrowser([`--window-size=${w},${h}`, '--default-background-color=00000000', `--screenshot=${pngFile}`, url]);
+  try { unlinkSync(htmlFile); } catch {}
+  return existsSync(pngFile) ? { ok: true, w, h } : { ok: false };
 }
 
 // Retourne { ok, id } ou { ok:false, error }. Le fichier PNG est un export : rien n'est publié.

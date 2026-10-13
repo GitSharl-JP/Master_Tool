@@ -112,7 +112,7 @@ export function renderPoster(ed, fmt, g, { heroSrc, logoSrc, partnerSrcs = [], d
 .bg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:${g.posx}% ${g.posy}%;transform:scale(${g.zoom / 100});transform-origin:${g.posx}% ${g.posy}%}
 .ph{background:linear-gradient(135deg,${c.p},${c.s});display:flex;align-items:center;justify-content:center;font:700 44px ${c.fb};letter-spacing:.2em;color:${rgba(c.x, .35)}}
 .grad{position:absolute;inset:0;background:${grad}}
-[data-el]{transform-origin:${band ? 'center' : '0 0'}}
+[data-el]{transform-origin:center}
 [data-oc],[data-oc] *{color:var(--oc)!important}
 .logo{position:absolute;left:${side}px;top:${safeTop}px;max-height:${logoH}px;max-width:${Math.round(340 * (wide ? u : 1))}px}
 .kick{font-size:${Math.round((tall ? 40 : 34) * (wide ? u : 1))}px;letter-spacing:.14em;text-transform:uppercase;color:${c.s};margin-bottom:${Math.round(18 * (wide ? u : 1))}px}
