@@ -266,3 +266,20 @@ if (wiz) {
   wiz.addEventListener('input', (e) => { if (['angle', 'audience', 'language'].includes(e.target.name)) fill(); });
   fill();
 }
+
+// --- Guide Ads Manager : boutons « Copier », compteurs de caractères, lecture d'un rapport .csv
+document.addEventListener('click', async (e) => {
+  const b = e.target.closest && e.target.closest('button.copy');
+  if (!b) return;
+  const v = b.dataset.copy || '';
+  try { await navigator.clipboard.writeText(v); }
+  catch { const t = document.createElement('textarea'); t.value = v; document.body.append(t); t.select(); try { document.execCommand('copy'); } catch { /* copie impossible */ } t.remove(); }
+  const old = b.textContent; b.textContent = 'Copié ✓'; b.classList.add('done'); setTimeout(() => { b.textContent = old; b.classList.remove('done'); }, 1500);
+});
+document.querySelectorAll('[data-count]').forEach((el) => {
+  const out = el.parentElement.querySelector('.cnt'), max = Number(el.dataset.count);
+  const upd = () => { if (out) { out.textContent = `${el.value.length} / ${max}`; out.style.color = el.value.length > max ? '#b3261e' : ''; } };
+  el.addEventListener('input', upd); upd();
+});
+const csvfile = document.getElementById('csvfile');
+if (csvfile) csvfile.addEventListener('change', async () => { const f = csvfile.files[0]; if (!f) return; csvfile.form.elements.csv.value = await f.text(); });

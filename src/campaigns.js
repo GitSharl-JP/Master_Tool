@@ -43,7 +43,7 @@ for (const [c, d] of [['meta_objective', T], ['meta_budget', T], ['meta_start', 
   ['brief_objective', T], ['brief_message', T], ['brief_audience', T], ['brief_hypothesis', T], ['brief_languages', T], ['brief_budget', T], ['brief_notes', T]]) addCol('campaigns', c, d);
 for (const [c, d] of [['meta_targeting', T], ['meta_placements', "TEXT NOT NULL DEFAULT ''"], ['meta_synced_at', 'TEXT'], ['meta_source', "TEXT NOT NULL DEFAULT 'manuel'"],
   ['brief_audience', T], ['brief_placements', "TEXT NOT NULL DEFAULT '[]'"], ['brief_languages', T], ['brief_hypothesis', T]]) addCol('adsets', c, d);
-for (const [c, d] of [['meta_synced_at', 'TEXT'], ['meta_source', "TEXT NOT NULL DEFAULT 'manuel'"], ['brief_angle', T]]) addCol('ads', c, d);
+for (const [c, d] of [['meta_synced_at', 'TEXT'], ['meta_source', "TEXT NOT NULL DEFAULT 'manuel'"], ['brief_angle', T], ['copy_primary', T], ['copy_headline', T], ['copy_description', T], ['cta', T]]) addCol('ads', c, d);
 for (const [c, d] of [['variant_id', 'INTEGER'], ['variant_version', 'INTEGER'], ['body', T], ['asset_id', 'INTEGER']]) addCol('contents', c, d);
 // anciennes valeurs -> nouveau vocabulaire ; anciens champs recopiés vers la configuration Meta / le brief interne
 db.exec(`
@@ -165,9 +165,20 @@ export function createAd(asid, b, who) {
   if (!getAdset(asid)) return { ok: false, error: 'Ensemble introuvable.' };
   const name = txt(b.name, 140);
   if (!name) return { ok: false, error: 'Indiquez le nom de l’annonce.' };
-  db.prepare('INSERT INTO ads(adset_id,name,meta_id,meta_status,brief_angle,landing,notes,created) VALUES(?,?,?,?,?,?,?,?)').run(asid, name, txt(b.meta_id, 40), statusOf(b.meta_status), txt(b.brief_angle, 140), txt(b.landing, 300), txt(b.notes, 300), now());
+  db.prepare('INSERT INTO ads(adset_id,name,meta_id,meta_status,brief_angle,landing,notes,copy_primary,copy_headline,copy_description,cta,created) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)').run(asid, name, txt(b.meta_id, 40), statusOf(b.meta_status), txt(b.brief_angle, 140), txt(b.landing, 300), txt(b.notes, 300), txt(b.copy_primary, 600), txt(b.copy_headline, 200), txt(b.copy_description, 200), txt(b.cta, 60), now());
   log(who, `Annonce reliée : ${name}`);
   return { ok: true };
+}
+
+export const getAd = (id) => db.prepare('SELECT a.*, s.campaign_id FROM ads a JOIN adsets s ON s.id=a.adset_id WHERE a.id=?').get(id);
+// Textes de la publicité (ce qu'on saisira dans Ads Manager) et identifiant Meta une fois la publicité créée là-bas.
+export function updateAdCopy(id, b, who) {
+  const a = getAd(id);
+  if (!a) return false;
+  db.prepare('UPDATE ads SET name=?, copy_primary=?, copy_headline=?, copy_description=?, cta=?, meta_id=?, landing=? WHERE id=?')
+    .run(txt(b.name, 140) || a.name, txt(b.copy_primary, 600), txt(b.copy_headline, 200), txt(b.copy_description, 200), txt(b.cta, 60), b.meta_id === undefined ? a.meta_id : txt(b.meta_id, 40), b.landing === undefined ? a.landing : txt(b.landing, 300), id);
+  log(who, `Annonce « ${a.name} » : textes et références enregistrés`);
+  return true;
 }
 
 // --- associations contenu ↔ niveau
@@ -254,8 +265,8 @@ export function addResult(linkId, b, who) {
   if (!db.prepare('SELECT 1 FROM content_links WHERE id=?').get(linkId)) return false;
   const n = (v) => Math.max(0, Number(String(v).replace(',', '.')) || 0);
   db.prepare('INSERT INTO results(link_id,period,impressions,clicks,spend,conversions,source,entered_by,entered_at) VALUES(?,?,?,?,?,?,?,?,?)')
-    .run(linkId, txt(b.period, 60), Math.round(n(b.impressions)), Math.round(n(b.clicks)), n(b.spend), Math.round(n(b.conversions)), 'manuel', who, now());
-  log(who, `Résultats saisis à la main (association ${linkId})`);
+    .run(linkId, txt(b.period, 60), Math.round(n(b.impressions)), Math.round(n(b.clicks)), n(b.spend), Math.round(n(b.conversions)), b.source === 'import' ? 'import' : 'manuel', who, now());
+  log(who, b.source === 'import' ? `Résultats importés du rapport Ads Manager (association ${linkId})` : `Résultats saisis à la main (association ${linkId})`);
   return true;
 }
 export function compare(campaignId) {

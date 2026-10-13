@@ -5,6 +5,7 @@ import { INTENTS, STAGES, variantType } from './variants.js';
 import { META_STATUSES, CONTENT_STATUSES, LINK_STATES, OBJECTIVES, isFrozenState, coverage, trackedUrl, metaInfo } from './campaigns.js';
 import { KINDS, PLAN_STATUSES, monthGrid, shiftMonth, today } from './plan.js';
 import { SITE_PAGES } from './render.js';
+import { adSheet, META_OBJECTIVES, META_CTAS, LIMITS, GUIDE_STEPS, placementsHelp, suggestAdsetName, suggestAdName } from './metaguide.js';
 import { PROJECT_DEFS, isSet, preview } from './secrets.js';
 import { ENVIRONMENTS, SITE_STATUSES, STEPS } from './site.js';
 
@@ -377,7 +378,7 @@ ${linkList(ed, a.links)}${linkForm('ad_id', a.id)}</div>`).join('')}
 <div class="card"><h2>${esc(camp.name)} ${metaChip(camp)}</h2>
 <p>${progressChips(c.allLinks)}</p>
 ${active ? '<p class="status ok"><b>Campagne active dans Meta</b> (statut saisi à la main). Les versions diffusées (associations « transmises » ou « publiées ») sont <b>figées</b> et identifiables 🔒. Vous pouvez continuer à préparer de <b>nouveaux contenus en brouillon</b> pour cette campagne ; rien ne part vers Meta sans récapitulatif et confirmation de votre part.</p>' : ''}
-<p class="inline"><a class="btn primary" href="/edition/${ed.id}/variants/new?campaign=${camp.id}">+ Créer un contenu pour cette campagne</a></p>
+<p class="inline"><a class="btn primary" href="/edition/${ed.id}/variants/new?campaign=${camp.id}">+ Créer un contenu pour cette campagne</a> <a class="btn" href="/edition/${ed.id}/campaigns/${camp.id}/guide">Guide Ads Manager : quoi saisir dans Meta</a></p>
 ${linkForm('campaign_id', camp.id).replace('Associer un contenu (en brouillon)…', 'Associer un contenu existant à toute la campagne (en brouillon)…')}</div>
 <div class="card"><h2>Contenus de cette campagne</h2>
 ${variants.map((v) => `<div class="orow"><a href="/edition/${ed.id}/variants/${v.id}"><b>${esc(v.name)}</b></a> <span class="tag">${esc(variantType(v))}</span> ${chip(v.status)}
@@ -558,4 +559,83 @@ ${links.length ? `<ul class="log">${links.map((l) => `<li>${chip(l.state)} ${l.a
   return `${tabs(ed, 'variantes')}${flash(msg)}
 ${workspaceHeader(ed, { name: t.title, type: 'Texte', status: t.status, version: 0, base, backHref: `/edition/${ed.id}/variants`, steps: ws.steps, step })}
 ${bodies[step]}`;
+}
+
+// ------------------------------------------------------------------ Guide Ads Manager : quoi saisir, dans quel ordre, avec des valeurs à copier
+export function metaGuidePage(ed, c) {
+  const { camp, meta, adsets, msg } = c;
+  const base = `/edition/${ed.id}/campaigns/${camp.id}`;
+  const copyBtn = (v) => (v ? `<button type="button" class="copy" data-copy="${esc(v)}">Copier</button>` : '');
+  const row = (label, value, note = '') => `<div class="grow"><div class="gl">${esc(label)}</div><div class="gv">${value ? `<code>${esc(value)}</code>` : '<span class="muted">— à renseigner</span>'}</div><div class="gc">${copyBtn(value)}</div>${note ? `<small class="gn">${esc(note)}</small>` : ''}</div>`;
+  const obj = META_OBJECTIVES[camp.brief_objective] || null;
+  const metaObj = obj?.meta || camp.meta_objective || '';
+  const dates = [camp.meta_start || camp.starts, camp.meta_end || camp.ends].filter(Boolean).join(' → ');
+  const sheets = adsets.map((s) => ({ s, ads: s.ads.map((a) => ({ a, sheet: adSheet({ ed, meta, camp, adset: s, ad: a, links: a.links }) })) }));
+  const nWarn = sheets.reduce((n, x) => n + x.ads.reduce((m, y) => m + y.sheet.warnings.length, 0), 0) + adsets.reduce((n, s) => n + coverage(s, s.links).missing.length, 0);
+  const copyForm = (s, a) => `<details class="copyform"><summary>Modifier les textes et références de cette publicité</summary>
+<form method="post" action="${base}/adcopy" class="grid"><input type="hidden" name="ad_id" value="${a.id}">
+<label>Nom de la publicité<input name="name" value="${esc(a.name)}"></label>
+<label>Bouton<select name="cta"><option value="">— choisir —</option>${META_CTAS.map((x) => `<option${x === a.cta ? ' selected' : ''}>${esc(x)}</option>`).join('')}</select></label>
+<label style="grid-column:1/-1">Texte principal <small>(conseillé : ${LIMITS.primary} caractères ou moins)</small><textarea name="copy_primary" rows="3" data-count="${LIMITS.primary}">${esc(a.copy_primary)}</textarea><small class="cnt"></small></label>
+<label>Titre <small>(≤ ${LIMITS.headline})</small><input name="copy_headline" value="${esc(a.copy_headline)}" data-count="${LIMITS.headline}"><small class="cnt"></small></label>
+<label>Description <small>(facultatif)</small><input name="copy_description" value="${esc(a.copy_description)}"></label>
+<label>Identifiant Meta <small>(une fois créée dans Ads Manager)</small><input name="meta_id" value="${esc(a.meta_id)}"></label>
+<div><button class="primary">Enregistrer</button></div></form></details>`;
+  const adHtml = (s, a, sheet) => `<div class="card gad"><h3>Publicité : ${esc(a.name)} ${a.meta_id ? `<span class="tag st-2">créée dans Meta (ID ${esc(a.meta_id)})</span>` : '<span class="tag">à créer dans Meta</span>'}</h3>
+<h4>1 · Fichiers à téléverser</h4>
+${sheet.files.length ? `<ul class="gfiles">${sheet.files.map((x) => `<li><b>${esc(x.title)}</b> ${x.kind === 'video' ? '<span class="tag">vidéo</span>' : ''} <span class="tag">${esc(x.ratio)} · ${esc(x.dims)}</span> ${x.draft ? '<span class="tag warn">BROUILLON</span>' : ''} ${x.exportId ? `<a class="btn sm" href="/exports/${x.exportId}?dl=1">Télécharger</a>` : '<small>pas encore de fichier</small>'}</li>`).join('')}</ul>` : '<p class="status warn">Aucun fichier associé : associez un contenu à cette publicité dans la campagne.</p>'}
+<h4>2 · Textes et réglages à recopier</h4>${sheet.fields.map((x) => row(x.label, x.value, x.note)).join('')}
+${sheet.warnings.length ? `<ul class="log checks">${sheet.warnings.map((w) => `<li class="conseil">🟡 ${esc(w)}</li>`).join('')}</ul>` : '<p class="status ok">✅ Prête à saisir dans Ads Manager.</p>'}
+${copyForm(s, a)}</div>`;
+  const adsetHtml = sheets.map(({ s, ads }) => {
+    const cov = coverage(s, s.links), pl = placementsHelp(s.brief_placements);
+    return `<div class="card"><h2>Ensemble de publicités : ${esc(s.name)}</h2>
+${row('Nom de l’ensemble', s.name, 'Nom conseillé : ' + suggestAdsetName(camp, s))}
+${row('Audience souhaitée', s.brief_audience, 'À traduire en ciblage dans Ads Manager (lieux, âge, centres d’intérêt). Ce que vous saisissez vraiment dans Meta se note dans « Ciblage réel » de la campagne.')}
+${row('Langues', s.brief_languages)}
+${row('Destination', /^https?:/.test(s.landing) ? s.landing : ed.data.booking_url, 'Page où mènent les publicités de cet ensemble.')}
+<div class="grow"><div class="gl">Emplacements</div><div class="gv">${pl.length ? pl.map((x) => esc(x)).join('<br>') : '<span class="muted">— aucun placement souhaité : choisissez-les dans la campagne</span>'}</div><div class="gc"></div><small class="gn">Si vous laissez les emplacements automatiques, Meta diffusera sur tous les formats : préparez au moins 4:5 (fil) et 9:16 (stories / reels).</small></div>
+${cov.need.length ? `<p><b>Formats à produire :</b> ${cov.need.map((f) => `<span class="tag ${cov.have.includes(f) ? 'st-2' : 'warn'}">${esc(FORMATS[f]?.ratio || f)} ${cov.have.includes(f) ? '✓' : 'manquant'}</span>`).join(' ')}${cov.missing.length ? ` <a href="/edition/${ed.id}/variants/new?campaign=${camp.id}&adset=${s.id}&formats=${cov.missing.join(',')}">Créer les formats manquants</a>` : ''}</p>` : ''}
+${ads.map(({ a, sheet }) => adHtml(s, a, sheet)).join('') || '<p><small>Aucune publicité prévue dans cet ensemble : ajoutez-en une ci-dessous.</small></p>'}
+<details><summary>+ Prévoir une publicité dans cet ensemble</summary><form method="post" action="${base}/ad" class="grid"><input type="hidden" name="adset_id" value="${s.id}">
+<label>Nom de la publicité<input name="name" required placeholder="${esc(suggestAdName(s, {}, null))}"></label><label>Angle<input name="brief_angle"></label>
+<label>Bouton<select name="cta"><option value="">— choisir —</option>${META_CTAS.map((x) => `<option>${esc(x)}</option>`).join('')}</select></label>
+<label style="grid-column:1/-1">Texte principal<textarea name="copy_primary" rows="2"></textarea></label><label>Titre<input name="copy_headline"></label><div><button>Prévoir</button></div></form></details></div>`;
+  }).join('');
+  return `${tabs(ed, 'campagnes')}${flash(msg)}
+<p><a href="${base}">← ${esc(camp.name)}</a></p>
+<h1>Guide Ads Manager</h1>
+<p class="lead">Préparez ici, saisissez dans Ads Manager : chaque valeur a un bouton « Copier ». <b>Rien n’est envoyé à Meta</b> et l’atelier ne se connecte pas à Meta.</p>
+<p class="status warn">Meta change souvent ses écrans et ses libellés. Les noms ci-dessous suivent la structure stable <b>Campagne › Ensemble de publicités › Publicité</b> ; si un libellé diffère chez vous, la valeur à copier reste la bonne. Dernière relecture du vocabulaire : à reconfirmer à chaque nouvelle interface.</p>
+<ol class="gsteps">${GUIDE_STEPS.map(([t, d]) => `<li><b>${esc(t)}</b><small>${esc(d)}</small></li>`).join('')}</ol>
+<p>${nWarn ? `<span class="tag warn">${nWarn} point(s) à régler avant de publier</span>` : '<span class="tag st-2">Rien à régler</span>'}</p>
+<div class="card"><h2>1 · Campagne</h2>
+${row('Nom de la campagne', camp.name)}
+${row('Objectif de campagne', metaObj, obj?.hint || 'Choisissez l’objectif le plus proche dans Ads Manager.')}
+${row('Budget prévu', camp.brief_budget, 'Selon le mode choisi dans Meta, le budget se saisit au niveau de la campagne ou de chaque ensemble.')}
+${row('Dates', dates)}
+${row('Message clé', camp.brief_message, 'Pour inspirer les textes ; non envoyé à Meta.')}</div>
+${adsetHtml || '<div class="card"><p>Aucun ensemble : ajoutez-en un depuis la page de la campagne.</p></div>'}
+<div class="card"><h2>4 · Avant de publier dans Meta</h2><ul class="log"><li>Vérifiez l’aperçu de chaque publicité par emplacement (fil, stories, reels…).</li><li>Relisez l’orthographe et testez le lien (le paramétrage d’URL ne doit pas casser la page).</li><li>Les fichiers téléversés doivent être les exports <b>approuvés</b> ci-dessus, pas des brouillons.</li></ul></div>
+<div class="card"><h2>5 · Une fois créé dans Meta, revenez ici</h2><ul class="log"><li>Notez l’identifiant de la campagne / de l’ensemble / de la publicité (champ « Identifiant Meta »).</li><li>Sur la page de la campagne : <b>Transmettre</b> puis <b>Marquer comme publiée</b> (déclarations manuelles, avec récapitulatif).</li><li>Après quelques jours : <a href="${base}/guide#resultats">importez le rapport exporté d’Ads Manager</a> pour renseigner les résultats sans les recopier.</li></ul>
+<p><a class="btn" href="${base}">Retour à la campagne</a></p></div>
+${resultsImportCard(ed, camp, c.importPreview)}`;
+}
+
+// ------------------------------------------------------------------ import du rapport Ads Manager (CSV exporté)
+function resultsImportCard(ed, camp, prev) {
+  const base = `/edition/${ed.id}/campaigns/${camp.id}`;
+  return `<div class="card" id="resultats"><h2>Résultats : importer le rapport d’Ads Manager</h2>
+<small>Dans Ads Manager, onglet <b>Publicités</b> : choisissez la période, puis <b>Exporter › Exporter les données du tableau (.csv)</b> (ou copiez le tableau). Collez le contenu ci-dessous ou choisissez le fichier. Les publicités sont reconnues par leur nom ; vous voyez un aperçu avant d’enregistrer quoi que ce soit.</small>
+${prev ? importPreviewHtml(ed, camp, prev) : ''}
+<form method="post" action="${base}/import-results" class="grid"><label style="grid-column:1/-1">Contenu du rapport (CSV ou tableau copié)<textarea name="csv" rows="6" placeholder="Nom de la publicité;Impressions;Clics sur un lien;Montant dépensé (EUR);Résultats…">${prev ? esc(prev.raw) : ''}</textarea></label>
+<label>Fichier .csv <input type="file" id="csvfile" accept=".csv,.txt,text/csv"></label><div><button>Analyser (aperçu)</button></div></form></div>`;
+}
+function importPreviewHtml(ed, camp, p) {
+  const base = `/edition/${ed.id}/campaigns/${camp.id}`;
+  if (p.error) return `<p class="status warn">${esc(p.error)}</p>`;
+  const num = (v) => (v === null || v === undefined ? '—' : String(v));
+  return `<h3>Aperçu</h3><p><small>Colonnes reconnues : ${p.mapped.map(esc).join(', ') || '—'}.${p.unmapped.length ? ' Ignorées : ' + p.unmapped.map(esc).join(', ') + '.' : ''}</small></p>
+<table><tr><th>Publicité dans le rapport</th><th>Associée à</th><th>Affich.</th><th>Clics</th><th>Dépense</th><th>Résultats</th><th>Période</th><th></th></tr>${p.rows.map((r) => `<tr><td>${esc(r.name)}</td><td>${r.target ? esc(r.target) : '<span class="tag warn">non reconnue</span>'}</td><td>${num(r.impressions)}</td><td>${num(r.clicks)}</td><td>${num(r.spend)}</td><td>${num(r.conversions)}</td><td>${esc(r.period)}</td><td>${r.skip ? `<small>${esc(r.skip)}</small>` : '✓'}</td></tr>`).join('')}</table>
+${p.rows.some((r) => r.linkId && !r.skip) ? `<form method="post" action="${base}/apply-results" class="inline"><input type="hidden" name="payload" value="${esc(JSON.stringify(p.rows.filter((r) => r.linkId && !r.skip).map((r) => ({ linkId: r.linkId, period: r.period, impressions: r.impressions, clicks: r.clicks, spend: r.spend, conversions: r.conversions }))))}"><button class="primary">Enregistrer les ${p.rows.filter((r) => r.linkId && !r.skip).length} ligne(s) reconnue(s)</button></form><small>Un même rapport importé deux fois ne crée pas de doublon (même période et mêmes chiffres).</small>` : '<p class="status warn">Aucune ligne n’a pu être rattachée : le nom de la publicité dans le rapport doit être celui d’une publicité de cette campagne (voir « Nom de la publicité »).</p>'}`;
 }

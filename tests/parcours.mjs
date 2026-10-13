@@ -701,6 +701,41 @@ await step('9. Associer à la campagne ACTIVE : version diffusée figée, nouvel
   check('nouvel export : l’ancienne association reste épinglée, la nouvelle version est signalée', /nouvelle version du contenu disponible/.test(cp) || /variante/.test(cp));
 });
 
+await step('9b. Guide Ads Manager : valeurs à copier, textes de publicité, import du rapport exporté', async () => {
+  const C = `/edition/1/campaigns/${ids.c}`;
+  const ad = await A.post(C + '/ad', { adset_id: String(ids.adset), name: 'Annonce guide', copy_primary: 'Une nuit de lumière dans un temple.', copy_headline: 'Night Show 2027', cta: 'Réserver' });
+  check('publicité prévue avec ses textes', /Annonce reliée/.test(decodeURIComponent(A.loc(ad))), A.loc(ad));
+  const cp = await A.text(C);
+  const g = await A.text(C + '/guide');
+  check('guide : trois niveaux, boutons Copier, rien envoyé à Meta', /Guide Ads Manager/.test(g) && /class="copy"/.test(g) && /Rien n’est envoyé à Meta/.test(g) && /Ensemble de publicités/.test(g) && /Nom de la publicité/.test(g));
+  check('guide : textes de la publicité et bouton repris', /Une nuit de lumière dans un temple\./.test(g) && /Night Show 2027/.test(g) && /Réserver/.test(g));
+  check('guide : objectif traduit et lien suivi (paramètres d’URL) proposés', /utm_source=meta/.test(g) && /Objectif de campagne/.test(g));
+  check('guide : un visuel manquant est signalé', /Aucun fichier associé/.test(g) || /Aucun visuel/.test(g));
+  const cid = /<option value="(\d+)">[^<]*— approuvé/.exec(cp)?.[1];
+  const adIdReal = Number(/name="ad_id" value="(\d+)"/.exec(g)?.[1]);
+  const lk = await A.post(C + '/link', { content_id: cid, ad_id: String(adIdReal) });
+  check('contenu associé à la publicité', /associé en brouillon/.test(decodeURIComponent(A.loc(lk))), A.loc(lk));
+  const g2 = await A.text(C + '/guide');
+  check('guide : fichier à téléverser avec ses dimensions et lien de téléchargement', /Télécharger/.test(g2) && /\d{3,4}×\d{3,4}/.test(g2));
+  const csv = 'Nom de la publicité;Début des rapports;Fin des rapports;Impressions;Clics sur un lien;Montant dépensé (EUR);Résultats\nAnnonce guide;2027-01-05;2027-01-12;"12 345";321;"45,67";9\nInconnue;2027-01-05;2027-01-12;10;1;"0,5";0\n';
+  const pv = await (await A.post(C + '/import-results', { csv })).text();
+  check('import : aperçu avec les nombres à la française lus correctement', /12345/.test(pv) && /45\.67/.test(pv) && /Annonce guide/.test(pv));
+  check('import : publicité inconnue signalée, rien enregistré à l’analyse', /publicité inconnue/.test(pv) && !/Résultats importés/.test(pv));
+  const payload = /name="payload" value="([^"]+)"/.exec(pv)?.[1].replace(/&quot;/g, '"').replace(/&amp;/g, '&');
+  const ap = await A.post(C + '/apply-results', { payload });
+  check('import : lignes reconnues enregistrées', /Résultats importés : 1 ligne/.test(decodeURIComponent(A.loc(ap))), A.loc(ap));
+  check('les résultats apparaissent dans la comparaison de la campagne', /12345/.test(await A.text(C)));
+  const pv2 = await (await A.post(C + '/import-results', { csv })).text();
+  check('même rapport réimporté : déjà enregistré, pas de doublon', /déjà enregistré/.test(pv2));
+  const csvEn = 'Ad name,Reporting starts,Reporting ends,Impressions,Link clicks,Amount spent (USD),Results\nAnnonce guide,2027-02-01,2027-02-07,"1,500",30,12.5,2\n';
+  const pv3 = await (await A.post(C + '/import-results', { csv: csvEn })).text();
+  check('import : colonnes en anglais et séparateur virgule reconnus', /1500/.test(pv3) && /12\.5/.test(pv3));
+  check('import : fichier sans colonne de publicité refusé avec explication', /Colonne « Nom de la publicité » introuvable/.test(await (await A.post(C + '/import-results', { csv: 'a;b\n1;2\n' })).text()));
+  const cpy = await A.post(C + '/adcopy', { ad_id: String(adIdReal), name: 'Annonce guide', copy_primary: 'x'.repeat(200), copy_headline: 'Titre', cta: 'En savoir plus', meta_id: '1234567890' });
+  const g3 = await A.text(C + '/guide');
+  check('textes modifiables ; dépassement conseillé signalé ; identifiant Meta noté', /dépasse 125 caractères/.test(g3) && /ID 1234567890/.test(g3));
+});
+
 await step('10. Calendrier de production', async () => {
   const pl = await A.post(`/edition/1/variants/${ids.v2}/plan`, { publish: '2027-01-20' });
   check('planification à rebours (6 étapes)', /lanifié(e)? à rebours/.test(A.loc(pl)), A.loc(pl));
@@ -827,7 +862,7 @@ await step('14. Pages dans un vrai navigateur (assistant, éditeur de variante, 
     const c = await br.ev(String.raw`(() => { const e = document.getElementById('pframe').contentDocument.querySelector('[data-el=title]').getBoundingClientRect(); return [Math.round(e.left + e.width / 2), Math.round(e.top + e.height / 2)]; })()`);
     check('position : centre de l’élément placé à 456 × 345 px', Math.abs(c[0] - 456) <= 2 && Math.abs(c[1] - 345) <= 2, JSON.stringify(c));
     await shot('editeur-variante');
-    for (const [p, n, re] of [['/edition/1/calendar?month=2027-01', 'calendrier', 'Réunion de lancement'], [`/edition/1/campaigns/${ids.c}`, 'campagne', 'Configuration Meta'], ['/edition/1/variants', 'variantes', 'Tous les contenus'], ['/settings', 'reglages', 'Sauvegardes'], ['/edition/1/contents', 'contenus', 'Associé']]) {
+    for (const [p, n, re] of [['/edition/1/calendar?month=2027-01', 'calendrier', 'Réunion de lancement'], [`/edition/1/campaigns/${ids.c}`, 'campagne', 'Configuration Meta'], [`/edition/1/campaigns/${ids.c}/guide`, 'guide-meta', 'Guide Ads Manager'], ['/edition/1/variants', 'variantes', 'Tous les contenus'], ['/settings', 'reglages', 'Sauvegardes'], ['/edition/1/contents', 'contenus', 'Associé']]) {
       await br.go(U + p);
       check(`page ${n} s’affiche`, await br.ev(`document.body.innerText.includes(${JSON.stringify(re)})`));
       await shot(n);
@@ -860,7 +895,7 @@ await step('14. Pages dans un vrai navigateur (assistant, éditeur de variante, 
   const mb = await openBrowser({ profileDir: join(TMP, 'profil-mobile'), port: 9341, width: 420, height: 900 });
   try {
     await mb.cookie('sid', A.ck.split('=')[1], U);
-    for (const [p, n] of [['/edition/1', 'm-accueil'], ['/edition/1/variants', 'm-contenus'], ['/edition/1/assets', 'm-bibliotheque'], ['/edition/3/variants/new', 'm-creer'], ['/edition/1/campaigns', 'm-campagnes'], [`/edition/1/campaigns/${ids.c}`, 'm-campagne-detail'], [`/edition/3/variants/${ids.w.v1}?step=materiel`, 'm-ws-materiel'], [`/edition/3/variants/${ids.w.v1}?step=creation`, 'm-ws-creation'], [`/edition/3/variants/${ids.w.v1}`, 'm-ws-verification'], [`/edition/3/poster/1x1?variant=${ids.w.v1}`, 'm-ws-editeur'], [`/edition/3/texts/${ids.w.tid}?step=creation`, 'm-ws-texte']]) {
+    for (const [p, n] of [['/edition/1', 'm-accueil'], ['/edition/1/variants', 'm-contenus'], ['/edition/1/assets', 'm-bibliotheque'], ['/edition/3/variants/new', 'm-creer'], ['/edition/1/campaigns', 'm-campagnes'], [`/edition/1/campaigns/${ids.c}/guide`, 'm-guide-meta'], [`/edition/1/campaigns/${ids.c}`, 'm-campagne-detail'], [`/edition/3/variants/${ids.w.v1}?step=materiel`, 'm-ws-materiel'], [`/edition/3/variants/${ids.w.v1}?step=creation`, 'm-ws-creation'], [`/edition/3/variants/${ids.w.v1}`, 'm-ws-verification'], [`/edition/3/poster/1x1?variant=${ids.w.v1}`, 'm-ws-editeur'], [`/edition/3/texts/${ids.w.tid}?step=creation`, 'm-ws-texte']]) {
       await mb.go(U + p);
       check(`largeur téléphone : ${n} sans défilement horizontal`, await mb.ev('document.documentElement.scrollWidth <= window.innerWidth + 1'), String(await mb.ev("[...document.querySelectorAll('body *')].filter((e) => e.getBoundingClientRect().right > window.innerWidth + 1).slice(0, 4).map((e) => e.tagName + '.' + e.className + '#' + (e.id || e.name || '') + ' ' + Math.round(e.getBoundingClientRect().right)).join(' | ')")));
       check(`largeur téléphone : ${n} navigation entièrement visible`, await mb.ev("[...document.querySelectorAll('.pnav-main a')].every((a) => a.getBoundingClientRect().right <= window.innerWidth + 1)"));

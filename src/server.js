@@ -13,11 +13,12 @@ import * as library from './library.js';
 import * as variants from './variants.js';
 import * as intake from './intake.js';
 import * as projects from './projects.js';
+import * as metaimport from './metaimport.js';
 import * as plan from './plan.js';
 import * as backup from './backup.js';
 import * as todo from './todo.js';
 import * as siteMod from './site.js';
-import { contentNewPage, textPage, projectHomePage, variantsPage, variantNewPage, variantPage, calendarPage, todoCard, sitePage, contentsPage, campaignsPage, campaignPage, transitionPage, backupCard } from './views_flow.js';
+import { contentNewPage, textPage, projectHomePage, variantsPage, variantNewPage, variantPage, calendarPage, todoCard, sitePage, contentsPage, campaignsPage, campaignPage, metaGuidePage, transitionPage, backupCard } from './views_flow.js';
 import * as campaigns from './campaigns.js';
 import { probe, ffmpegReady, toSrt } from './media.js';
 import { renderPoster, renderImportedPoster, renderSite, SITE_PAGES } from './render.js';
@@ -400,7 +401,7 @@ const server = createServer(async (req, res) => {
     }
 
     // ---------- campagnes (créées dans Meta, reliées ici)
-    if ((r = path.match(/^\/edition\/(\d+)\/campaigns(?:\/(meta|new|(\d+)(?:\/(meta|brief|adset|ad|link|result)|\/adset\/(\d+)\/(meta|brief))?))?$/))) {
+    if ((r = path.match(/^\/edition\/(\d+)\/campaigns(?:\/(meta|new|(\d+)(?:\/(meta|brief|adset|ad|link|result|guide|adcopy|import-results|apply-results)|\/adset\/(\d+)\/(meta|brief))?))?$/))) {
       const ed = db.getEdition(Number(r[1]));
       if (!ed) return send(res, 404, layout('Introuvable', '<h1>Projet introuvable</h1>', user));
       const back = (m, cid) => redirect(res, `/edition/${ed.id}/campaigns${cid ? '/' + cid : ''}?m=${encodeURIComponent(m)}`);
@@ -408,6 +409,13 @@ const server = createServer(async (req, res) => {
         const list = campaigns.listCampaigns(ed.id);
         const counts = Object.fromEntries(list.map((x) => [x.id, { variants: variants.listVariants(ed.id, x.id).filter((v) => v.status !== 'archivé').length, links: campaigns.allLinksOfCampaign(x.id), missing: campaigns.listAdsets(x.id).reduce((n, s) => n + campaigns.coverage(s, campaigns.linksFor('adset_id', s.id)).missing.length, 0) }]));
         return page('Campagnes', campaignsPage(ed, { meta: campaigns.getMetaLink(ed.id), campaigns: list, counts }), msgOf());
+      }
+      const guideData = (camp, extra = {}) => ({ camp, meta: campaigns.getMetaLink(ed.id), adsets: campaigns.listAdsets(camp.id).map((s) => ({ ...s, links: campaigns.linksFor('adset_id', s.id), ads: campaigns.listAds(s.id).map((a) => ({ ...a, links: campaigns.linksFor('ad_id', a.id) })) })), msg: msgOf(), ...extra });
+      if (req.method === 'GET' && r[3] && r[4] === 'guide') {
+        const camp = campaigns.getCampaign(Number(r[3]));
+        if (!camp || camp.project_id !== ed.id) return send(res, 404, layout('Introuvable', '<h1>Campagne introuvable</h1>', user));
+        variants.syncProject(ed.id, user.name);
+        return page('Guide Ads Manager', metaGuidePage(ed, guideData(camp)));
       }
       if (req.method === 'GET' && r[3] && !r[4] && !r[5]) {
         const camp = campaigns.getCampaign(Number(r[3]));
@@ -433,6 +441,13 @@ const server = createServer(async (req, res) => {
         if (r[4] === 'adset') { const o = campaigns.createAdset(camp.id, b, user.name); return back(o.ok ? 'Ensemble relié.' : o.error, camp.id); }
         if (r[4] === 'ad') { const o = campaigns.createAd(Number(b.adset_id), b, user.name); return back(o.ok ? 'Annonce reliée.' : o.error, camp.id); }
         if (r[4] === 'link') { const o = campaigns.linkContent(Number(b.content_id), { campaign_id: b.campaign_id, adset_id: b.adset_id, ad_id: b.ad_id }, user.name); return back(o.ok ? 'Contenu associé en brouillon (version épinglée).' : o.error, camp.id); }
+        if (r[4] === 'adcopy') { const a = campaigns.getAd(Number(b.ad_id)); if (!a || a.campaign_id !== camp.id) return send(res, 404, 'Introuvable'); campaigns.updateAdCopy(a.id, b, user.name); return redirect(res, `/edition/${ed.id}/campaigns/${camp.id}/guide?m=${encodeURIComponent('Publicité enregistrée.')}#ad${a.id}`); }
+        if (r[4] === 'import-results') return page('Guide Ads Manager', metaGuidePage(ed, guideData(camp, { importPreview: metaimport.previewImport(camp.id, b.csv) })));
+        if (r[4] === 'apply-results') {
+          let rows = []; try { rows = JSON.parse(b.payload || '[]'); } catch { /* charge utile invalide */ }
+          const o = metaimport.applyImport(camp.id, rows, user.name);
+          return redirect(res, `/edition/${ed.id}/campaigns/${camp.id}?m=${encodeURIComponent(`Résultats importés : ${o.added} ligne(s)${o.duplicates ? `, ${o.duplicates} déjà présente(s) ignorée(s)` : ''}.`)}`);
+        }
         if (r[4] === 'result') return back(campaigns.addResult(Number(b.link_id), b, user.name) ? 'Résultats ajoutés.' : 'Association introuvable.', camp.id);
       }
     }
