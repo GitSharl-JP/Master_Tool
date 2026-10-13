@@ -409,3 +409,7 @@ button.copy{font-size:.85rem;padding:4px 12px}button.copy.done{background:#2e7d3
 
 .vs-props .cue{grid-template-columns:1fr 1fr auto auto auto;gap:6px}.vs-props .cue textarea{grid-column:1/-1}
 .vs-tltools button:disabled{opacity:.45;cursor:default}
+
+.tlb.t-video{background:#8a3d5f}
+.tlrow.new{height:22px;margin:3px 0;border:1px dashed var(--line);border-radius:6px;background:#fcfcfc}
+.tlrow.new .tlnew{display:block;font-size:.7rem;color:var(--mute);padding:3px 10px;font-style:normal;pointer-events:none}

@@ -87,7 +87,7 @@ export function clipInfo(assetId) {
   const i = a && a.kind === 'video' ? infoOf(a) : null;
   return i ? { w: i.w, h: i.h, duration: i.duration, hasAudio: !!i.hasAudio, name: a.label || a.name } : null;
 }
-export const clipInfos = (tl) => Object.fromEntries(tl.clips.map((c) => [c.asset, clipInfo(c.asset)]).filter(([, v]) => v));
+export const clipInfos = (tl) => Object.fromEntries([...tl.clips.map((c) => c.asset), ...tl.els.filter((e) => e.type === 'video').map((e) => e.asset)].map((id) => [id, clipInfo(id)]).filter(([, i]) => i));
 
 // --- sous-titres
 export const getCues = (editionId, scope = '') => {

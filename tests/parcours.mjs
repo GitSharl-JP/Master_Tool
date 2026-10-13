@@ -941,6 +941,48 @@ await step('11f. Plusieurs blocs de sous-titres : chacun a ses lignes, sa positi
   check('second bloc : sa ligne seule à 1,5 s, centrée (800 × 1200), plus grand (taille 160 %)', !!b && Math.abs(b.cx - 800) <= 14 && Math.abs(b.cy - 1200) <= 30 && b.w > a.w * 1.4, JSON.stringify([a, b]));
 });
 
+await step('11g. Pistes : l’ordre des pistes décide de ce qui est au-dessus ; vidéo superposée (début, position, taille, son)', async () => {
+  const t = await A.post('/edition/test'); const T = Number(/edition\/(\d+)/.exec(t.headers.get('location'))?.[1]);
+  const mkv = (color, name, secs) => { const f = join(TMP, name); spawnSync(FF, ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'color=c=' + color + ':size=640x360:rate=25:duration=' + secs, '-f', 'lavfi', '-i', 'sine=frequency=440:duration=' + secs, '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', f]); return readFileSync(f); };
+  const main = await A.up(T, 'video', 'fond-g.mp4', mkv('black', 'fond-g.mp4', 3)), over = await A.up(T, 'video', 'rouge-g.mp4', mkv('red', 'rouge-g.mp4', 1.5));
+  const im = async (name, rgb) => String(await A.up(T, 'logo', name, png(200, 100, 0, rgb)));
+  const mag = await im('mag-g.png', [255, 0, 255]), grn = await im('vert-g.png', [0, 255, 0]);
+  const P = (x, y) => ({ '9x16': { x, y } });
+  const mk = (tM, tG) => ({ asset: '', start: 0, end: 0, logo: { asset: '', corner: 'tr', size: 14, margin: 4 }, endcard: { on: false, seconds: 0 }, subs: { on: false, size: 100 }, reframe: {}, formats: ['9x16'],
+    tl: { clips: [{ id: 'c1', asset: String(main), in: 0, out: 0, reframe: {} }], els: [
+      { id: 'e1', type: 'image', asset: mag, track: tM, start: 0, end: 0, pos: P(300, 500), s: 100 },
+      { id: 'e2', type: 'image', asset: grn, track: tG, start: 0, end: 0, pos: P(300, 500), s: 100 },
+      { id: 'e3', type: 'video', asset: String(over), track: 3, start: 1, in: 0, out: 0, pos: P(540, 1000), s: 50, vol: 100 }] } });
+  const W = 1080, H = 1920;
+  const run = async (design) => {
+    const before = (await A.json('/api/jobs/' + T)).length;
+    await A.post('/edition/' + T + '/video/save', { design: JSON.stringify(design), cues: JSON.stringify([]) });
+    await A.post('/edition/' + T + '/video/export', {});
+    let job = null;
+    for (let i = 0; i < 120; i++) { const js = await A.json('/api/jobs/' + T); job = js[0]; if (js.length > before && job && ['done', 'error'].includes(job.status)) break; await sleep(500); }
+    if (!job || job.status !== 'done') return { err: job ? job.message : 'aucun export' };
+    const mp4 = join(TMP, 'pistes-' + job.id + '.mp4');
+    writeFileSync(mp4, Buffer.from(await (await A.get('/exports/' + job.export_id)).arrayBuffer()));
+    const frame = (sec) => spawnSync(FF, ['-v', 'error', '-ss', String(sec), '-i', mp4, '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'], { maxBuffer: 30e6 }).stdout;
+    const probe = spawnSync(join(ROOT, 'tools/ffmpeg/ffprobe.exe'), ['-v', 'error', '-show_entries', 'stream=codec_type', '-of', 'csv=p=0', mp4]).stdout.toString();
+    return { frame, audio: /audio/.test(probe) };
+  };
+  const at = (rgb, x, y) => { const o = (y * W + x) * 3; return [rgb[o], rgb[o + 1], rgb[o + 2]]; };
+  const redBox = (rgb) => { let x0 = 1e9, y0 = 1e9, x1 = -1, y1 = -1; for (let y = 120; y < H; y++) for (let x = 0; x < W; x++) { const o = (y * W + x) * 3; if (rgb[o] > 200 && rgb[o + 1] < 60 && rgb[o + 2] < 60) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; } } return x1 < 0 ? null : { cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, w: x1 - x0 + 1, h: y1 - y0 + 1 }; };
+  const a = await run(mk(2, 1));
+  check('export avec pistes et vidéo superposée : terminé, son présent', !a.err && a.audio, a.err || '');
+  if (a.err) return;
+  const f05 = a.frame(0.5), f15 = a.frame(1.5);
+  const top1 = at(f05, 300, 500);
+  check('piste 2 (magenta) au-dessus de la piste 1 (vert) là où ils se recouvrent', top1[0] > 200 && top1[1] < 80 && top1[2] > 200, JSON.stringify(top1));
+  check('vidéo superposée : absente avant son début (1 s)', !redBox(f05), JSON.stringify(redBox(f05)));
+  const rb = redBox(f15);
+  check('vidéo superposée : présente à 1,5 s, centre (540 × 1000), largeur 50 % du format (540 px), proportions 16:9', !!rb && Math.abs(rb.cx - 540) <= 4 && Math.abs(rb.cy - 1000) <= 4 && Math.abs(rb.w - 540) <= 5 && Math.abs(rb.h - 304) <= 5, JSON.stringify(rb));
+  const b = await run(mk(1, 2));
+  const top2 = at(b.frame(0.5), 300, 500);
+  check('les pistes échangées : le vert passe au-dessus du magenta', !b.err && top2[1] > 200 && top2[0] < 80 && top2[2] < 80, JSON.stringify(top2));
+});
+
 await step('12. Sauvegarde externe et vérification d’intégrité', async () => {
   const cfg = await A.post('/settings/backup-config', { dir: join(DATA, 'dedans'), mode: 'pinned' });
   check('refus d’un dossier de sauvegarde DANS le stockage de l’atelier', /dans le stockage/.test(A.loc(cfg)), A.loc(cfg));
@@ -1169,6 +1211,34 @@ await step('14. Pages dans un vrai navigateur (assistant, éditeur de variante, 
     check('Scinder un bloc de sous-titres : deux blocs indépendants, leurs lignes réparties à la coupe', await br.ev(`(() => { const s = window.__video.tl.els.filter((e) => e.type === 'subs'); if (s.length !== ${s0n + 3}) return false; const a = s.find((e) => e.cues.length && Math.abs(e.cues[0].end - ${tt}) < 0.15), b = s.find((e) => e.cues.length && Math.abs(e.cues[0].start - ${tt}) < 0.15); return !!a && !!b && a.id !== b.id; })()`), await br.ev("JSON.stringify(window.__video.tl.els.filter((e) => e.type === 'subs').map((e) => [e.start, e.end, e.cues]))"));
     await br.ev(key('z')); await br.sleep(200);
     check('Ctrl+Z annule la scission', await br.ev("window.__video.tl.els.filter((e) => e.type === 'subs').length") === s0n + 2);
+    await br.ev('window.__video.dirty = false');
+    // pistes : vidéo superposée, changement de piste (boutons et glisser vertical), conversions piste principale <-> superposition
+    const ordIds = () => br.ev("[...document.querySelectorAll('#vlayer .vel')].map((n) => n.dataset.id).join()");
+    const noOverlap = () => br.ev("(() => { const S = window.__video; return S.tl.els.every((a, i) => S.tl.els.every((b, j) => i >= j || a.track !== b.track || (S.winOf(a)[0] >= S.winOf(b)[1] - 1e-6 || S.winOf(b)[0] >= S.winOf(a)[1] - 1e-6))); })()");
+    await br.ev("(() => { document.getElementById('t_addvid').click(); return true; })()");
+    check('+ Vidéo superposée : la fenêtre de choix liste les vidéos', await br.ev("!document.getElementById('vpick').hidden && document.querySelectorAll('#vpick-list .pk').length >= 1"));
+    await br.ev("(() => { document.querySelector('#vpick-list .pk').click(); return true; })()");
+    await br.sleep(1200);
+    check('vidéo superposée : un bloc sur la piste la plus haute et un lecteur dans l’aperçu', await br.ev("(() => { const S = window.__video, v = S.tl.els.find((e) => e.type === 'video'); return !!v && v.track === Math.max(...S.tl.els.map((e) => e.track)) && !!document.querySelector('.tlb.t-video') && !!document.querySelector('#vlayer video.vel'); })()"));
+    check('vidéo superposée : mêmes réglages que les autres éléments + volume + extrait', await br.ev("['x', 'y', 's', 'rot', 'op', 'vol', 'in', 'out'].every((k) => !!document.querySelector('#vprops [data-k=' + k + ']'))"));
+    const z0 = (await ordIds()).split(','), vid0 = await br.ev("window.__video.tl.els.find((e) => e.type === 'video').id"), trk0 = await br.ev("window.__video.tl.els.find((e) => e.type === 'video').track");
+    await br.ev("(() => { document.querySelector('#vprops [data-a=trkdn]').click(); return true; })()");
+    const z1 = (await ordIds()).split(','), trk1 = await br.ev("window.__video.tl.els.find((e) => e.type === 'video').track");
+    check('↓ Descendre d’une piste : la vidéo passe sous l’élément qui était juste en dessous (ordre d’empilement de l’aperçu)', trk1 === trk0 - 1 && z1.indexOf(vid0) < z0.indexOf(vid0) && (await noOverlap()), JSON.stringify([trk0, trk1, z0.indexOf(vid0), z1.indexOf(vid0)]));
+    await br.ev("(() => { document.querySelector('#vprops [data-a=trkup]').click(); return true; })()");
+    check('↑ Monter d’une piste : elle repasse au-dessus', await br.ev("window.__video.tl.els.find((e) => e.type === 'video').track") === trk0 && (await ordIds()).split(',').indexOf(vid0) === z0.indexOf(vid0));
+    await br.ev(`(() => { const b = document.querySelector('.tlb.t-video'), r = b.getBoundingClientRect(), row = document.querySelector('#tltracks .tlrow[data-track="1"]').getBoundingClientRect(), o = { bubbles: true, cancelable: true, pointerId: 5, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 }, tl = document.getElementById('tlinner'); b.dispatchEvent(new PointerEvent('pointerdown', o)); tl.dispatchEvent(new PointerEvent('pointermove', { ...o, clientY: row.top + row.height / 2 })); tl.dispatchEvent(new PointerEvent('pointerup', { ...o, clientY: row.top + row.height / 2 })); return true; })()`);
+    const trk2 = await br.ev("window.__video.tl.els.find((e) => e.type === 'video').track");
+    check('glisser un bloc vers une autre piste le déplace (jamais deux éléments au même instant sur une même piste)', trk2 < trk0 && (await noOverlap()), JSON.stringify([trk0, trk2]));
+    check('les pistes restent consécutives (1, 2, 3…) sans piste vide', await br.ev("(() => { const t = [...new Set(window.__video.tl.els.map((e) => e.track))].sort((a, b) => a - b); return t.every((v, i) => v === i + 1); })()"));
+    const nClips0 = await br.ev("window.__video.tl.clips.length");
+    await br.ev(press('.tlb.clip'));
+    await br.ev("(() => { document.querySelector('#vprops [data-a=toover]').click(); return true; })()");
+    check('Superposer : un clip de la piste principale devient une vidéo superposée (la piste principale se referme)', await br.ev("window.__video.tl.clips.length") === nClips0 - 1 && await br.ev("window.__video.tl.els.filter((e) => e.type === 'video').length") === 2);
+    await br.ev("(() => { document.querySelector('#vprops [data-a=tomain]').click(); return true; })()");
+    check('Mettre sur la piste principale : elle redevient un clip', await br.ev("window.__video.tl.clips.length") === nClips0 && await br.ev("window.__video.tl.els.filter((e) => e.type === 'video').length") === 1);
+    await br.ev(key('z')); await br.sleep(200); await br.ev(key('z')); await br.sleep(200);
+    check('Ctrl+Z annule aussi les changements de piste', await br.ev("window.__video.tl.clips.length") <= nClips0);
     await br.ev('window.__video.dirty = false');
     // ajout de plusieurs fichiers d'un coup (sélection multiple), puis glisser-déposer : sans choisir de type
     await br.go(U + '/edition/3/assets');

@@ -328,7 +328,7 @@ ${ready ? '' : '<p class="status warn"><b>ffmpeg est introuvable</b> : les expor
 </div>
 <div class="vs-tl">
 <div class="vs-tltools">
-<button type="button" id="t_addclip">+ Clip vidéo</button><button type="button" id="t_addtext">+ Texte</button><button type="button" id="t_addimg">+ Logo / image</button><button type="button" id="t_addsubs">+ Sous-titres</button>
+<button type="button" id="t_addclip">+ Clip vidéo</button><button type="button" id="t_addvid" title="Une vidéo posée par-dessus, avec sa position, sa taille, sa rotation, son opacité et son volume">+ Vidéo superposée</button><button type="button" id="t_addtext">+ Texte</button><button type="button" id="t_addimg">+ Logo / image</button><button type="button" id="t_addsubs">+ Sous-titres</button>
 <span class="sep"></span><button type="button" id="t_split" title="Coupe le clip sous la tête de lecture">✂ Scinder au curseur</button><button type="button" id="t_del">Supprimer</button><span class="sep"></span><button type="button" id="t_undo" title="Annuler (Ctrl+Z)" disabled>↶ Annuler</button><button type="button" id="t_redo" title="Rétablir (Ctrl+Y)" disabled>↷ Rétablir</button>
 <label class="zoom">Zoom <input type="range" id="t_zoom" min="20" max="200" value="60"></label>
 </div>

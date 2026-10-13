@@ -8,11 +8,11 @@ import { getAsset, assetPath, renderTextBox } from './studio.js';
 import { aspectOf } from './intake.js';
 import { FONTS } from './render.js';
 
-export const EL_TYPES = ['logo', 'image', 'text', 'subs'];
+export const EL_TYPES = ['logo', 'image', 'text', 'subs', 'video'];
 // Taille de base à 100 % : largeur de l'image = 20 % de la largeur du format ; texte = 6 % ; sous-titres = 4,5 %. (L'aperçu utilise les mêmes valeurs.)
-export const BASE = { image: 0.20, text: 0.06, subs: 0.045 };
+export const BASE = { image: 0.20, text: 0.06, subs: 0.045, video: 1 }; // vidéo superposée : 100 % = toute la largeur du format
 export const TEXT_REF_W = 2160; // les textes sont rendus à cette largeur de référence puis réduits : net sur tous les formats
-export const DEFAULT_S = { logo: 70, image: 100, text: 100, subs: 100 };
+export const DEFAULT_S = { logo: 70, image: 100, text: 100, subs: 100, video: 45 };
 
 const num = (v, lo, hi, d) => { const n = Number(v); return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : d; };
 
@@ -56,19 +56,25 @@ export function cleanTl(raw, own) {
   for (const e of (Array.isArray(raw?.els) ? raw.els : []).slice(0, 80)) {
     const type = EL_TYPES.includes(e?.type) ? e.type : null;
     if (!type) continue;
-    const asset = type === 'logo' || type === 'image' ? own(e.asset, ['image']) : '';
-    if ((type === 'logo' || type === 'image') && !asset) continue;
+    const asset = type === 'logo' || type === 'image' ? own(e.asset, ['image']) : type === 'video' ? own(e.asset, ['video']) : '';
+    if ((type === 'logo' || type === 'image' || type === 'video') && !asset) continue;
     els.push({
       id: uid(e.id, ids, 'e'), type, ...(asset ? { asset } : {}),
       ...(type === 'subs' && Array.isArray(e.cues) ? { cues: cleanCues(e.cues) } : {}),
+      ...(type === 'video' ? { in: num(e.in, 0, 86400, 0), out: num(e.out, 0, 86400, 0), vol: num(e.vol, 0, 100, 100) } : {}),
       ...(type === 'text' ? { text: String(e.text ?? '').slice(0, 500), font: FONTS[e.font] ? e.font : '', color: /^#[0-9a-fA-F]{6}$/.test(e.color || '') ? e.color : '#ffffff', bold: e.bold !== false && e.bold !== 0 && e.bold !== '0', outline: e.outline !== false && e.outline !== 0 && e.outline !== '0' } : {}),
-      start: num(e.start, 0, 86400, 0), end: num(e.end, 0, 86400, 0),
+      start: num(e.start, 0, 86400, 0), end: type === 'video' ? 0 : num(e.end, 0, 86400, 0), track: Math.round(num(e.track, 1, 40, els.length + 1)),
       fx: num(e.fx, 0, 1, 0.5), fy: num(e.fy, 0, 1, 0.5), pos: cleanPos(e.pos),
       s: num(e.s, 5, 400, DEFAULT_S[type]), rot: num(e.rot, -360, 360, 0), op: num(e.op, 0, 100, 100),
     });
   }
   return { clips, els };
 }
+
+// Pistes : un élément est sur une piste (1 = la plus basse, juste au-dessus de la piste principale) ; une piste plus haute est au-dessus.
+// Sans numéro (montages plus anciens), chaque élément a sa propre piste, dans l'ordre de la liste : l'empilement ne change pas.
+export const trackOf = (e, i) => e.track ?? i + 1;
+export const orderEls = (els) => els.map((e, i) => [e, i]).sort((a, b) => trackOf(a[0], a[1]) - trackOf(b[0], b[1]) || a[1] - b[1]).map((x) => x[0]);
 
 // Lignes de sous-titres d'un bloc : temps de la timeline, triées, sans ligne vide ni durée nulle.
 export const cleanCues = (list) => (Array.isArray(list) ? list : []).slice(0, 1500)
@@ -99,7 +105,7 @@ export function legacyToTl(d, cues = []) {
       const lw = Math.round(f.w * d.logo.size / 100), lh = lw / asp, m = Math.round(f.w * d.logo.margin / 100), c = d.logo.corner || 'tr';
       pos[fmt] = { x: Math.round(c.endsWith('l') ? m + lw / 2 : f.w - m - lw / 2), y: Math.round(c.startsWith('t') ? Math.max(m, f.safe.top) + lh / 2 : f.h - Math.max(m, f.safe.bottom) - lh / 2) };
     }
-    els.push({ id: 'e1', type: 'logo', asset: String(d.logo.asset), start: 0, end: 0, fx: 0.8, fy: 0.1, pos, s: Math.round(d.logo.size * 100 / (BASE.image * 100)), rot: 0, op: 100 });
+    els.push({ id: 'e1', type: 'logo', track: els.length + 1, asset: String(d.logo.asset), start: 0, end: 0, fx: 0.8, fy: 0.1, pos, s: Math.round(d.logo.size * 100 / (BASE.image * 100)), rot: 0, op: 100 });
   }
   if (d.subs?.on) {
     const pos = {};
@@ -109,7 +115,7 @@ export function legacyToTl(d, cues = []) {
       const fs = Math.round(f.w * BASE.subs * d.subs.size / 100);
       pos[fmt] = { x: Math.round(f.w / 2), y: Math.round(f.h - f.safe.bottom - Math.round(f.h * 0.02) - Math.round(fs * 0.7)) };
     }
-    els.push({ id: 'e2', type: 'subs', start: 0, end: 0, fx: 0.5, fy: 0.8, pos, s: d.subs.size, rot: 0, op: 100, cues: [] });
+    els.push({ id: 'e2', type: 'subs', track: els.length + 1, start: 0, end: 0, fx: 0.5, fy: 0.8, pos, s: d.subs.size, rot: 0, op: 100, cues: [] });
   }
   // les sous-titres de l'ancien format sont en temps de la vidéo source : on les recale sur la timeline (début de l'extrait = 0)
   const shifted = cues.map((c) => ({ start: Math.max(0, c.start - from), end: Math.min(Math.max(0, to - from) || Infinity, c.end - from), text: c.text })).filter((c) => c.end > c.start && c.text);
@@ -165,43 +171,61 @@ export async function buildTlJob({ d, cues, fmt, f, tmp, draft, endSecs }) {
   fg.push(`${clips.map((_, i) => `[vc${i}][ac${i}]`).join('')}concat=n=${clips.length}:v=1:a=1[vm][am]`);
   let cur = 'vm';
 
-  // éléments visuels, dans l'ordre de la liste (le dernier est au-dessus)
-  let z = 0;
-  const win = (e) => [Math.max(0, Math.min(e.start, total)), e.end > 0 ? Math.min(e.end, total) : total];
-  for (const e of d.tl.els) {
-    if (e.type === 'subs') continue;
-    const [s0, e0] = win(e);
+  // éléments, de la piste la plus basse à la plus haute (une piste plus haute est au-dessus ; à égalité, l'ordre de la liste)
+  const ordered = orderEls(resolveSubs(d.tl, cues).els);
+  let z = 0, si = 0;
+  const mixes = []; // sons des vidéos superposées, mélangés à celui des clips
+  const win = (e, dur = 0) => { const s0 = Math.max(0, Math.min(e.start, total)); return [s0, e.type === 'video' ? Math.min(total, s0 + dur) : (e.end > 0 ? Math.min(e.end, total) : total)]; };
+  for (const e of ordered) {
+    if (e.type === 'subs') { // un bloc de sous-titres : positionné par son centre (\an5 + \pos), avec rotation et opacité
+      const [s0, e0] = win(e);
+      const list = (e.cues || []).map((c) => ({ ...c, start: Math.max(c.start, s0), end: Math.min(c.end, e0) })).filter((c) => c.end > c.start);
+      const txt = toAss(list, { W: f.w, H: f.h, fontSize: Math.round(f.w * BASE.subs * e.s / 100), marginV: f.safe.bottom, marginSide: f.safe.side, from: 0, to: total, pos: posOf(e, f, fmt), rot: e.rot, opacity: e.op });
+      if (!txt.includes('Dialogue:')) continue;
+      writeFileSync(`${tmp}subs${si}.ass`, txt);
+      fg.push(`[${cur}]ass=subs${si}.ass:fontsdir='C\\:/Windows/Fonts'[vs${si}]`); cur = `vs${si}`; si++;
+      continue;
+    }
+    let file, wpx, vs = 0, vdur = 0, vinfo = null;
+    if (e.type === 'video') {
+      const a = getAsset(Number(e.asset));
+      if (!a) continue;
+      vinfo = infoOf(a);
+      if (!vinfo) return { error: `Vidéo illisible : « ${a.name} » (fichier abîmé ou format non pris en charge).` };
+      vs = Math.min(e.in, Math.max(0, vinfo.duration - 0.5)); vdur = Math.min(e.out > vs ? e.out : vinfo.duration, vinfo.duration) - vs;
+      if (vdur < 0.1) continue;
+      file = assetPath(a); wpx = Math.max(2, Math.round(f.w * BASE.video * e.s / 100));
+    }
+    const [s0, e0] = win(e, vdur);
     if (e0 - s0 < 0.05) continue;
-    let file, wpx;
     if (e.type === 'text') {
       if (!String(e.text || '').trim()) continue;
       const png = `${tmp}t${z}.png`, r = await renderTextBox(textBlockHtml(e, TEXT_REF_W), png);
       if (!r.ok) return { error: 'Impossible de créer un texte (Edge ou Chrome introuvable ?).' };
       file = png; wpx = Math.max(2, Math.round(r.w * f.w / TEXT_REF_W));
-    } else {
+    } else if (e.type !== 'video') {
       const a = getAsset(Number(e.asset));
       if (!a) continue;
       file = assetPath(a); wpx = Math.max(2, Math.round(f.w * BASE.image * e.s / 100));
     }
-    args.push('-i', file.replace(/\\/g, '/'));
+    if (e.type === 'video') args.push('-ss', String(vs), '-t', String(vdur), '-i', file.replace(/\\/g, '/'));
+    else args.push('-i', file.replace(/\\/g, '/'));
     const m = n++, p = posOf(e, f, fmt), rad = (e.rot * Math.PI / 180).toFixed(5);
-    let ch = `[${m}:v]scale=${wpx}:-1:flags=lanczos,format=rgba`;
+    // une vidéo superposée est recalée sur la timeline (son premier instant arrive à s0) ; une image fixe n'a pas de temps propre
+    let ch = e.type === 'video' ? `[${m}:v]setpts=PTS-STARTPTS+${s0}/TB,fps=30,scale=${wpx}:-1:flags=lanczos,format=rgba` : `[${m}:v]scale=${wpx}:-1:flags=lanczos,format=rgba`;
     if (e.rot) ch += `,rotate=${rad}:ow='rotw(${rad})':oh='roth(${rad})':c=none`;
     if (e.op < 100) ch += `,colorchannelmixer=aa=${(e.op / 100).toFixed(3)}`;
     fg.push(`${ch}[el${z}]`, `[${cur}][el${z}]overlay=x='${p.x}-overlay_w/2':y='${p.y}-overlay_h/2':enable='between(t,${s0},${e0})':format=auto[vo${z}]`);
-    cur = `vo${z}`; z++;
+    cur = `vo${z}`;
+    if (e.type === 'video' && vinfo.hasAudio && (e.vol ?? 100) > 0) {
+      const ms = Math.round(s0 * 1000);
+      fg.push(`[${m}:a]aresample=48000,aformat=channel_layouts=stereo,atrim=0:${vdur},asetpts=N/SR/TB,adelay=${ms}|${ms},volume=${((e.vol ?? 100) / 100).toFixed(3)}[ova${z}]`);
+      mixes.push(`[ova${z}]`);
+    }
+    z++;
   }
-
-  // sous-titres : un seul bloc, positionné par son centre (\an5 + \pos), avec rotation et opacité
-  let si = 0;
-  for (const subs of resolveSubs(d.tl, cues).els.filter((e) => e.type === 'subs')) {
-    const [s0, e0] = win(subs);
-    const list = (subs.cues || []).map((c) => ({ ...c, start: Math.max(c.start, s0), end: Math.min(c.end, e0) })).filter((c) => c.end > c.start);
-    const txt = toAss(list, { W: f.w, H: f.h, fontSize: Math.round(f.w * BASE.subs * subs.s / 100), marginV: f.safe.bottom, marginSide: f.safe.side, from: 0, to: total, pos: posOf(subs, f, fmt), rot: subs.rot, opacity: subs.op });
-    if (!txt.includes('Dialogue:')) continue;
-    writeFileSync(`${tmp}subs${si}.ass`, txt);
-    fg.push(`[${cur}]ass=subs${si}.ass:fontsdir='C\\:/Windows/Fonts'[vs${si}]`); cur = `vs${si}`; si++;
-  }
+  let aOut = 'am';
+  if (mixes.length) { fg.push(`[am]${mixes.join('')}amix=inputs=${1 + mixes.length}:duration=first:normalize=0[amx]`); aOut = 'amx'; }
   if (draft) {
     fg.push(`[${cur}]drawbox=x=0:y=0:w=iw:h=${Math.round(f.h * 0.028)}:color=0xb3261e@1:t=fill,drawtext=fontfile='C\\:/Windows/Fonts/arialbd.ttf':text='DRAFT - NOT FOR PUBLICATION':fontcolor=white:fontsize=${Math.round(f.h * 0.017)}:x=(w-text_w)/2:y=${Math.round(f.h * 0.0045)}[vd]`);
     cur = 'vd';
@@ -210,7 +234,7 @@ export async function buildTlJob({ d, cues, fmt, f, tmp, draft, endSecs }) {
     args.push('-loop', '1', '-framerate', '30', '-t', String(endSecs), '-i', 'end.png'); const ie = n++;
     args.push('-f', 'lavfi', '-t', String(endSecs), '-i', 'anullsrc=r=48000:cl=stereo'); const is = n++;
     fg.push(`[${ie}:v]scale=${f.w}:${f.h},setsar=1,fps=30,format=yuv420p[ev]`, `[${is}:a]aformat=channel_layouts=stereo,atrim=0:${endSecs},asetpts=N/SR/TB[ea]`,
-      `[${cur}][am][ev][ea]concat=n=2:v=1:a=1[vout][aout]`);
-  } else fg.push(`[${cur}]null[vout]`, '[am]anull[aout]');
+      `[${cur}][${aOut}][ev][ea]concat=n=2:v=1:a=1[vout][aout]`);
+  } else fg.push(`[${cur}]null[vout]`, `[${aOut}]anull[aout]`);
   return { args, graph: fg.join(';\n'), total: total + endSecs, sourceIds: tlAssetIds(d.tl) };
 }

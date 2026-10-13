@@ -8,8 +8,8 @@
   const base = J('design'), FM = J('formats'), FONTS = J('fonts') || {}, VIDEOS = J('videos') || [], IMAGES = J('images') || [], INFOS = J('infos') || {};
   const edition = form.dataset.edition, draft = form.dataset.draft === '1';
   const S = { tl: J('tl'), fmt: Object.keys(FM)[0], t: 0, sel: null, zoom: 60, playing: false, dirty: false, formats: [...(base.formats || [])], endcard: { ...base.endcard } };
-  const BASE = { image: 0.20, text: 0.06, subs: 0.045 }, DEF_S = { logo: 70, image: 100, text: 100, subs: 100 };
-  const NAMES = { logo: 'Logo', image: 'Image', text: 'Texte', subs: 'Sous-titres' };
+  const BASE = { image: 0.20, text: 0.06, subs: 0.045, video: 1 }, DEF_S = { logo: 70, image: 100, text: 100, subs: 100, video: 45 };
+  const NAMES = { logo: 'Logo', image: 'Image', text: 'Texte', subs: 'Sous-titres', video: 'Vidéo superposée' };
   const video = $('vplayer'), frame = $('vframe'), wrap = $('pwrap'), layer = $('vlayer'), selbox = $('vsel'), props = $('vprops'), inner = $('tlinner');
 
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
@@ -24,7 +24,32 @@
   const clipDur = (c) => Math.max(0.1, (c.out > c.in ? (srcDur(c) ? Math.min(c.out, srcDur(c)) : c.out) : srcDur(c)) - c.in);
   const spans = () => { let t = 0; return S.tl.clips.map((c) => { const k = { c, start: t, dur: clipDur(c) }; t += k.dur; return k; }); };
   const total = () => spans().reduce((s, k) => s + k.dur, 0);
-  const winOf = (e) => [e.start || 0, e.end > 0 ? e.end : Math.max(total(), e.start || 0)];
+  const vdur = (e) => Math.max(0.1, (e.out > (e.in || 0) ? (srcDur(e) ? Math.min(e.out, srcDur(e)) : e.out) : srcDur(e)) - (e.in || 0)); // durée d'une vidéo superposée (extrait de sa source)
+  const winOf = (e) => (e.type === 'video' ? [e.start || 0, (e.start || 0) + vdur(e)] : [e.start || 0, e.end > 0 ? e.end : Math.max(total(), e.start || 0)]);
+  // pistes : 1 = la plus basse (juste au-dessus de la piste principale) ; une piste plus haute est au-dessus
+  const maxTrack = () => S.tl.els.reduce((m, e) => Math.max(m, e.track || 0), 0);
+  const overlaps = (a, b) => { const [a0, a1] = winOf(a), [b0, b1] = winOf(b); return a0 < b1 - 1e-6 && b0 < a1 - 1e-6; };
+  const conflicts = (e, tr) => S.tl.els.some((o) => o !== e && o.track === tr && overlaps(e, o));
+  function normalizeTracks() { // plus de piste vide : les numéros restent consécutifs, dans le même ordre
+    const used = [...new Set(S.tl.els.map((e) => e.track))].sort((a, b) => a - b), map = new Map(used.map((t, i) => [t, i + 1]));
+    S.tl.els.forEach((e) => { e.track = map.get(e.track); });
+  }
+  // Pose e sur la piste tr ; si un autre élément y occupe déjà le même moment, une nouvelle piste est créée juste au-dessus.
+  function placeOnTrack(e, tr) {
+    if (tr > maxTrack() || !conflicts(e, tr)) { e.track = tr; return; }
+    for (const o of S.tl.els) if (o !== e && o.track > tr) o.track += 1;
+    e.track = tr + 1;
+  }
+  // Monter (+1) ou descendre (-1) d'une piste : sur la piste voisine si elle est libre à cet instant, sinon une piste est insérée entre les deux
+  function moveTrack(e, dir) {
+    const tgt = e.track + dir;
+    if (tgt < 1) return;
+    if (tgt > maxTrack() || !conflicts(e, tgt)) e.track = tgt;
+    else if (dir > 0) { for (const o of S.tl.els) if (o !== e && o.track > tgt) o.track += 1; e.track = tgt + 1; }
+    else { for (const o of S.tl.els) if (o !== e && o.track >= tgt) o.track += 1; e.track = tgt; }
+    normalizeTracks();
+  }
+  const orderedEls = () => S.tl.els.map((e, i) => [e, i]).sort((a, b) => (a[0].track ?? a[1] + 1) - (b[0].track ?? b[1] + 1) || a[1] - b[1]).map((x) => x[0]);
   const onAt = (e, t) => { const [a, b] = winOf(e); return t >= a - 1e-6 && t < b + 1e-6; };
   const posOf = (e) => (e.pos && e.pos[S.fmt]) || { x: Math.round((e.fx ?? 0.5) * F().w), y: Math.round((e.fy ?? 0.5) * F().h) };
   const byId = (id) => S.tl.els.find((e) => e.id === id);
@@ -119,7 +144,27 @@
   });
 
   const FONT_STACK = (name) => `${FONTS[name] ? `'${name}',` : ''}${FONTS[name] === 'serif' ? 'Georgia,serif' : "'Segoe UI',Arial,sans-serif"},'Yu Gothic','Meiryo',sans-serif`;
+  // cale un lecteur de vidéo superposée sur la tête de lecture (lecture : il suit tout seul, on ne corrige que les grands écarts)
+  function syncOverlay(e, n, force = false) {
+    const on = onAt(e, S.t);
+    n.volume = clamp((e.vol ?? 100) / 100, 0, 1);
+    if (!on) { if (!n.paused) n.pause(); return; }
+    const target = (e.in || 0) + (S.t - (e.start || 0));
+    if (S.playing) {
+      if (n.paused) { try { n.currentTime = target; } catch { /* pas prêt */ } n.play().catch(() => {}); }
+      else if (Math.abs(n.currentTime - target) > 0.35) { try { n.currentTime = target; } catch { /* */ } }
+    } else {
+      if (!n.paused) n.pause();
+      if (force || Math.abs(n.currentTime - target) > 0.04) { try { n.currentTime = target; } catch { /* */ } }
+    }
+  }
   function mkNode(e) {
+    if (e.type === 'video') {
+      const v = document.createElement('video');
+      v.className = 'vel'; v.dataset.id = e.id; v.playsInline = true; v.preload = 'auto'; v.src = `/files/${e.asset}`;
+      v.addEventListener('loadedmetadata', () => { syncOverlay(e, v, true); updateSel(); });
+      return v;
+    }
     const n = document.createElement(e.type === 'logo' || e.type === 'image' ? 'img' : 'div');
     n.className = 'vel'; n.dataset.id = e.id;
     if (n.tagName === 'IMG') { n.alt = ''; n.draggable = false; n.addEventListener('load', updateSel); }
@@ -128,7 +173,10 @@
   function styleNode(n, e) {
     const f = F(), p = posOf(e);
     let show = onAt(e, S.t);
-    if (e.type === 'logo' || e.type === 'image') {
+    if (e.type === 'video') {
+      const info = INFOS[e.asset];
+      n.style.width = Math.round(f.w * BASE.video * e.s / 100) + 'px'; if (info) n.style.aspectRatio = `${info.w} / ${info.h}`;
+    } else if (e.type === 'logo' || e.type === 'image') {
       const src = `/files/${e.asset}`; if (!n.src.endsWith(src)) n.src = src;
       n.style.width = Math.round(f.w * BASE.image * e.s / 100) + 'px';
     } else if (e.type === 'text') {
@@ -147,10 +195,11 @@
       show = show && (!!c || sample);
     }
     Object.assign(n.style, { left: p.x + 'px', top: p.y + 'px', transform: `translate(-50%,-50%) rotate(${e.rot || 0}deg)`, opacity: String((e.op ?? 100) / 100), display: show ? '' : 'none' });
+    if (e.type === 'video') syncOverlay(e, n);
   }
   function renderLayer() {
     layer.innerHTML = '';
-    for (const e of S.tl.els) layer.append(mkNode(e)); // le dernier de la liste est au-dessus
+    for (const e of orderedEls()) layer.append(mkNode(e)); // une piste plus haute est au-dessus
     styleLayer();
   }
   function styleLayer() {
@@ -167,7 +216,7 @@
   function updateAll() { styleLayer(); updateSel(); head(); }
 
   // ---------- lecture : un seul lecteur, qui passe d'un clip au suivant
-  function pause() { S.playing = false; video.pause(); $('vplay').textContent = '▶'; }
+  function pause() { S.playing = false; video.pause(); layer.querySelectorAll('video').forEach((v) => v.pause()); $('vplay').textContent = '▶'; }
   function play() {
     if (!spans().length) return;
     if (S.t >= total() - 0.05) showAt(0);
@@ -201,12 +250,16 @@
     for (let s = 0; s <= width / z; s += step) ticks += `<span style="left:${s * z}px">${fmtT(s)}</span>`;
     $('tlruler').innerHTML = ticks;
     const sl = S.sel;
-    const elRow = (e) => {
-      const [a, b] = winOf(e), lab = e.type === 'text' ? `T : ${esc((e.text || '').slice(0, 24))}` : e.type === 'subs' ? `Sous-titres · ${(e.cues || []).length} ligne(s)` : esc(imgName(e.asset));
-      return `<div class="tlrow"><div class="tlb el t-${e.type}${sl && sl.id === e.id ? ' on' : ''}" data-kind="el" data-id="${e.id}" style="left:${a * z}px;width:${Math.max(10, (b - a) * z)}px"><i class="tlh l"></i><span>${lab}</span><i class="tlh r"></i></div></div>`;
+    const elBlock = (e) => {
+      const [a, b] = winOf(e), lab = e.type === 'text' ? `T : ${esc((e.text || '').slice(0, 24))}` : e.type === 'subs' ? `Sous-titres · ${(e.cues || []).length} ligne(s)` : e.type === 'video' ? `${esc(INFOS[e.asset]?.name || 'vidéo')} · ${r1(b - a)} s` : esc(imgName(e.asset));
+      return `<div class="tlb el t-${e.type}${sl && sl.id === e.id ? ' on' : ''}" data-kind="el" data-id="${e.id}" style="left:${a * z}px;width:${Math.max(10, (b - a) * z)}px"><i class="tlh l"></i><span>${lab}</span><i class="tlh r"></i></div>`;
     };
-    const clipRow = `<div class="tlrow vid">${sp.length ? sp.map((k) => `<div class="tlb clip${sl && sl.id === k.c.id ? ' on' : ''}" data-kind="clip" data-id="${k.c.id}" style="left:${k.start * z}px;width:${Math.max(10, k.dur * z)}px"><i class="tlh l"></i><span>${esc(INFOS[k.c.asset]?.name || 'clip')} · ${r1(k.dur)} s</span><i class="tlh r"></i></div>`).join('') : '<em class="tlempty">Ajoutez un clip vidéo pour commencer</em>'}</div>`;
-    $('tltracks').innerHTML = [...S.tl.els].reverse().map(elRow).join('') + clipRow;
+    // une ligne par piste, la plus haute en haut ; la ligne du haut, vide, sert à créer une nouvelle piste (en y déposant un bloc)
+    const maxT = maxTrack();
+    let rows = '';
+    for (let t = maxT + 1; t >= 1; t--) rows += `<div class="tlrow${t > maxT ? ' new' : ''}" data-track="${t}" title="${t > maxT ? 'Nouvelle piste' : 'Piste ' + t}">${S.tl.els.filter((e) => e.track === t).map(elBlock).join('')}${t > maxT ? '<em class="tlnew">Déposer un bloc ici : nouvelle piste</em>' : ''}</div>`;
+    const clipRow = `<div class="tlrow vid" data-track="main" title="Piste principale">${sp.length ? sp.map((k) => `<div class="tlb clip${sl && sl.id === k.c.id ? ' on' : ''}" data-kind="clip" data-id="${k.c.id}" style="left:${k.start * z}px;width:${Math.max(10, k.dur * z)}px"><i class="tlh l"></i><span>${esc(INFOS[k.c.asset]?.name || 'clip')} · ${r1(k.dur)} s</span><i class="tlh r"></i></div>`).join('') : '<em class="tlempty">Ajoutez un clip vidéo pour commencer</em>'}</div>`;
+    $('tltracks').innerHTML = rows + clipRow;
     head();
   }
   const snap = (v) => Math.round(v * 10) / 10;
@@ -229,8 +282,16 @@
     const dt = (e.clientX - drag.x0) / S.zoom, it = drag.it, tot = total();
     if (drag.kind === 'el') {
       if (drag.mode === 'move') {
-        it.start = Math.max(0, snap(drag.s0 + dt)); if (drag.e0 > 0) it.end = snap(it.start + (drag.e0 - drag.s0));
+        it.start = Math.max(0, snap(drag.s0 + dt)); if (drag.e0 > 0 && it.type !== 'video') it.end = snap(it.start + (drag.e0 - drag.s0));
         if (drag.cues0) { const sh = it.start - drag.s0; it.cues = drag.cues0.map((c) => ({ ...c, start: r1(Math.max(0, c.start + sh)), end: r1(Math.max(0, c.end + sh)) })); } // les lignes suivent le bloc
+        // verticalement : la piste qui se trouve sous le pointeur
+        const row = [...$('tltracks').children].find((r) => { const b = r.getBoundingClientRect(); return e.clientY >= b.top - 2 && e.clientY < b.bottom + 3; });
+        if (row && row.dataset.track && row.dataset.track !== 'main') it.track = Number(row.dataset.track);
+      }
+      else if (it.type === 'video') { // vidéo superposée : le bord gauche rogne le début de l'extrait (le contenu reste calé), le droit la fin
+        const sd = srcDur(it), outEff = drag.out0 > drag.in0 ? drag.out0 : sd;
+        if (drag.mode === 'trimL') { const nin = clamp(snap(drag.in0 + dt), 0, outEff - 0.2); it.in = nin; it.start = Math.max(0, snap(drag.s0 + (nin - drag.in0))); }
+        else { const no = snap(outEff + dt); it.out = no >= sd - 0.05 ? 0 : clamp(no, it.in + 0.2, sd); }
       }
       else if (drag.mode === 'trimL') it.start = clamp(snap(drag.s0 + dt), 0, (drag.e0 > 0 ? drag.e0 : tot) - 0.1);
       else { const ne = snap((drag.e0 > 0 ? drag.e0 : tot) + dt); it.end = ne >= tot - 0.05 ? 0 : Math.max(it.start + 0.1, ne); }
@@ -247,7 +308,13 @@
     }
     renderTimeline(); updateAll();
   });
-  const endTl = () => { if (drag && drag.mode !== 'head') { touch(); showAt(S.t); renderProps(); } drag = null; };
+  const endTl = () => {
+    if (drag && drag.mode !== 'head') {
+      if (drag.kind === 'el') { placeOnTrack(drag.it, drag.it.track); normalizeTracks(); renderLayer(); } // deux éléments ne se chevauchent pas sur une même piste
+      touch(); showAt(S.t); renderProps(); renderTimeline();
+    }
+    drag = null;
+  };
   inner.addEventListener('pointerup', endTl); inner.addEventListener('pointercancel', endTl);
   $('t_zoom').addEventListener('input', () => { S.zoom = Number($('t_zoom').value); renderTimeline(); });
 
@@ -274,10 +341,19 @@
     showAt(spans().find((k) => k.c.id === c.id).start);
   }
   function addEl(e) {
-    const el = { id: uid('e'), start: 0, end: 0, fx: 0.5, fy: 0.5, pos: {}, s: DEF_S[e.type], rot: 0, op: 100, ...e };
+    const el = { id: uid('e'), start: 0, end: 0, fx: 0.5, fy: 0.5, pos: {}, s: DEF_S[e.type], rot: 0, op: 100, track: maxTrack() + 1, ...e };
     S.tl.els.push(el); touch(); renderLayer(); select({ kind: 'el', id: el.id });
   }
   $('t_addclip').addEventListener('click', () => pick('Ajouter un clip vidéo', VIDEOS, (v) => `${esc(v.name)}${v.provisional ? ' <small>(provisoire)</small>' : ''}`, addClip));
+  async function addOverlay(assetId) {
+    if (!INFOS[assetId]) {
+      const r = await fetch(`/api/video-info/${assetId}`);
+      if (!r.ok) { alert((await r.json()).error || 'Vidéo illisible.'); return; }
+      INFOS[assetId] = await r.json();
+    }
+    addEl({ type: 'video', asset: String(assetId), in: 0, out: 0, vol: 100, start: r1(S.t), fy: 0.3 });
+  }
+  $('t_addvid').addEventListener('click', () => pick('Ajouter une vidéo superposée (sur une nouvelle piste)', VIDEOS, (v) => `${esc(v.name)}${v.provisional ? ' <small>(provisoire)</small>' : ''}`, addOverlay));
   $('t_addtext').addEventListener('click', () => addEl({ type: 'text', text: 'Votre texte', font: '', color: '#ffffff', bold: true, outline: true, start: r1(S.t), fy: 0.7 }));
   $('t_addimg').addEventListener('click', () => pick('Ajouter un logo ou une image', IMAGES, (i) => `<img src="/files/${i.id}" alt=""><span>${esc(i.name)}</span>`, (id) => { const im = IMAGES.find((x) => String(x.id) === String(id)); addEl({ type: im.role === 'logo' ? 'logo' : 'image', asset: String(id), start: r1(S.t), fx: im.role === 'logo' ? 0.82 : 0.5, fy: im.role === 'logo' ? 0.08 : 0.4 }); }));
   $('t_addsubs').addEventListener('click', () => {
@@ -289,11 +365,18 @@
   function removeSel() {
     if (!S.sel) return;
     if (S.sel.kind === 'clip') S.tl.clips = S.tl.clips.filter((c) => c.id !== S.sel.id); else S.tl.els = S.tl.els.filter((e) => e.id !== S.sel.id);
-    S.sel = null; touch(); renderLayer(); renderProps(); renderTimeline(); showAt(S.t);
+    S.sel = null; normalizeTracks(); touch(); renderLayer(); renderProps(); renderTimeline(); showAt(S.t);
   }
   $('t_del').addEventListener('click', removeSel);
   // Scinder un élément en deux éléments indépendants (leurs lignes de sous-titres sont réparties) : chacun garde sa fiche, qu'on peut ensuite régler à part.
   function splitEl(e) {
+    if (e.type === 'video') { // l'extrait est coupé en deux : la seconde moitié reprend là où la première s'arrête
+      const t = r1(S.t), cut = r1((e.in || 0) + (t - e.start)), second = { ...JSON.parse(JSON.stringify(e)), id: uid('e'), start: t, in: cut };
+      second.out = e.out; e.out = cut;
+      S.tl.els.splice(S.tl.els.indexOf(e) + 1, 0, second);
+      touch(); renderLayer(); select({ kind: 'el', id: second.id });
+      return;
+    }
     const t = r1(S.t), end0 = e.end, second = { ...JSON.parse(JSON.stringify(e)), id: uid('e') };
     e.end = t; second.start = t; second.end = end0;
     if (e.type === 'subs') {
@@ -303,6 +386,18 @@
     }
     S.tl.els.splice(S.tl.els.indexOf(e) + 1, 0, second);
     touch(); renderLayer(); select({ kind: 'el', id: second.id });
+  }
+  function toOver(c) { // clip de la piste principale -> vidéo superposée à la même place (la piste principale se referme)
+    const k = spans().find((x) => x.c.id === c.id);
+    const el = { id: uid('e'), type: 'video', asset: c.asset, in: c.in, out: c.out, vol: 100, start: r1(k.start), end: 0, track: maxTrack() + 1, fx: 0.5, fy: 0.5, pos: {}, s: 100, rot: 0, op: 100 };
+    S.tl.clips = S.tl.clips.filter((x) => x !== c); S.tl.els.push(el);
+    touch(); renderLayer(); select({ kind: 'el', id: el.id }); showAt(S.t);
+  }
+  function toMain(e) { // vidéo superposée -> clip de la piste principale, inséré selon son début
+    const idx = spans().filter((k) => k.start < (e.start || 0) - 1e-6).length;
+    const clip = { id: uid('c'), asset: e.asset, in: e.in || 0, out: e.out || 0, reframe: {} };
+    S.tl.clips.splice(idx, 0, clip); S.tl.els = S.tl.els.filter((x) => x !== e); normalizeTracks();
+    touch(); renderLayer(); select({ kind: 'clip', id: clip.id }); showAt(S.t);
   }
   function split() {
     const el = curEl();
@@ -327,12 +422,15 @@
 ${e.type === 'text' ? `<label class="pf"><span>Texte</span><textarea data-k="text" rows="3">${esc(e.text)}</textarea></label>
 <label class="pf"><span>Police</span><select data-k="font"><option value="">Par défaut</option>${Object.keys(FONTS).map((n) => `<option${n === e.font ? ' selected' : ''}>${esc(n)}</option>`).join('')}</select></label>
 <div class="pf inl"><label>Couleur <input type="color" data-k="color" value="${esc(e.color || '#ffffff')}"></label><label class="check"><input type="checkbox" data-k="bold"${e.bold === false ? '' : ' checked'}> Gras</label><label class="check"><input type="checkbox" data-k="outline"${e.outline === false ? '' : ' checked'}> Contour</label></div>` : ''}
+${e.type === 'video' ? `<small>${esc(INFOS[e.asset]?.name || '')}${INFOS[e.asset] ? ` · ${r1(srcDur(e))} s${INFOS[e.asset].hasAudio ? ' · avec son' : ' · sans son'}` : ''}</small>
+<div class="pgroup"><b>Extrait de la vidéo source</b>${num('in', 'Début (s)', r1(e.in || 0))}${num('out', 'Fin (s)', r1(e.out || 0), '0 = jusqu’à la fin de la vidéo')}</div>` : ''}
 ${e.type === 'logo' || e.type === 'image' ? `<label class="pf"><span>Fichier</span><select data-k="asset">${IMAGES.map((i) => `<option value="${i.id}"${String(i.id) === String(e.asset) ? ' selected' : ''}>${esc(i.name)}</option>`).join('')}</select></label>` : ''}
 <div class="pgroup"><b>Position <small>(${esc(f.label)} · centre de l’élément, en px)</small></b>
 ${slider('x', 'X', -Math.round(f.w / 2), Math.round(f.w * 1.5), 1, p.x)}${slider('y', 'Y', -Math.round(f.h / 2), Math.round(f.h * 1.5), 1, p.y)}
 <span class="inline"><button type="button" class="mini" data-a="cx">Centrer horizontalement</button><button type="button" class="mini" data-a="cy">Centrer verticalement</button><button type="button" class="mini" data-a="home">Position d’origine</button></span></div>
-${slider('s', 'Échelle (%)', 5, 400, 1, e.s)}${slider('rot', 'Rotation (°)', -180, 180, 1, e.rot || 0)}${slider('op', 'Opacité (%)', 0, 100, 1, e.op ?? 100)}
-<div class="pgroup"><b>Sur la timeline</b>${num('start', 'Début (s)', r1(e.start || 0))}${num('end', 'Fin (s)', r1(e.end || 0), '0 = jusqu’à la fin du film')}</div>
+${slider('s', e.type === 'video' ? 'Taille (% de la largeur)' : 'Échelle (%)', 5, 400, 1, e.s)}${slider('rot', 'Rotation (°)', -180, 180, 1, e.rot || 0)}${slider('op', 'Opacité (%)', 0, 100, 1, e.op ?? 100)}${e.type === 'video' ? slider('vol', 'Volume (%)', 0, 100, 1, e.vol ?? 100) : ''}
+<div class="pgroup"><b>Sur la timeline</b>${num('start', 'Début (s)', r1(e.start || 0))}${e.type === 'video' ? '' : num('end', 'Fin (s)', r1(e.end || 0), '0 = jusqu’à la fin du film')}</div>
+<div class="pgroup"><b>Piste ${e.track}</b> <small>(une piste plus haute est au-dessus ; glissez aussi le bloc vers le haut ou le bas sur la timeline)</small><span class="inline"><button type="button" class="mini" data-a="trkup">↑ Monter d’une piste</button><button type="button" class="mini" data-a="trkdn">↓ Descendre d’une piste</button>${e.type === 'video' ? '<button type="button" class="mini" data-a="tomain">Mettre sur la piste principale</button>' : ''}</span></div>
 ${e.type === 'subs' ? cuesHtml() : ''}
 <span class="inline"><button type="button" class="mini" data-a="dup">Dupliquer</button><button type="button" class="mini" data-a="del">Supprimer</button></span>`;
       if (e.type === 'subs') bindCues(e);
@@ -342,7 +440,7 @@ ${e.type === 'subs' ? cuesHtml() : ''}
 <small>${INFOS[c.asset] ? `${INFOS[c.asset].w}×${INFOS[c.asset].h} · ${r1(d)} s · ${INFOS[c.asset].hasAudio ? 'avec son' : 'sans son'}` : ''}</small>
 <div class="pgroup"><b>Extrait de la vidéo source</b>${num('in', 'Début (s)', r1(c.in))}${num('out', 'Fin (s)', r1(c.out || 0), '0 = jusqu’à la fin de la vidéo')}</div>
 <div class="pgroup"><b>Cadrage <small>(${esc(f.label)})</small></b>${slider('posx', 'Horizontal', 0, 100, 1, r.posx ?? 50)}${slider('posy', 'Vertical', 0, 100, 1, r.posy ?? 50)}${slider('zoom', 'Zoom', 100, 300, 1, r.zoom ?? 100)}</div>
-<span class="inline"><button type="button" class="mini" data-a="split">✂ Scinder au curseur</button><button type="button" class="mini" data-a="del">Supprimer le clip</button></span>`;
+<span class="inline"><button type="button" class="mini" data-a="split">✂ Scinder au curseur</button><button type="button" class="mini" data-a="toover">Superposer (nouvelle piste)</button><button type="button" class="mini" data-a="del">Supprimer le clip</button></span>`;
     } else {
       props.innerHTML = `<h3>Film</h3>
 <small>${S.tl.clips.length} clip(s) · ${r1(total())} s${S.endcard.on ? ` + écran de fin ${S.endcard.seconds} s` : ''}. Cliquez sur un clip ou un élément de la timeline, ou directement sur l’aperçu, pour le régler.</small>
@@ -381,7 +479,7 @@ ${e.type === 'subs' ? cuesHtml() : ''}
   // met à jour les valeurs affichées (position, taille…) sans reconstruire le panneau (le champ en cours de saisie garde le focus)
   function refreshValues() {
     const e = curEl(); if (!e) return;
-    const p = posOf(e), vals = { x: p.x, y: p.y, s: e.s, rot: e.rot || 0, op: e.op ?? 100, start: r1(e.start || 0), end: r1(e.end || 0) };
+    const p = posOf(e), vals = { x: p.x, y: p.y, s: e.s, rot: e.rot || 0, op: e.op ?? 100, vol: e.vol ?? 100, start: r1(e.start || 0), end: r1(e.end || 0) };
     props.querySelectorAll('[data-k]').forEach((x) => { if (x !== document.activeElement && x.dataset.k in vals) x.value = vals[x.dataset.k]; });
   }
   function setPos(e, x, y) { e.pos = { ...(e.pos || {}), [S.fmt]: { x: Math.round(x), y: Math.round(y) } }; }
@@ -391,8 +489,10 @@ ${e.type === 'subs' ? cuesHtml() : ''}
     else if (k === 'end') e.end = v > 0 ? r1(v) : 0;
     else if (k === 'start') e.start = r1(Math.max(0, v));
     else if (k === 'asset') { e.asset = String(v); renderLayer(); }
+    else if (k === 'in') e.in = r1(clamp(v, 0, Math.max(0, srcDur(e) - 0.2)));
+    else if (k === 'out') e.out = v > (e.in || 0) ? r1(v) : 0;
     else e[k] = v;
-    touch(); styleLayer(); updateSel(); if (['start', 'end', 'text', 'asset'].includes(k)) renderTimeline();
+    touch(); styleLayer(); updateSel(); if (['start', 'end', 'text', 'asset', 'in', 'out'].includes(k)) renderTimeline();
     refreshValues();
   }
   function applyClip(c, k, v) {
@@ -417,6 +517,9 @@ ${e.type === 'subs' ? cuesHtml() : ''}
     const e = curEl(), f = F(), a = b.dataset.a;
     if (a === 'split') split();
     else if (a === 'del') removeSel();
+    else if (a === 'toover' && curClip()) toOver(curClip());
+    else if (e && a === 'tomain') toMain(e);
+    else if (e && (a === 'trkup' || a === 'trkdn')) { moveTrack(e, a === 'trkup' ? 1 : -1); touch(); renderLayer(); renderTimeline(); renderProps(); }
     else if (e && a === 'cx') { setPos(e, f.w / 2, posOf(e).y); touch(); styleLayer(); updateSel(); refreshValues(); }
     else if (e && a === 'cy') { setPos(e, posOf(e).x, f.h / 2); touch(); styleLayer(); updateSel(); refreshValues(); }
     else if (e && a === 'home') { if (e.pos) delete e.pos[S.fmt]; touch(); styleLayer(); updateSel(); refreshValues(); }
@@ -424,7 +527,7 @@ ${e.type === 'subs' ? cuesHtml() : ''}
       const d = { ...JSON.parse(JSON.stringify(e)), id: uid('e') };
       d.fx = Math.min(1, (d.fx ?? 0.5) + 0.04);
       for (const kk of Object.keys(d.pos || {})) d.pos[kk] = { x: d.pos[kk].x + 30, y: d.pos[kk].y + 30 };
-      S.tl.els.push(d); touch(); renderLayer(); select({ kind: 'el', id: d.id });
+      S.tl.els.push(d); placeOnTrack(d, d.track); normalizeTracks(); touch(); renderLayer(); select({ kind: 'el', id: d.id });
     }
   });
 
@@ -505,7 +608,8 @@ ${e.type === 'subs' ? cuesHtml() : ''}
 
   // ---------- démarrage
   document.querySelector(`#v_fmtTabs a[data-fmt="${S.fmt}"]`)?.classList.add('on');
+  S.tl.els.forEach((e, i) => { if (e.track == null) e.track = i + 1; }); normalizeTracks();
   sync(); commit();
   fit(); renderLayer(); renderTimeline(); renderProps(); showAt(0); poll();
-  window.__video = S; // lecture seule pour les tests
+  S.winOf = winOf; window.__video = S; // lecture seule pour les tests
 })();
