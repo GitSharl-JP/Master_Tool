@@ -427,10 +427,12 @@ const server = createServer(async (req, res) => {
     }
 
     // ---------- campagnes (créées dans Meta, reliées ici)
-    if ((r = path.match(/^\/edition\/(\d+)\/campaigns(?:\/(meta|new|(\d+)(?:\/(meta|brief|adset|ad|link|result|guide|adcopy|import-results|apply-results)|\/adset\/(\d+)\/(meta|brief))?))?$/))) {
+    if ((r = path.match(/^\/edition\/(\d+)\/campaigns(?:\/(meta|new|(\d+)(?:\/(meta|brief|adset|ad|link|result|guide|adcopy|import-results|apply-results|reconcile)|\/adset\/(\d+)\/(meta|brief))?))?$/))) {
       const ed = db.getEdition(Number(r[1]));
       if (!ed) return send(res, 404, layout('Introuvable', '<h1>Projet introuvable</h1>', user));
-      const back = (m, cid) => redirect(res, `/edition/${ed.id}/campaigns${cid ? '/' + cid : ''}?m=${encodeURIComponent(m)}`);
+      // on revient sur la vue de la campagne où l'action a été faite (diffusion, résultats, brief)
+      const VUE = { adset: 'diffusion', ad: 'diffusion', link: 'diffusion', result: 'resultats', reconcile: 'resultats', brief: 'brief', meta: 'brief' };
+      const back = (m, cid) => { const v = cid ? (r[6] ? 'diffusion' : VUE[r[4]] || '') : ''; return redirect(res, `/edition/${ed.id}/campaigns${cid ? '/' + cid : ''}?${v ? 'vue=' + v + '&' : ''}m=${encodeURIComponent(m)}`); };
       if (req.method === 'GET' && !r[2]) {
         const list = campaigns.listCampaigns(ed.id);
         const counts = Object.fromEntries(list.map((x) => [x.id, { variants: variants.listVariants(ed.id, x.id).filter((v) => v.status !== 'archivé').length, links: campaigns.allLinksOfCampaign(x.id), missing: campaigns.listAdsets(x.id).reduce((n, s) => n + campaigns.coverage(s, campaigns.linksFor('adset_id', s.id)).missing.length, 0) }]));
@@ -448,7 +450,7 @@ const server = createServer(async (req, res) => {
         if (!camp || camp.project_id !== ed.id) return send(res, 404, layout('Introuvable', '<h1>Campagne introuvable</h1>', user));
         variants.syncProject(ed.id, user.name);
         const adsets = campaigns.listAdsets(camp.id).map((s) => ({ ...s, links: campaigns.linksFor('adset_id', s.id), ads: campaigns.listAds(s.id).map((a) => ({ ...a, links: campaigns.linksFor('ad_id', a.id) })) }));
-        return page(camp.name, campaignPage(ed, { camp, adsets, contents: campaigns.listContents(ed.id).filter((x) => (x.export_id || x.kind === 'texte') && x.status !== 'archivé'), campLinks: campaigns.linksFor('campaign_id', camp.id), allLinks: campaigns.allLinksOfCampaign(camp.id), compare: campaigns.compare(camp.id), variants: variants.listVariants(ed.id, camp.id).filter((v) => v.status !== 'archivé'), outputs: Object.fromEntries(variants.listVariants(ed.id, camp.id).map((v) => [v.id, variants.outputsOf(v.id)])), nexts: Object.fromEntries(variants.listVariants(ed.id, camp.id).map((v) => [v.id, variants.nextStep(v.id)?.text || ''])), users: db.listUsers().map((u) => u.name) }), msgOf());
+        return page(camp.name, campaignPage(ed, { camp, adsets, contents: campaigns.listContents(ed.id).filter((x) => (x.export_id || x.kind === 'texte') && x.status !== 'archivé'), campLinks: campaigns.linksFor('campaign_id', camp.id), allLinks: campaigns.allLinksOfCampaign(camp.id), compare: campaigns.compare(camp.id), conflicts: campaigns.resultConflicts(camp.id), vue: url.searchParams.get('vue') || '', variants: variants.listVariants(ed.id, camp.id).filter((v) => v.status !== 'archivé').map((v) => ({ ...v, pristine: variants.isPristine(v) })), outputs: Object.fromEntries(variants.listVariants(ed.id, camp.id).map((v) => [v.id, variants.outputsOf(v.id)])), nexts: Object.fromEntries(variants.listVariants(ed.id, camp.id).map((v) => [v.id, variants.nextStep(v.id)?.text || ''])), users: db.listUsers().map((u) => u.name) }), msgOf());
       }
       if (req.method === 'POST') {
         const b = await readBody(req);
@@ -468,11 +470,20 @@ const server = createServer(async (req, res) => {
         if (r[4] === 'ad') { const o = campaigns.createAd(Number(b.adset_id), b, user.name); return back(o.ok ? 'Annonce reliée.' : o.error, camp.id); }
         if (r[4] === 'link') { const o = campaigns.linkContent(Number(b.content_id), { campaign_id: b.campaign_id, adset_id: b.adset_id, ad_id: b.ad_id }, user.name); return back(o.ok ? 'Contenu associé en brouillon (version épinglée).' : o.error, camp.id); }
         if (r[4] === 'adcopy') { const a = campaigns.getAd(Number(b.ad_id)); if (!a || a.campaign_id !== camp.id) return send(res, 404, 'Introuvable'); campaigns.updateAdCopy(a.id, b, user.name); return redirect(res, `/edition/${ed.id}/campaigns/${camp.id}/guide?m=${encodeURIComponent('Publicité enregistrée.')}#ad${a.id}`); }
-        if (r[4] === 'import-results') return page('Guide Ads Manager', metaGuidePage(ed, guideData(camp, { importPreview: metaimport.previewImport(camp.id, b.csv) })));
+        if (r[4] === 'import-results') { const picks = {}; for (const k of Object.keys(b)) { const m = /^pick_(\d+)$/.exec(k); if (m && b[k]) picks[m[1]] = Number(b[k]); } return page('Guide Ads Manager', metaGuidePage(ed, guideData(camp, { importPreview: metaimport.previewImport(camp.id, b.csv, picks, { dec: b.dec }) }))); }
         if (r[4] === 'apply-results') {
           let rows = []; try { rows = JSON.parse(b.payload || '[]'); } catch { /* charge utile invalide */ }
+          rows = Array.isArray(rows) ? rows : []; let hasC = []; try { hasC = JSON.parse(b.conflicts || '[]'); } catch { /* ignoré */ }
+          rows.forEach((x, k) => { if (hasC[k]) { const act = b['act_' + k]; x.replace = act === 'replace'; x.both = act === 'both'; if (!x.replace && !x.both) x.skip = 'conflit non tranché'; } });
           const o = metaimport.applyImport(camp.id, rows, user.name);
-          return redirect(res, `/edition/${ed.id}/campaigns/${camp.id}?m=${encodeURIComponent(`Résultats importés : ${o.added} ligne(s)${o.duplicates ? `, ${o.duplicates} déjà présente(s) ignorée(s)` : ''}.`)}`);
+          return redirect(res, `/edition/${ed.id}/campaigns/${camp.id}?m=${encodeURIComponent(`Résultats importés : ${o.added} ligne(s)${o.replaced ? `, ${o.replaced} mesure(s) remplacée(s) (anciennes conservées, hors totaux)` : ''}${o.duplicates ? `, ${o.duplicates} déjà présente(s) ignorée(s)` : ''}${o.conflicts ? `, ${o.conflicts} conflit(s) non importé(s)` : ''}.`)}`);
+        }
+        if (r[4] === 'reconcile') { // deux mesures aux périodes qui se croisent : on garde l'une, l'autre est mise de côté (conservée, hors totaux)
+          const keep = Number(b.keep), drop = Number(b.drop), lids = new Set(campaigns.allLinksOfCampaign(camp.id).map((l) => l.id));
+          const rk = db.db.prepare('SELECT link_id FROM results WHERE id=?').get(keep), rd = db.db.prepare('SELECT link_id FROM results WHERE id=?').get(drop);
+          if (!rk || !rd || rk.link_id !== rd.link_id || !lids.has(rk.link_id)) return back('Mesures introuvables.', camp.id);
+          campaigns.supersedeResult(drop, keep, user.name);
+          return back('Mesure mise de côté : elle reste enregistrée mais n’entre plus dans les totaux.', camp.id);
         }
         if (r[4] === 'result') return back(campaigns.addResult(Number(b.link_id), b, user.name) ? 'Résultats ajoutés.' : 'Association introuvable.', camp.id);
       }
@@ -572,7 +583,11 @@ const server = createServer(async (req, res) => {
           if (r[4] === 'review') { const o = variants.requestReview(v.id, user.name); plan.syncVariant(v.id); return back(o.ok ? 'Mise de côté « à relire » : revenez-y avec un regard neuf, puis approuvez.' : o.error); }
           if (r[4] === 'approve-export') {
             const o = await variants.approveAndExport(v.id, user.name, b.note); plan.syncVariant(v.id);
-            return back(o.ok ? `Approuvée (v${o.approvedVersion}) et exportée : ` + o.out.map((x) => `${studio.POSTER_FORMATS[x.fmt].ratio} ${x.state}`).join(' · ') + (o.video?.ok ? ' · vidéo en cours' : '') + (o.draft ? ' — exports marqués BROUILLON (fiche non prête ou source provisoire).' : '') : o.error);
+            if (!o.ok) return back(o.error);
+            const ko = o.out.filter((x) => x.failed), fmtOf = (x) => studio.POSTER_FORMATS[x.fmt].ratio;
+            // l'approbation et l'export sont deux résultats distincts : jamais « approuvée et exportée : échec »
+            if (ko.length) return back(`Version v${o.approvedVersion} approuvée. Export ${ko.length === o.out.length ? 'ÉCHOUÉ' : 'PARTIEL'} : ${ko.length === o.out.length ? 'aucun fichier produit' : `${o.out.length - ko.length} format(s) prêt(s)`}, échec sur ${ko.map(fmtOf).join(', ')}. « Reprendre l’export » refait uniquement ce qui manque, sans doublon.`);
+            return back(`Approuvée (v${o.approvedVersion}) et exportée : ` + o.out.map((x) => `${fmtOf(x)} ${x.state}`).join(' · ') + (o.video?.ok ? ' · vidéo en cours' : '') + (o.draft ? ' — exports marqués BROUILLON (fiche non prête ou source provisoire).' : ''));
           }
           if (r[4] === 'approve') { const o = variants.approve(v.id, user.name, b.note); plan.syncVariant(v.id); return back(o.ok ? `Version ${o.version} approuvée et figée.${o.draft ? ' Les exports seront marqués BROUILLON tant que la fiche n’est pas prête ou que les sources sont provisoires.' : ''}` : o.error); }
           if (r[4] === 'restore') { const o = variants.restoreApproved(v.id, Number(b.version), user.name); return back(o.ok ? `Retour à la version approuvée v${b.version}.` : o.error); }

@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS adsets(id INTEGER PRIMARY KEY, campaign_id INTEGER NO
 CREATE TABLE IF NOT EXISTS ads(id INTEGER PRIMARY KEY, adset_id INTEGER NOT NULL, name TEXT NOT NULL, meta_id TEXT NOT NULL DEFAULT '', meta_status TEXT NOT NULL DEFAULT 'inconnu', landing TEXT NOT NULL DEFAULT '', notes TEXT NOT NULL DEFAULT '', created TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS contents(id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL, kind TEXT NOT NULL, title TEXT NOT NULL, export_id INTEGER, format TEXT NOT NULL DEFAULT '', angle TEXT NOT NULL DEFAULT '', audience TEXT NOT NULL DEFAULT '', language TEXT NOT NULL DEFAULT '', channel TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'à relire', notes TEXT NOT NULL DEFAULT '', created TEXT NOT NULL, created_by TEXT NOT NULL, updated TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS content_links(id INTEGER PRIMARY KEY, content_id INTEGER NOT NULL, campaign_id INTEGER, adset_id INTEGER, ad_id INTEGER, export_id INTEGER, state TEXT NOT NULL DEFAULT 'brouillon', note TEXT NOT NULL DEFAULT '', linked_at TEXT NOT NULL, linked_by TEXT NOT NULL, transmitted_at TEXT);
+CREATE TABLE IF NOT EXISTS text_versions(id INTEGER PRIMARY KEY, content_id INTEGER NOT NULL, title TEXT NOT NULL DEFAULT '', body TEXT NOT NULL DEFAULT '', language TEXT NOT NULL DEFAULT '', created TEXT NOT NULL, created_by TEXT NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS results(id INTEGER PRIMARY KEY, link_id INTEGER NOT NULL, period TEXT NOT NULL DEFAULT '', impressions INTEGER NOT NULL DEFAULT 0, clicks INTEGER NOT NULL DEFAULT 0, spend REAL NOT NULL DEFAULT 0, conversions INTEGER NOT NULL DEFAULT 0, source TEXT NOT NULL DEFAULT 'manuel', entered_by TEXT NOT NULL, entered_at TEXT NOT NULL);
 `);
 
@@ -44,6 +45,8 @@ for (const [c, d] of [['meta_objective', T], ['meta_budget', T], ['meta_start', 
 for (const [c, d] of [['meta_targeting', T], ['meta_placements', "TEXT NOT NULL DEFAULT ''"], ['meta_synced_at', 'TEXT'], ['meta_source', "TEXT NOT NULL DEFAULT 'manuel'"],
   ['brief_audience', T], ['brief_placements', "TEXT NOT NULL DEFAULT '[]'"], ['brief_languages', T], ['brief_hypothesis', T]]) addCol('adsets', c, d);
 for (const [c, d] of [['meta_synced_at', 'TEXT'], ['meta_source', "TEXT NOT NULL DEFAULT 'manuel'"], ['brief_angle', T], ['copy_primary', T], ['copy_headline', T], ['copy_description', T], ['cta', T]]) addCol('ads', c, d);
+addCol('content_links', 'text_version_id', 'INTEGER');
+for (const [c, d] of [['superseded_by', 'INTEGER'], ['period_from', T], ['period_to', T], ['currency', T], ['result_type', T], ['clicks_kind', T], ['missing', T]]) addCol('results', c, d);
 for (const [c, d] of [['variant_id', 'INTEGER'], ['variant_version', 'INTEGER'], ['body', T], ['asset_id', 'INTEGER']]) addCol('contents', c, d);
 // anciennes valeurs -> nouveau vocabulaire ; anciens champs recopiés vers la configuration Meta / le brief interne
 db.exec(`
@@ -197,6 +200,22 @@ function targetOf(l) {
   return c && { level: 'campagne', name: c.name, meta_id: c.meta_id, meta: metaInfo(c), campaign_id: c.id };
 }
 export const campaignIdOfLink = (l) => targetOf(l)?.campaign_id || null;
+// Version figée d'un texte : une association y est épinglée (comme un visuel l'est sur son export). Un texte identique réutilise la même version.
+export const getTextVersion = (id) => (id ? db.prepare('SELECT * FROM text_versions WHERE id=?').get(id) : null);
+function snapshotText(c, who) {
+  const body = String(c.body || '');
+  const same = db.prepare('SELECT id FROM text_versions WHERE content_id=? AND body=? AND title=? AND language=? ORDER BY id DESC').get(c.id, body, c.title, c.language || '');
+  if (same) return same.id;
+  return Number(db.prepare('INSERT INTO text_versions(content_id,title,body,language,created,created_by) VALUES(?,?,?,?,?,?)').run(c.id, c.title, body, c.language || '', now(), who || '').lastInsertRowid);
+}
+export const textVersionsOf = (contentId) => db.prepare('SELECT * FROM text_versions WHERE content_id=? ORDER BY id DESC').all(contentId);
+// Le texte réellement associé : la version figée ; `historical` = association antérieure aux versions (l'original n'est pas garanti).
+export function linkedText(l) {
+  const c = getContent(l.content_id);
+  if (!c || c.kind !== 'texte') return null;
+  const v = getTextVersion(l.text_version_id);
+  return v ? { ...v, historical: false, current: v.body === c.body && v.title === c.title } : { id: null, body: c.body, title: c.title, language: c.language, historical: true, current: true };
+}
 export function linkContent(contentId, target, who) { // target : { campaign_id } | { adset_id } | { ad_id }
   const c = getContent(contentId);
   // Un contenu texte (concept, script, légende) s'associe sans fichier ; un visuel ou une vidéo exige son export.
@@ -204,9 +223,10 @@ export function linkContent(contentId, target, who) { // target : { campaign_id 
   const t = { campaign_id: Number(target.campaign_id) || null, adset_id: Number(target.adset_id) || null, ad_id: Number(target.ad_id) || null };
   if ([t.campaign_id, t.adset_id, t.ad_id].filter(Boolean).length !== 1) return { ok: false, error: 'Une association vise un seul niveau : campagne, ensemble OU annonce.' };
   if (!targetOf(t)) return { ok: false, error: 'Niveau introuvable.' };
-  if (db.prepare('SELECT 1 FROM content_links WHERE content_id=? AND campaign_id IS ? AND adset_id IS ? AND ad_id IS ? AND export_id IS ?').get(contentId, t.campaign_id, t.adset_id, t.ad_id, c.export_id)) return { ok: false, error: 'Déjà associé à ce niveau (même version).' };
+  const tv = c.kind === 'texte' ? snapshotText(c, who) : null;
+  if (db.prepare('SELECT 1 FROM content_links WHERE content_id=? AND campaign_id IS ? AND adset_id IS ? AND ad_id IS ? AND export_id IS ? AND text_version_id IS ?').get(contentId, t.campaign_id, t.adset_id, t.ad_id, c.export_id, tv)) return { ok: false, error: 'Déjà associé à ce niveau (même version).' };
   // Associer reste possible même si le niveau est actif dans Meta : on prépare une variante en BROUILLON, sans rien toucher à la diffusion.
-  db.prepare('INSERT INTO content_links(content_id,campaign_id,adset_id,ad_id,export_id,state,linked_at,linked_by) VALUES(?,?,?,?,?,?,?,?)').run(contentId, t.campaign_id, t.adset_id, t.ad_id, c.export_id || null, 'brouillon', now(), who);
+  db.prepare('INSERT INTO content_links(content_id,campaign_id,adset_id,ad_id,export_id,text_version_id,state,linked_at,linked_by) VALUES(?,?,?,?,?,?,?,?,?)').run(contentId, t.campaign_id, t.adset_id, t.ad_id, c.export_id || null, tv, 'brouillon', now(), who);
   log(who, `Contenu « ${c.title} » associé (${levelOf(t)}) en brouillon — version épinglée`);
   return { ok: true };
 }
@@ -216,7 +236,9 @@ export function transitionRecap(linkId, toState) {
   const l = db.prepare('SELECT * FROM content_links WHERE id=?').get(linkId);
   if (!l || !LINK_STATES.includes(toState)) return null;
   const c = getContent(l.content_id), e = l.export_id ? getExport(l.export_id) : null, tg = targetOf(l);
-  const errors = [], warnings = [];
+  const errors = [], warnings = [], tx = c?.kind === 'texte' ? linkedText(l) : null;
+  if (tx && !tx.historical && !tx.current && ['approuvé', 'transmis'].includes(toState)) errors.push('Le texte a été modifié depuis cette association : associez la version actuelle (l’ancienne reste telle quelle).');
+  if (tx?.historical) warnings.push('Association antérieure aux versions de texte : l’original n’est pas garanti, le texte affiché est le texte actuel.');
   if (isFrozenState(l.state) && toState !== 'publié' && toState !== 'erreur') errors.push(`Cette association est déjà « ${l.state} » : version diffusée, figée.`);
   if (l.state === 'publié') errors.push('Cette association est déjà publiée : elle ne change plus depuis l’atelier.');
   if (['approuvé', 'transmis', 'publié'].includes(toState)) {
@@ -228,7 +250,8 @@ export function transitionRecap(linkId, toState) {
   if (tg?.meta.status === 'active') warnings.push('Ce niveau est ACTIF dans Meta (statut saisi à la main) : vérifiez que vous ne remplacez pas une publicité en cours.');
   if (['transmis', 'publié'].includes(toState)) warnings.push('Aucune connexion à Meta : l’atelier n’envoie rien. Ce changement est une déclaration manuelle de ce qui a été fait dans Ads Manager.');
   const recap = {
-    de: l.state, vers: toState, contenu: c?.title, format: c?.format, version_export: l.export_id, fichier: e?.file, version_du: e?.created,
+    de: l.state, vers: toState, contenu: c?.title, format: c?.format, version_export: l.export_id, fichier: e?.file, version_du: e?.created, version_texte: tx ? (tx.historical ? 'historique non garantie' : `v${tx.id}`) : undefined, empreinte_texte: tx ? createHash('sha1').update(`${tx.title}
+${tx.body}`).digest('hex').slice(0, 10) : undefined,
     niveau: tg?.level, cible: tg?.name, id_meta: tg?.meta_id || '(non renseigné)', statut_meta: `${tg?.meta.status} — ${tg?.meta.manual ? 'saisi à la main' : 'synchronisé le ' + tg?.meta.syncedAt}`,
   };
   return { link: l, recap, errors, warnings, hash: createHash('sha1').update(JSON.stringify(recap)).digest('hex').slice(0, 12) };
@@ -268,20 +291,61 @@ export function coverage(adset, links) {
 }
 
 // --- résultats saisis à la main (l'API Meta pourra les alimenter plus tard) + comparaison
+// Date de rapport -> AAAA-MM-JJ (ISO, ou JJ/MM/AAAA à la française) ; vide si illisible.
+export function parseDay(s) {
+  const v = String(s || '').trim(); let m;
+  if ((m = /^(\d{4})-(\d{2})-(\d{2})/.exec(v))) return m[0];
+  if ((m = /^(\d{1,2})[/.](\d{1,2})[/.](\d{4})/.exec(v))) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+  return '';
+}
+// Période d'un résultat : colonnes datées, sinon lue dans le texte « a → b » des anciens enregistrements.
+export function rangeOf(r) {
+  let from = r.period_from || '', to = r.period_to || '';
+  if (!from && r.period) { const p = String(r.period).split('→').map((x) => parseDay(x)); from = p[0] || ''; to = p[1] || p[0] || ''; }
+  return from ? { from, to: to || from } : null;
+}
+export const overlaps = (a, b) => !!a && !!b && a.from <= b.to && b.from <= a.to;
+// Résultats déjà enregistrés pour cette association dont la période croise celle-ci (hors mesures mises de côté).
+export function conflictsFor(linkId, range) {
+  if (!range) return [];
+  return db.prepare('SELECT * FROM results WHERE link_id=? AND superseded_by IS NULL').all(linkId).filter((x) => overlaps(rangeOf(x), range))
+    .map((x) => ({ id: x.id, period: x.period, impressions: x.impressions, clicks: x.clicks, spend: x.spend, conversions: x.conversions, same: rangeOf(x).from === range.from && rangeOf(x).to === range.to }));
+}
 export function addResult(linkId, b, who) {
   if (!db.prepare('SELECT 1 FROM content_links WHERE id=?').get(linkId)) return false;
   const n = (v) => Math.max(0, Number(String(v).replace(',', '.')) || 0);
-  db.prepare('INSERT INTO results(link_id,period,impressions,clicks,spend,conversions,source,entered_by,entered_at) VALUES(?,?,?,?,?,?,?,?,?)')
-    .run(linkId, txt(b.period || [b.period_from, b.period_to].filter(Boolean).join(' → '), 60), Math.round(n(b.impressions)), Math.round(n(b.clicks)), n(b.spend), Math.round(n(b.conversions)), b.source === 'import' ? 'import' : 'manuel', who, now());
+  const from = parseDay(b.period_from), to = parseDay(b.period_to) || from;
+  const r = db.prepare('INSERT INTO results(link_id,period,impressions,clicks,spend,conversions,source,entered_by,entered_at,period_from,period_to,currency,result_type,clicks_kind,missing) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+    .run(linkId, txt(b.period || [b.period_from, b.period_to].filter(Boolean).join(' → '), 60), Math.round(n(b.impressions)), Math.round(n(b.clicks)), n(b.spend), Math.round(n(b.conversions)), b.source === 'import' ? 'import' : 'manuel', who, now(),
+      b.from || from, b.to || to, txt(b.currency, 8), txt(b.result_type, 60), txt(b.clicks_kind, 10), txt(b.missing, 80));
   log(who, b.source === 'import' ? `Résultats importés du rapport Ads Manager (association ${linkId})` : `Résultats saisis à la main (association ${linkId})`);
-  return true;
+  return Number(r.lastInsertRowid);
+}
+// Une mesure remplacée n'est jamais supprimée : elle est mise de côté (réversible) et sort des totaux.
+export function supersedeResult(oldId, newId, who) {
+  db.prepare('UPDATE results SET superseded_by=? WHERE id=? AND superseded_by IS NULL').run(newId, oldId);
+  log(who, `Résultat ${oldId} remplacé par ${newId} (mesure précédente conservée, hors totaux)`);
+}
+export function restoreResult(id, who) {
+  db.prepare('UPDATE results SET superseded_by=NULL WHERE id=?').run(id);
+  log(who, `Résultat ${id} rétabli dans les totaux`);
+}
+// Mesures déjà enregistrées dont les périodes se croisent pour une même association (anciens imports) : à réconcilier, jamais supprimées automatiquement.
+export function resultConflicts(campaignId) {
+  const out = [];
+  for (const l of allLinksOfCampaign(campaignId)) {
+    const rs = db.prepare('SELECT * FROM results WHERE link_id=? AND superseded_by IS NULL ORDER BY id').all(l.id);
+    for (let a = 0; a < rs.length; a++) for (let b = a + 1; b < rs.length; b++) if (overlaps(rangeOf(rs[a]), rangeOf(rs[b]))) out.push({ link: l, a: rs[a], b: rs[b] });
+  }
+  return out;
 }
 export function compare(campaignId) {
-  const rows = db.prepare(`SELECT c.title, c.angle, c.audience, c.language, c.format, SUM(r.impressions) imp, SUM(r.clicks) clk, SUM(r.spend) spend, SUM(r.conversions) conv, COUNT(r.id) n
+  const rows = db.prepare(`SELECT c.title, c.angle, c.audience, c.language, c.format, SUM(r.impressions) imp, SUM(r.clicks) clk, SUM(r.spend) spend, SUM(r.conversions) conv, COUNT(r.id) n, COUNT(DISTINCT NULLIF(r.currency,'')) ncur, COUNT(DISTINCT NULLIF(r.result_type,'')) ntype, MAX(r.currency) currency, MAX(r.result_type) result_type, SUM(r.missing<>'') nmissing
     FROM results r JOIN content_links l ON l.id=r.link_id JOIN contents c ON c.id=l.content_id
-    WHERE l.campaign_id=? OR l.adset_id IN (SELECT id FROM adsets WHERE campaign_id=?) OR l.ad_id IN (SELECT a.id FROM ads a JOIN adsets s ON s.id=a.adset_id WHERE s.campaign_id=?)
+    WHERE r.superseded_by IS NULL AND (l.campaign_id=? OR l.adset_id IN (SELECT id FROM adsets WHERE campaign_id=?) OR l.ad_id IN (SELECT a.id FROM ads a JOIN adsets s ON s.id=a.adset_id WHERE s.campaign_id=?))
     GROUP BY c.id`).all(campaignId, campaignId, campaignId);
-  return rows.map((r) => ({ ...r, ctr: r.imp ? r.clk / r.imp : null, cpc: r.clk ? r.spend / r.clk : null, cpa: r.conv ? r.spend / r.conv : null }));
+  // Devises ou types de résultat différents : pas de coût unitaire calculé (additionner des mesures incompatibles serait faux).
+  return rows.map((r) => ({ ...r, mixedCurrency: r.ncur > 1, mixedType: r.ntype > 1, ctr: r.imp ? r.clk / r.imp : null, cpc: r.clk && r.ncur <= 1 ? r.spend / r.clk : null, cpa: r.conv && r.ncur <= 1 && r.ntype <= 1 ? r.spend / r.conv : null }));
 }
 
 // Lien suivi (UTM) pour une annonce : base = page de destination choisie, sinon URL de réservation de la fiche.

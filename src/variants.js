@@ -354,7 +354,10 @@ export function outputsOf(id) {
   const v = getVariant(id);
   const base = v.status === 'approuvé' ? 'approuvé' : v.status === 'à relire' ? 'à relire' : 'brouillon';
   syncContents(id);
-  const rows = v.formats.map((fmt) => ({ fmt, kind: 'image' }));
+  // Formats du brouillon COURANT + formats de la version approuvée : retirer un format du brouillon ne masque jamais les fichiers déjà exportés.
+  const ver = v.approved_version > 0 ? versionRow(id, v.approved_version) : null, pristine = isPristine(v);
+  const approvedFmts = Object.keys(ver?.snapshot?.designs || {});
+  const rows = [...new Set([...v.formats, ...approvedFmts])].map((fmt) => ({ fmt, kind: 'image', removed: !v.formats.includes(fmt) }));
   if (v.with_video) rows.push({ fmt: 'video', kind: 'video' });
   return rows.map((r) => {
     const fmts = r.kind === 'video' ? (getVideoDesign(v.project_id, scope(id)).formats || []) : [r.fmt];
@@ -366,8 +369,8 @@ export function outputsOf(id) {
     if (exps.length && v.status === 'approuvé') stage = 'exporté';
     if (links.some((l) => l.state === 'transmis')) stage = 'transmis';
     if (links.some((l) => l.state === 'publié')) stage = 'publié';
-    return { ...r, exports: exps, trial, contents, links, stage, frozen: links.some((l) => isFrozenState(l.state)) };
-  });
+    return { ...r, exports: exps, trial, contents, links, stage, outdated: !pristine && v.approved_version > 0, frozen: links.some((l) => isFrozenState(l.state)) };
+  }).filter((r) => !r.removed || r.exports.length);
 }
 export const variantsForContent = (cid) => db.prepare('SELECT v.* FROM variants v JOIN contents c ON c.variant_id=v.id WHERE c.id=?').get(cid);
 

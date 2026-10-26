@@ -349,20 +349,22 @@ const linkActions = (ed, l) => {
 };
 const linkList = (ed, links) => (links.length ? `<ul class="log links">${links.map((l) => `<li>
 ${l.kind === 'image' && l.export_id ? `<a href="/exports/${l.export_id}" target="_blank"><img src="/exports/${l.export_id}" class="lthumb" alt=""></a>` : ''}
-<span><b>${esc(l.title)}</b> ${fmtTag(l.format)} ${chip(l.state)} ${l.export_id ? '<span class="tag st-2">exporté</span>' : ''} ${l.draft ? '<span class="tag warn">BROUILLON</span>' : ''}
+<span><b>${esc(l.title)}</b> ${fmtTag(l.format)} ${l.kind === 'texte' ? (l.text_version_id ? `<span class="tag" title="Version figée du texte au moment de l’association">texte v${l.text_version_id}</span>` : '<span class="tag warn" title="Association antérieure aux versions de texte : l’original n’est pas garanti">version historique non garantie</span>') : ''} ${chip(l.state)} ${l.export_id ? '<span class="tag st-2">exporté</span>' : ''} ${l.draft ? '<span class="tag warn">BROUILLON</span>' : ''}
 ${l.variant_id ? `<a href="/edition/${ed.id}/variants/${l.variant_id}">variante</a>` : ''}
 ${l.export_id !== l.current_export ? '<span class="tag warn">nouvelle version du contenu disponible — non appliquée</span>' : ''}<br>
 <small>version épinglée du ${fr(l.linked_at)} · ${esc(l.angle || 'sans angle')} · ${esc(l.language || '')}${l.transmitted_at ? ' · marquée transmise le ' + fr(l.transmitted_at) : ''}</small><br>${linkActions(ed, l)}</span></li>`).join('')}</ul>` : '<small>Aucun contenu associé à ce niveau.</small>');
 
 // Le fil d'une campagne : Brief › Contenus › Validation › Export › Meta. L'état vient des données réelles ; le premier pas non fait est mis en avant.
 function campaignSteps(ed, camp, variants, c) {
-  const outs = Object.values(c.outputs || {}).flat();
-  const todo = variants.find((v) => !(v.approved_version > 0));
+  // « Validation » = la version ACTUELLE est approuvée (une ancienne approbation ne couvre pas un brouillon modifié) ; « Export » = tous les fichiers attendus existent.
+  const todo = variants.find((v) => !(v.approved_version > 0 && v.pristine));
+  const expected = variants.flatMap((v) => (c.outputs?.[v.id] || []).filter((r) => !r.removed));
+  const ready = expected.filter((r) => r.exports.length > 0).length;
   const steps = [
-    ['Brief', !!(camp.brief_objective || camp.brief_message), '#config', 'Objectif et message clé'],
+    ['Brief', !!(camp.brief_objective || camp.brief_message), `/edition/${ed.id}/campaigns/${camp.id}?vue=brief`, 'Objectif et message clé'],
     ['Contenus', variants.length > 0, `/edition/${ed.id}/variants/new?campaign=${camp.id}`, variants.length ? `${variants.length} contenu(s)` : 'Ajouter un premier contenu'],
-    ['Validation', variants.length > 0 && !todo, todo ? `/edition/${ed.id}/variants/${todo.id}?step=verification` : '#', variants.length ? (todo ? `« ${todo.name} » à approuver` : 'Tout est approuvé') : 'Après les contenus'],
-    ['Export', outs.some((o) => ['exporté', 'transmis', 'publié'].includes(o.stage)), todo ? `/edition/${ed.id}/variants/${todo.id}?step=verification` : `/edition/${ed.id}/variants`, 'Fichiers prêts à téléverser'],
+    ['Validation', variants.length > 0 && !todo, todo ? `/edition/${ed.id}/variants/${todo.id}?step=verification` : '#', variants.length ? (todo ? (todo.approved_version > 0 ? `« ${todo.name} » modifié depuis son approbation` : `« ${todo.name} » à approuver`) : 'Tout est approuvé') : 'Après les contenus'],
+    ['Export', !todo && expected.length > 0 && ready === expected.length, todo ? `/edition/${ed.id}/variants/${todo.id}?step=verification` : `/edition/${ed.id}/variants`, expected.length ? `${ready}/${expected.length} fichier(s) prêt(s)` : 'Fichiers prêts à téléverser'],
     ['Meta', !!camp.meta_id || c.allLinks.some((l) => ['transmis', 'publié'].includes(l.state)), `/edition/${ed.id}/campaigns/${camp.id}/guide`, 'Relier et déclarer (saisie à la main)'],
   ];
   const cur = steps.findIndex((s) => !s[1]);
@@ -398,22 +400,27 @@ ${linkList(ed, a.links)}${linkForm('ad_id', a.id)}</div>`).join('')}
 <label>Destination<select name="landing">${pageOpts('')}</select></label><label>Notes<input name="notes"></label><div><button>Relier</button></div></form></details></div>`;
   }).join('');
   const num = (v, d = 2) => (v === null ? '—' : v.toFixed(d));
+  // un seul sujet à la fois : Contenus (inventaire unique), Diffusion (ensembles, annonces, associations), Résultats, Brief
+  const vue = ['contenus', 'diffusion', 'resultats', 'brief'].includes(c.vue) ? c.vue : 'contenus';
+  const show = (v, html) => (vue === v ? html : '');
+  const vbase = `/edition/${ed.id}/campaigns/${camp.id}`;
+  const vtabs = `<nav class="tabs sub campviews" aria-label="Vues de la campagne">${[['contenus', `Contenus (${variants.length})`], ['diffusion', `Diffusion (${adsets.length} ensemble${adsets.length > 1 ? 's' : ''})`], ['resultats', 'Résultats'], ['brief', 'Brief']].map(([k, n]) => `<a href="${vbase}?vue=${k}"${vue === k ? ' class="on" aria-current="page"' : ''}>${n}</a>`).join('')}</nav>`;
   return `${tabs(ed, 'campagnes')}${flash(msg)}
 <p><a href="/edition/${ed.id}/campaigns">← Campagnes</a></p>
 <div class="card"><h2>${esc(camp.name)} ${camp.name === OFF_CAMPAIGN ? '<span class="tag">organique · sans Meta</span>' : metaChip(camp)}</h2>
 ${campaignSteps(ed, camp, variants, c)}
 <p>${progressChips(c.allLinks)}</p>
 ${active ? '<p class="status ok"><b>Campagne active dans Meta</b> (statut saisi à la main). Les versions diffusées (associations « transmises » ou « publiées ») sont <b>figées</b> et identifiables 🔒. Vous pouvez continuer à préparer de <b>nouveaux contenus en brouillon</b> pour cette campagne ; rien ne part vers Meta sans récapitulatif et confirmation de votre part.</p>' : ''}
-<p class="inline"><a class="btn primary" href="/edition/${ed.id}/variants/new?campaign=${camp.id}">+ Ajouter un contenu</a> <a class="btn" href="/edition/${ed.id}/campaigns/${camp.id}/guide">Guide Ads Manager : quoi saisir dans Meta</a></p>
-${linkForm('campaign_id', camp.id).replace('Associer un contenu (en brouillon)…', 'Associer un contenu existant à toute la campagne (en brouillon)…')}</div>
-<div class="card"><h2>Contenus de cette campagne</h2>
+<p class="inline"><a class="btn primary" href="/edition/${ed.id}/variants/new?campaign=${camp.id}">+ Ajouter un contenu</a> <a class="btn" href="/edition/${ed.id}/campaigns/${camp.id}/guide">Guide Ads Manager : quoi saisir dans Meta</a></p></div>
+${vtabs}
+${show('contenus', `<div class="card"><h2>Contenus de cette campagne</h2>
 ${variants.map((v) => `<div class="orow"><a href="/edition/${ed.id}/variants/${v.id}"><b>${esc(v.name)}</b></a> <span class="tag">${esc(variantType(v))}</span> ${chip(v.status)}
 <span class="outs">${(c.outputs?.[v.id] || []).map((o) => `<span class="tag ${['exporté', 'transmis', 'publié', 'approuvé'].includes(o.stage) ? 'st-2' : ''}">${o.kind === 'video' ? 'Vidéo' : esc(FORMATS[o.fmt]?.ratio || '')} · ${esc(o.stage)}</span>`).join(' ')}</span>
-${c.nexts?.[v.id] ? `<br><small>${esc(c.nexts[v.id])}</small>` : ''}</div>`).join('') || '<small>Aucun contenu créé pour cette campagne. Créez-en un ci-dessus, ou associez un contenu existant.</small>'}</div>
-<div class="card"><h2>Contenus associés à la campagne entière</h2>${linkList(ed, c.campLinks)}</div>
+${c.nexts?.[v.id] ? `<br><small>${esc(c.nexts[v.id])}</small>` : ''}</div>`).join('') || '<small>Aucun contenu pour cette campagne : utilisez « + Ajouter un contenu » ci-dessus.</small>'}</div>`)}
+${show('diffusion', `<div class="card"><h2>Contenus associés à la campagne entière</h2>${linkList(ed, c.campLinks)}${linkForm('campaign_id', camp.id).replace('Associer un contenu (en brouillon)…', 'Associer un contenu existant à toute la campagne (en brouillon)…')}</div>
 
-${adsetHtml}
-<details class="card" id="config"${camp.brief_objective || camp.brief_message ? '' : ' open'}><summary><b>Brief interne et lien avec Meta</b> <small>(le brief d’abord ; la configuration Meta se saisit à la main, une fois la campagne prête)</small></summary><div class="two"><div><h3>Configuration Meta <small class="tag warn">${camp.meta_source === 'meta' ? 'synchronisée ' + fr(camp.meta_synced_at) : 'provisoire : saisie à la main, jamais synchronisée'}</small></h3>
+${adsetHtml}`)}
+${show('brief', `<details class="card" id="config" open><summary><b>Brief interne et lien avec Meta</b> <small>(le brief d’abord ; la configuration Meta se saisit à la main, une fois la campagne prête)</small></summary><div class="two"><div><h3>Configuration Meta <small class="tag warn">${camp.meta_source === 'meta' ? 'synchronisée ' + fr(camp.meta_synced_at) : 'provisoire : saisie à la main, jamais synchronisée'}</small></h3>
 ${metaForm(`/edition/${ed.id}/campaigns/${camp.id}/meta`, { ...camp, name: camp.name }, `<label>Objectif dans Meta<input name="meta_objective" value="${esc(camp.meta_objective)}"></label><label>Budget configuré dans Meta<input name="meta_budget" value="${esc(camp.meta_budget)}"></label>
 <label>Début (Meta)<input type="date" name="meta_start" value="${esc(camp.meta_start)}"></label><label>Fin (Meta)<input type="date" name="meta_end" value="${esc(camp.meta_end)}"></label>`)}
 <small>Ces champs seront remplacés par les valeurs réelles de Meta dès que la connexion sera active.</small></div>
@@ -423,20 +430,21 @@ ${metaForm(`/edition/${ed.id}/campaigns/${camp.id}/meta`, { ...camp, name: camp.
 <label>Audience souhaitée<input name="brief_audience" value="${esc(camp.brief_audience)}"></label><label>Budget prévu<input name="brief_budget" value="${esc(camp.brief_budget)}"></label>
 <label style="grid-column:1/-1">Hypothèse à tester<input name="brief_hypothesis" value="${esc(camp.brief_hypothesis)}"></label>
 <label style="grid-column:1/-1">Consignes et notes<textarea name="brief_notes" rows="2">${esc(camp.brief_notes)}</textarea></label><div><button>Enregistrer le brief</button></div></form>
-<small>Budget prévu ≠ budget configuré · audience souhaitée ≠ ciblage réel · objectif interne ≠ objectif Meta.</small></div></div></details>
-<div class="card"><h2>+ Relier un ensemble de publicités créé dans Meta</h2><form method="post" action="/edition/${ed.id}/campaigns/${camp.id}/adset" class="grid">
+<small>Budget prévu ≠ budget configuré · audience souhaitée ≠ ciblage réel · objectif interne ≠ objectif Meta.</small></div></div></details>`)}
+${show('diffusion', `<div class="card"><h2>+ Relier un ensemble de publicités créé dans Meta</h2><form method="post" action="/edition/${ed.id}/campaigns/${camp.id}/adset" class="grid">
 <label>Nom (dans Meta)<input name="name" required></label><label>ID Meta (facultatif)<input name="meta_id"></label><label><span>Statut dans Meta <small>(saisi)</small></span>${sel('meta_status', META_STATUSES, 'inconnu')}</label>
 <label>Audience souhaitée<input name="brief_audience"></label><label>Langues<input name="brief_languages" placeholder="EN, JA"></label>
 <label>Destination<select name="landing">${pageOpts('')}</select></label>
 <div style="grid-column:1/-1"><b>Placements souhaités</b><div class="chanlist inline">${Object.entries(CHANNELS).map(([k, ch]) => `<label class="check"><input type="checkbox" name="pl_${k}" value="1"> ${esc(ch.label)}</label>`).join('')}</div></div>
-<label>Notes<input name="notes"></label><div><button>Relier l’ensemble</button></div></form></div>
-<div class="card"><h2>Résultats et comparaison <span class="tag warn">saisie manuelle</span></h2>
+<label>Notes<input name="notes"></label><div><button>Relier l’ensemble</button></div></form></div>`)}
+${show('resultats', `<div class="card"><h2>Résultats et comparaison <span class="tag warn">saisie manuelle</span></h2>
 <small>À défaut de connexion à Meta, recopiez ici les chiffres d’Ads Manager par association. Ce sont des repères pour préparer les prochains contenus, pas une décision automatique.</small>
-${compare.length ? `<table><tr><th>Contenu</th><th>Angle</th><th>Audience</th><th>Format</th><th>Affich.</th><th>Clics</th><th>CTR</th><th>Dépense</th><th>CPC</th><th>Résultats</th><th>Coût/résultat</th></tr>${compare.map((r) => `<tr><td>${esc(r.title)}</td><td>${esc(r.angle)}</td><td>${esc(r.audience)}</td><td>${esc(FORMATS[r.format]?.ratio || '')}</td><td>${r.imp}</td><td>${r.clk}</td><td>${r.ctr === null ? '—' : (r.ctr * 100).toFixed(2) + ' %'}</td><td>${num(r.spend)}</td><td>${num(r.cpc)}</td><td>${r.conv}</td><td>${num(r.cpa)}</td></tr>`).join('')}</table>` : '<p><small>Aucun résultat saisi.</small></p>'}
+${compare.length ? `<table><tr><th>Contenu</th><th>Angle</th><th>Audience</th><th>Format</th><th>Affich.</th><th>Clics</th><th>CTR</th><th>Dépense</th><th>CPC</th><th>Résultats</th><th>Coût/résultat</th></tr>${compare.map((r) => `<tr><td>${esc(r.title)}</td><td>${esc(r.angle)}</td><td>${esc(r.audience)}</td><td>${esc(FORMATS[r.format]?.ratio || '')}</td><td>${r.imp}</td><td>${r.clk}</td><td>${r.ctr === null ? '—' : (r.ctr * 100).toFixed(2) + ' %'}</td><td>${num(r.spend)}${r.currency ? ' ' + esc(r.currency) : ''}${r.mixedCurrency ? ' <span class="tag warn" title="Plusieurs devises : aucun coût unitaire n’est calculé">devises mélangées</span>' : ''}</td><td>${num(r.cpc)}</td><td>${r.conv}${r.mixedType ? ' <span class="tag warn" title="Types de résultat différents (vues, messages, achats…) : à ne pas additionner">types mélangés</span>' : ''}</td><td>${num(r.cpa)}</td></tr>`).join('')}</table>` : '<p><small>Aucun résultat saisi.</small></p>'}
+${(c.conflicts || []).length ? `<div class="status warn" id="reconcile"><b>Mesures à réconcilier</b><br><small>Ces mesures concernent la même publicité sur des périodes qui se croisent : les additionner compterait deux fois les mêmes jours. Gardez celle qui est juste ; l’autre est mise de côté (conservée, hors totaux).</small><ul>${c.conflicts.map((k) => `<li>${esc(k.link.title)} : <b>${esc(k.a.period || '—')}</b> (${k.a.impressions} affich., ${num(k.a.spend)}) et <b>${esc(k.b.period || '—')}</b> (${k.b.impressions} affich., ${num(k.b.spend)}) <form method="post" action="/edition/${ed.id}/campaigns/${camp.id}/reconcile" class="inline"><input type="hidden" name="keep" value="${k.a.id}"><input type="hidden" name="drop" value="${k.b.id}"><button class="mini">Garder la première</button></form> <form method="post" action="/edition/${ed.id}/campaigns/${camp.id}/reconcile" class="inline"><input type="hidden" name="keep" value="${k.b.id}"><input type="hidden" name="drop" value="${k.a.id}"><button class="mini">Garder la seconde</button></form></li>`).join('')}</ul></div>` : ''}
 <form method="post" action="/edition/${ed.id}/campaigns/${camp.id}/result" class="grid">
 <label>Association<select name="link_id" required><option value="">— choisir —</option>${c.allLinks.map((l) => `<option value="${l.id}">${esc(l.title)} (${esc(FORMATS[l.format]?.ratio || '')}) — ${l.ad_id ? 'annonce' : l.adset_id ? 'ensemble' : 'campagne'} #${l.id}</option>`).join('')}</select></label>
 <label>Période : du<input type="date" name="period_from"></label><label>au<input type="date" name="period_to"></label><label>Affichages<input name="impressions" type="number" min="0"></label><label>Clics<input name="clicks" type="number" min="0"></label>
-<label>Dépense<input name="spend" type="number" step="0.01" min="0"></label><label>Résultats<input name="conversions" type="number" min="0"></label><div><button>Ajouter</button></div></form></div>`;
+<label>Dépense<input name="spend" type="number" step="0.01" min="0"></label><label>Résultats<input name="conversions" type="number" min="0"></label><div><button>Ajouter</button></div></form></div>`)}`;
 }
 
 // Récapitulatif obligatoire avant « transmis » / « publié »
@@ -654,14 +662,25 @@ function resultsImportCard(ed, camp, prev) {
   return `<div class="card" id="resultats"><h2>Résultats : importer le rapport d’Ads Manager</h2>
 <small>Dans Ads Manager, onglet <b>Publicités</b> : choisissez la période, puis <b>Exporter › Exporter les données du tableau (.csv)</b> (ou copiez le tableau). Collez le contenu ci-dessous ou choisissez le fichier. Les publicités sont reconnues par leur nom ; vous voyez un aperçu avant d’enregistrer quoi que ce soit.</small>
 ${prev ? importPreviewHtml(ed, camp, prev) : ''}
-<form method="post" action="${base}/import-results" class="grid"><label style="grid-column:1/-1">Contenu du rapport (CSV ou tableau copié)<textarea name="csv" rows="6" placeholder="Nom de la publicité;Impressions;Clics sur un lien;Montant dépensé (EUR);Résultats…">${prev ? esc(prev.raw) : ''}</textarea></label>
+<form method="post" action="${base}/import-results" id="importform" class="grid"><label style="grid-column:1/-1">Contenu du rapport (CSV ou tableau copié)<textarea name="csv" rows="6" placeholder="Nom de la publicité;Impressions;Clics sur un lien;Montant dépensé (EUR);Résultats…">${prev ? esc(prev.raw) : ''}</textarea></label>
 <label>Fichier .csv <input type="file" id="csvfile" accept=".csv,.txt,text/csv"></label><div><button>Analyser (aperçu)</button></div></form></div>`;
 }
 function importPreviewHtml(ed, camp, p) {
   const base = `/edition/${ed.id}/campaigns/${camp.id}`;
   if (p.error) return `<p class="status warn">${esc(p.error)}</p>`;
   const num = (v) => (v === null || v === undefined ? '—' : String(v));
-  return `<h3>Aperçu</h3><p><small>Colonnes reconnues : ${p.mapped.map(esc).join(', ') || '—'}.${p.unmapped.length ? ' Ignorées : ' + p.unmapped.map(esc).join(', ') + '.' : ''}</small></p>
-<table><tr><th>Publicité dans le rapport</th><th>Associée à</th><th>Affich.</th><th>Clics</th><th>Dépense</th><th>Résultats</th><th>Période</th><th></th></tr>${p.rows.map((r) => `<tr><td>${esc(r.name)}</td><td>${r.target ? esc(r.target) : '<span class="tag warn">non reconnue</span>'}</td><td>${num(r.impressions)}</td><td>${num(r.clicks)}</td><td>${num(r.spend)}</td><td>${num(r.conversions)}</td><td>${esc(r.period)}</td><td>${r.skip ? `<small>${esc(r.skip)}</small>` : '✓'}</td></tr>`).join('')}</table>
-${p.rows.some((r) => r.linkId && !r.skip) ? `<form method="post" action="${base}/apply-results" class="inline"><input type="hidden" name="payload" value="${esc(JSON.stringify(p.rows.filter((r) => r.linkId && !r.skip).map((r) => ({ linkId: r.linkId, period: r.period, impressions: r.impressions, clicks: r.clicks, spend: r.spend, conversions: r.conversions }))))}"><button class="primary">Enregistrer les ${p.rows.filter((r) => r.linkId && !r.skip).length} ligne(s) reconnue(s)</button></form><small>Un même rapport importé deux fois ne crée pas de doublon (même période et mêmes chiffres).</small>` : '<p class="status warn">Aucune ligne n’a pu être rattachée : le nom de la publicité dans le rapport doit être celui d’une publicité de cette campagne (voir « Nom de la publicité »).</p>'}`;
+  const money = (v) => (v === null || v === undefined ? '—' : `${v}${p.currency ? ' ' + esc(p.currency) : ''}`);
+  const ok = p.rows.filter((r) => r.linkId && (!r.skip || r.conflict));
+  const rowOk = (r) => r.linkId && !r.skip;
+  const cand = p.rows.filter(rowOk);
+  const target = (r, i) => (r.choices
+    ? `<select name="pick_${i}" form="importform" aria-label="Annonce visée pour ${esc(r.name)}"><option value="">— choisir l’annonce —</option>${r.choices.map((c) => `<option value="${c.linkId}">${esc(c.label)}</option>`).join('')}</select>`
+    : r.target ? `${esc(r.target)}<br><small>${esc(r.reason || '')}</small>` : '<span class="tag warn">non reconnue</span>');
+  const status = (r) => (r.conflict ? `<span class="tag warn">conflit</span> <small>${r.conflict.map((x) => `déjà : ${esc(x.period)} (${x.impressions} affich., ${x.spend})`).join(' ; ')}</small>` : r.skip ? `<small>${esc(r.skip)}</small>` : '✓');
+  const pick = (r) => r.conflict ? `<select name="act_${cand.indexOf(r)}" form="applyform" aria-label="Que faire du conflit pour ${esc(r.name)}"><option value="skip">Ne pas importer</option><option value="replace">Remplacer l’ancienne mesure (conservée, hors totaux)</option><option value="both">Garder les deux</option></select>` : '';
+  return `<h3>Aperçu</h3><p><small>Colonnes reconnues : ${p.mapped.map(esc).join(', ') || '—'}.${p.unmapped.length ? ' Ignorées : ' + p.unmapped.map(esc).join(', ') + '.' : ''} Un « — » veut dire inconnu (colonne absente ou cellule vide), pas zéro.</small></p>
+${p.ambiguous ? `<p class="status warn">Certains nombres sont ambigus (ex. « 12.345 »). Indiquez le format du fichier puis relancez l’analyse : <select name="dec" form="importform" aria-label="Format des nombres"><option value="">— choisir —</option><option value=","${p.dec === ',' ? ' selected' : ''}>Virgule décimale (12,5 · 1 234,56)</option><option value="."${p.dec === '.' ? ' selected' : ''}>Point décimal (12.5 · 1,234.56)</option></select></p>` : (p.dec ? `<input type="hidden" name="dec" value="${esc(p.dec)}" form="importform">` : '')}
+${p.rows.some((r) => r.choices) ? '<p class="status warn">Plusieurs publicités portent le même nom : choisissez laquelle est visée (liste ci-dessous), puis cliquez sur « Analyser » pour mettre l’aperçu à jour.</p>' : ''}
+<table><tr><th>Publicité dans le rapport</th><th>Associée à</th><th>Affich.</th><th>Clics</th><th>Dépense</th><th>Résultats</th><th>Période</th><th>État</th></tr>${p.rows.map((r, i) => `<tr><td>${esc(r.name)}${r.warn ? `<br><small>${esc(r.warn)}</small>` : ''}</td><td>${target(r, i)}</td><td>${num(r.impressions)}</td><td>${num(r.clicks)}</td><td>${money(r.spend)}</td><td>${num(r.conversions)}${r.resultType ? `<br><small>${esc(r.resultType)}</small>` : ''}</td><td>${esc(r.period)}</td><td>${status(r)}${r.conflict ? '<br>' + pick(r) : ''}</td></tr>`).join('')}</table>
+${p.rows.some((r) => r.linkId && (!r.skip || r.conflict)) ? '' : ''}${(() => { const all = p.rows.filter((r) => r.linkId && (!r.skip || r.conflict)); const send = all.map((r) => ({ linkId: r.linkId, period: r.period, from: r.from, to: r.to, impressions: r.impressions, clicks: r.clicks, spend: r.spend, conversions: r.conversions, currency: r.currency, resultType: r.resultType, clicksKind: r.clicksKind })); return all.length ? `<form method="post" action="${base}/apply-results" id="applyform" class="inline"><input type="hidden" name="payload" value="${esc(JSON.stringify(send))}"><input type="hidden" name="conflicts" value="${esc(JSON.stringify(all.map((r) => !!r.conflict)))}"><button class="primary">Enregistrer ${all.filter((r) => !r.conflict).length} ligne(s)${all.some((r) => r.conflict) ? ` et appliquer vos choix sur ${all.filter((r) => r.conflict).length} conflit(s)` : ''}</button></form><small>Un même rapport importé deux fois ne crée pas de doublon. Un rapport corrigé ou une période qui en croise une autre n’est jamais additionné : vous choisissez.</small>` : '<p class="status warn">Aucune ligne n’a pu être enregistrée : voir la colonne « État » (publicité à choisir, nombre ambigu, ou nom absent de cette campagne).</p>'; })()}`;
 }
