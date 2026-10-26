@@ -7,6 +7,7 @@
   const J = (k) => JSON.parse(form.dataset[k] || 'null');
   const base = J('design'), FM = J('formats'), FONTS = J('fonts') || {}, VIDEOS = J('videos') || [], IMAGES = J('images') || [], INFOS = J('infos') || {};
   const edition = form.dataset.edition, draft = form.dataset.draft === '1';
+  let guard = null;
   const S = { tl: J('tl'), fmt: Object.keys(FM)[0], t: 0, sel: null, zoom: 60, playing: false, dirty: false, formats: [...(base.formats || [])], endcard: { ...base.endcard } };
   const BASE = { image: 0.20, text: 0.06, subs: 0.045, video: 1 }, DEF_S = { logo: 70, image: 100, text: 100, subs: 100, video: 45 };
   const NAMES = { logo: 'Logo', image: 'Image', text: 'Texte', subs: 'Sous-titres', video: 'Vidéo superposée' };
@@ -63,7 +64,7 @@
   // les sous-titres communs du projet (téléchargement .srt, anciens montages) = les lignes de tous les blocs, dans l'ordre
   const allCues = () => S.tl.els.filter((e) => e.type === 'subs').flatMap((e) => e.cues || []).sort((a, b) => a.start - b.start);
   const touch = () => {
-    S.dirty = true; $('vdirty').hidden = false; sync();
+    S.dirty = true; guard && guard.refresh(); sync();
     if (!hist.restoring) { clearTimeout(hist.timer); hist.timer = setTimeout(commit, 350); updUndo(); } // plusieurs réglages rapprochés = une seule étape d'annulation
   };
 
@@ -88,7 +89,7 @@
     hist.restoring = true;
     S.tl = o.tl; S.formats = o.formats; S.endcard = o.endcard;
     if (S.sel && !(S.sel.kind === 'clip' ? S.tl.clips.some((c) => c.id === S.sel.id) : S.tl.els.some((e) => e.id === S.sel.id))) S.sel = null;
-    S.dirty = true; $('vdirty').hidden = false; sync();
+    S.dirty = true; guard && guard.refresh(); sync();
     renderLayer(); renderTimeline(); renderProps(); showAt(S.t);
     hist.restoring = false; updUndo();
   }
@@ -601,9 +602,7 @@ ${e.type === 'subs' ? cuesHtml() : ''}
     setTimeout(poll, active ? 1500 : 6000);
   }
 
-  let submitting = false;
-  form.addEventListener('submit', () => { submitting = true; });
-  window.addEventListener('beforeunload', (ev) => { if (S.dirty && !submitting) { ev.preventDefault(); ev.returnValue = ''; } });
+  guard = AtelierGuard.install({ form, label: $('vdirty'), isDirty: () => S.dirty, markClean: () => { S.dirty = false; } });
   window.addEventListener('resize', () => { fit(); updateSel(); });
 
   // ---------- démarrage

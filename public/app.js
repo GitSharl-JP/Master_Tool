@@ -1,6 +1,77 @@
 // Envoi de fichiers et studio d'affiche (panneau d'éléments + aperçu éditable).
 const $ = (id) => document.getElementById(id);
 
+// Garde de travail (affiche, vidéo) : état visible, vérification qu'un autre onglet n'a pas modifié le même travail, et aucune navigation
+// qui perdrait des modifications sans le dire. Un brouillon n'est JAMAIS approuvé ni publié par cette garde : elle ne fait qu'enregistrer.
+window.AtelierGuard = (() => {
+  const TEXT = { clean: 'Enregistré', dirty: 'Modifications non enregistrées', saving: 'Enregistrement…', error: 'Échec de l’enregistrement' };
+  function dialog(title, text, buttons) {
+    return new Promise((resolve) => {
+      const back = Object.assign(document.createElement('div'), { className: 'guardback' });
+      const box = Object.assign(document.createElement('div'), { className: 'guardbox' });
+      box.setAttribute('role', 'alertdialog'); box.setAttribute('aria-modal', 'true'); box.setAttribute('aria-label', title);
+      box.append(Object.assign(document.createElement('h3'), { textContent: title }), Object.assign(document.createElement('p'), { textContent: text }));
+      const row = Object.assign(document.createElement('div'), { className: 'guardbtns' });
+      const done = (v) => { back.remove(); document.removeEventListener('keydown', esc, true); resolve(v); };
+      const esc = (e) => { if (e.key === 'Escape') { e.stopPropagation(); done(buttons[buttons.length - 1].value); } };
+      for (const b of buttons) { const el = Object.assign(document.createElement('button'), { type: 'button', textContent: b.label, className: b.primary ? 'primary' : '' }); el.addEventListener('click', () => done(b.value)); row.append(el); }
+      box.append(row); back.append(box); document.body.append(back); document.addEventListener('keydown', esc, true);
+      row.querySelector('.primary, button').focus();
+    });
+  }
+  function install({ form, isDirty, markClean, label }) {
+    let state = 'clean', leaving = false, passthrough = false;
+    const show = (s) => { state = s; if (!label) return; label.hidden = false; label.textContent = TEXT[s]; label.dataset.state = s; label.className = 'savestate ' + s; };
+    const refresh = () => { if (state !== 'saving' && !(state === 'error' && isDirty())) show(isDirty() ? 'dirty' : 'clean'); };
+    const send = async (check) => {
+      try {
+        const r = await fetch(form.action, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'fetch', ...(check ? { 'X-Check': '1' } : {}) }, body: new URLSearchParams(new FormData(form)) });
+        const j = await r.json().catch(() => ({}));
+        return r.ok ? j : { ...j, ok: false, status: r.status };
+      } catch { return { ok: false, network: true }; }
+    };
+    // false = l'utilisateur renonce ou la sauvegarde a échoué (son travail reste à l'écran)
+    const settle = async (check) => {
+      show('saving');
+      for (;;) {
+        const r = await send(check);
+        if (r.ok) { if (form.elements.rev && r.rev !== undefined) form.elements.rev.value = r.rev; if (!check) markClean(); show(isDirty() ? 'dirty' : 'clean'); return true; }
+        if (r.conflict) {
+          const c = await dialog('Ce travail a été modifié ailleurs', 'Un autre onglet ou une autre personne l’a enregistré depuis que vous l’avez ouvert. Écraser avec votre version, ou rester ici pour copier vos changements avant de recharger ?', [{ label: 'Écraser avec ma version', value: 'over', primary: true }, { label: 'Rester', value: 'stay' }]);
+          if (c !== 'over') { show('dirty'); return false; }
+          form.elements.rev.value = r.rev; continue;
+        }
+        show('error');
+        const c = await dialog('Enregistrement impossible', r.network ? 'Le serveur ne répond pas. Vos modifications sont toujours à l’écran : rien n’est perdu tant que vous restez sur cette page.' : 'Le serveur a refusé l’enregistrement. Vos modifications sont toujours à l’écran.', [{ label: 'Réessayer', value: 'retry', primary: true }, { label: 'Rester', value: 'stay' }]);
+        if (c !== 'retry') return false;
+        show('saving');
+      }
+    };
+    form.addEventListener('submit', async (e) => {
+      if (passthrough) { passthrough = false; leaving = true; return; }
+      e.preventDefault();
+      const sub = e.submitter;
+      if (!(await settle(true))) return;
+      passthrough = true; form.requestSubmit(sub || undefined);
+    });
+    document.addEventListener('click', async (e) => {
+      const a = e.target.closest && e.target.closest('a[href]');
+      if (!a || !isDirty() || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || a.target === '_blank' || a.hasAttribute('download')) return;
+      const u = new URL(a.href, location.href);
+      if (u.origin !== location.origin || (u.pathname === location.pathname && u.search === location.search && u.hash)) return;
+      e.preventDefault();
+      const c = await dialog('Modifications non enregistrées', 'Vous avez changé des réglages qui ne sont pas encore enregistrés.', [{ label: 'Enregistrer', value: 'save', primary: true }, { label: 'Quitter sans enregistrer', value: 'drop' }, { label: 'Rester', value: 'stay' }]);
+      if (c === 'drop') { markClean(); leaving = true; location.href = u.href; }
+      else if (c === 'save' && (await settle(false))) { leaving = true; location.href = u.href; }
+    }, true);
+    window.addEventListener('beforeunload', (ev) => { if (isDirty() && !leaving) { ev.preventDefault(); ev.returnValue = ''; } });
+    window.addEventListener('pageshow', () => { leaving = false; });
+    show('clean');
+    return { refresh, show, settle, state: () => state };
+  }
+  return { install, dialog };
+})();
+
 // Chaque curseur reçoit un champ numérique : on peut glisser OU taper la valeur exacte.
 function enhance(range) {
   const num = Object.assign(document.createElement('input'), { type: 'number', className: 'num', min: range.min, max: range.max, step: range.step || 1, value: range.value });
@@ -135,7 +206,11 @@ if (pform) {
   let cur = null, present = null; // present : éléments réellement dessinés sur l'aperçu (null tant qu'il n'est pas chargé)
   const orig = {}; // texte d'origine de chaque élément (pour ne pas enregistrer un texte inchangé)
 
-  const save = () => { elsInput.value = JSON.stringify(els); };
+  // état de sauvegarde : le formulaire (sans la révision) est comparé à son état enregistré
+  const ser = () => JSON.stringify([...new FormData(pform)].filter(([k]) => k !== 'rev'));
+  let snap = null, guard = null;
+  const recheck = () => { clearTimeout(recheck.t); recheck.t = setTimeout(() => guard && snap !== null && guard.refresh(), 80); };
+  const save = () => { elsInput.value = JSON.stringify(els); recheck(); };
   const query = () => { const p = new URLSearchParams(new FormData(pform)); p.set('edit', '1'); if (pform.dataset.variant) p.set('variant', pform.dataset.variant); return p; };
   const reload = () => { frame.src = `/render/poster/${pform.dataset.edition}/${pform.dataset.fmt}?` + query(); };
   const post = (m) => frame.contentWindow && frame.contentWindow.postMessage(m, location.origin);
@@ -245,6 +320,7 @@ if (pform) {
       for (const k of ['posx', 'posy', 'zoom']) {
         setV(pform.elements[k], Math.round(m[k]));
       }
+      recheck();
     }
   });
 
@@ -260,6 +336,10 @@ if (pform) {
   big.addEventListener('click', () => setBig(!document.body.classList.contains('big')));
   let wantBig = true; try { wantBig = localStorage.getItem('atelier.big') !== '0'; } catch {}
   frame.addEventListener('load', () => { cur = null; panel.hidden = true; renderList(); fit(); });
+  guard = AtelierGuard.install({ form: pform, label: $('savestate'), isDirty: () => snap !== null && ser() !== snap, markClean: () => { snap = ser(); } });
+  frame.addEventListener('load', () => setTimeout(() => { if (snap === null) { snap = ser(); guard.refresh(); } }, 400), { once: true });
+  for (const ev of ['input', 'change', 'click']) pform.addEventListener(ev, recheck);
+  window.__poster = { dirty: () => snap !== null && ser() !== snap, state: () => guard.state() }; // lecture seule pour les tests
   window.addEventListener('resize', fit);
   save(); renderList(); reload(); setBig(wantBig);
 }

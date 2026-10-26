@@ -135,6 +135,8 @@ export function cleanEls(raw) {
   return out;
 }
 
+// Révision d'un design (date du dernier enregistrement) : sert à détecter qu'un autre onglet ou une autre personne l'a modifié entre-temps.
+export const designRev = (editionId, key) => db.prepare('SELECT updated FROM designs WHERE edition_id=? AND key=?').get(editionId, key)?.updated || '';
 export function getDesign(editionId, key) {
   const r = db.prepare('SELECT json FROM designs WHERE edition_id=? AND key=?').get(editionId, key);
   if (r) return { ...POSTER_DEFAULTS, ...JSON.parse(r.json) };

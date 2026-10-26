@@ -37,6 +37,7 @@ export const VIDEO_DEFAULTS = {
   reframe: {}, formats: ['9x16', '4x5', '1x1', '16x9'],
 };
 const vkey = (scope) => (scope ? `video_${scope}` : 'video');
+export const videoRev = (editionId, scope = '') => db.prepare('SELECT updated FROM designs WHERE edition_id=? AND key=?').get(editionId, vkey(scope))?.updated || '';
 export const getVideoDesign = (editionId, scope = '') => {
   const r = db.prepare('SELECT json FROM designs WHERE edition_id=? AND key=?').get(editionId, vkey(scope));
   const s = r ? JSON.parse(r.json) : {};

@@ -414,6 +414,18 @@ button.copy{font-size:.85rem;padding:4px 12px}button.copy.done{background:#2e7d3
 .tlrow.new{height:22px;margin:3px 0;border:1px dashed var(--line);border-radius:6px;background:#fcfcfc}
 .tlrow.new .tlnew{display:block;font-size:.7rem;color:var(--mute);padding:3px 10px;font-style:normal;pointer-events:none}
 
+/* État de sauvegarde et fenêtre de garde (modifications non enregistrées) */
+.savestate{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;padding:4px 10px;border-radius:999px;background:#eef1ee;color:#3b4a3b;white-space:nowrap}
+.savestate::before{content:"";width:8px;height:8px;border-radius:50%;background:currentColor;opacity:.8}
+.savestate.dirty{background:#fff3d6;color:#7a5200}
+.savestate.saving{background:#e6f0ff;color:#1f4c99}
+.savestate.error{background:#fde4e1;color:#9b1c10}
+.guardback{position:fixed;inset:0;background:rgba(20,24,20,.45);display:flex;align-items:center;justify-content:center;z-index:1000;padding:16px}
+.guardbox{background:#fff;color:#1d231d;border-radius:12px;padding:22px 24px;max-width:460px;width:100%;box-shadow:0 12px 40px rgba(0,0,0,.28)}
+.guardbox h3{margin:0 0 8px}
+.guardbox p{margin:0 0 16px;line-height:1.45}
+.guardbtns{display:flex;flex-wrap:wrap;gap:10px;justify-content:flex-end}
+
 /* ===== Charte Tycho (moodboard 02) : Washi, Sumi, Night, un seul accent Shu, filets Brass =====
    Titres Cormorant Garamond, étiquettes et chiffres IBM Plex Mono, japonais Shippori Mincho, texte courant Inter.
    Angles droits, pas d'ombres portées, filets de 1 px. Ce bloc reste en fin de fichier : il prime sur les règles plus haut. */

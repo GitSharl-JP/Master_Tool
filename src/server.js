@@ -38,6 +38,15 @@ const readBody = (req) => new Promise((res) => {
   req.on('data', (c) => { b += c; if (b.length > 1e6) req.destroy(); });
   req.on('end', () => res(Object.fromEntries(new URLSearchParams(b))));
 });
+const sendJson = (res, code, o) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(o)); };
+const STALE_MSG = 'Ce travail a été modifié ailleurs (autre onglet ou autre personne) depuis que vous l’avez ouvert : rien n’a été écrasé. Rechargez la page pour voir la version enregistrée.';
+// Contrôle de révision d'un enregistrement : 'done' = réponse déjà envoyée (vérification seule, ou conflit signalé à la page) ; 'stale' = formulaire classique périmé ; null = on peut enregistrer.
+function revisionGate(req, res, b, cur) {
+  const ajax = req.headers['x-requested-with'] === 'fetch', stale = b.rev !== undefined && String(b.rev) !== cur;
+  if (stale) { if (ajax) { sendJson(res, 200, { ok: false, conflict: true, rev: cur }); return 'done'; } return 'stale'; }
+  if (ajax && req.headers['x-check']) { sendJson(res, 200, { ok: true, rev: cur }); return 'done'; }
+  return null;
+}
 const send = (res, status, html, headers = {}) => { res.writeHead(status, { 'Content-Type': 'text/html; charset=utf-8', 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:", ...headers }); res.end(html); };
 const redirect = (res, to, headers = {}) => { res.writeHead(303, { Location: to, ...headers }); res.end(); };
 const setCookie = (t, max) => ({ 'Set-Cookie': `sid=${t}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${max}` });
@@ -242,9 +251,13 @@ const server = createServer(async (req, res) => {
         const buf = readFileSync(tmp); unlinkSync(tmp);
         return res.end(buf);
       }
-      if (req.method === 'GET' && !r[3]) return page('Affiches', posterPage(ed, fmt, studio.getDesign(ed.id, dkey), studio.listAssets(ed.id), studio.listExports(ed.id), msgOf(), blockers.length, studio.listDesignHistory(ed.id, dkey), variant, { ws: vid ? variants.workspaceInfo(vid) : undefined, warnings: intake.posterWarnings(studio.getAsset(Number(studio.getDesign(ed.id, dkey).ext))) }));
+      if (req.method === 'GET' && !r[3]) return page('Affiches', posterPage(ed, fmt, studio.getDesign(ed.id, dkey), studio.listAssets(ed.id), studio.listExports(ed.id), msgOf(), blockers.length, studio.listDesignHistory(ed.id, dkey), variant, { ws: vid ? variants.workspaceInfo(vid) : undefined, warnings: intake.posterWarnings(studio.getAsset(Number(studio.getDesign(ed.id, dkey).ext))), rev: studio.designRev(ed.id, dkey) }));
       if (req.method === 'POST') {
-        studio.saveDesign(ed.id, dkey, await readBody(req), user.name);
+        const pbody = await readBody(req), gate = revisionGate(req, res, pbody, studio.designRev(ed.id, dkey));
+        if (gate === 'done') return;
+        if (gate === 'stale') return redirect(res, `/edition/${ed.id}/poster/${fmt}?${pq}m=${encodeURIComponent(STALE_MSG)}`);
+        studio.saveDesign(ed.id, dkey, pbody, user.name);
+        if (req.headers['x-requested-with'] === 'fetch') return sendJson(res, 200, { ok: true, rev: studio.designRev(ed.id, dkey) });
         blockers = studio.posterBlockers(ed, [[fmt, studio.getDesign(ed.id, dkey)]]);
         if (r[3] === 'sync') {
           const keys = (variant ? variant.formats : Object.keys(studio.POSTER_FORMATS)).map((f) => (vid ? `v${vid}_${f}` : `poster_${f}`));
@@ -298,17 +311,23 @@ const server = createServer(async (req, res) => {
       if (req.method === 'GET' && !sub) {
         const m = video.getTlModel(ed.id, scope), design = m.design;
         const provisional = m.tl.clips.some((c) => studio.getAsset(Number(c.asset))?.provisional === 1);
-        return page('Vidéos', videoPage(ed, { ws: vid ? variants.workspaceInfo(vid) : undefined, variant, design, tl: m.tl, cues: m.cues, infos: video.clipInfos(m.tl), assets: studio.listAssets(ed.id), ready: ffmpegReady(), draft: (design.endcard?.on && studio.posterBlockers(ed, [['9x16', studio.getDesign(ed.id, scope ? `${scope}_9x16` : 'poster_9x16')]]).length > 0) || provisional }), msgOf());
+        return page('Vidéos', videoPage(ed, { ws: vid ? variants.workspaceInfo(vid) : undefined, variant, design, tl: m.tl, cues: m.cues, infos: video.clipInfos(m.tl), assets: studio.listAssets(ed.id), rev: video.videoRev(ed.id, scope), ready: ffmpegReady(), draft: (design.endcard?.on && studio.posterBlockers(ed, [['9x16', studio.getDesign(ed.id, scope ? `${scope}_9x16` : 'poster_9x16')]]).length > 0) || provisional }), msgOf());
       }
       if (req.method === 'POST') {
         const b = await readBody(req);
         if (sub === 'subs-import') { const o = video.importCues(ed.id, b.asset, user.name, scope); return back(o.ok ? `${o.count} sous-titres importés.` : o.error); }
+        if (sub !== 'export' || b.design) {
+          const gate = revisionGate(req, res, b, video.videoRev(ed.id, scope));
+          if (gate === 'done') return;
+          if (gate === 'stale') return back(STALE_MSG);
+        }
         if (b.design) video.saveVideoDesign(ed.id, b.design, scope, user.name);
         if (b.cues !== undefined) video.saveCues(ed.id, b.cues, user.name, undefined, scope);
         if (sub === 'export') {
           const o = video.planExports(db.getEdition(ed.id), user.name, { scope });
           return back(o.ok ? 'Exports : ' + o.out.map(([f, s]) => `${studio.POSTER_FORMATS[f].ratio} ${s}`).join(' · ') : o.error);
         }
+        if (req.headers['x-requested-with'] === 'fetch') return sendJson(res, 200, { ok: true, rev: video.videoRev(ed.id, scope) });
         return back('Réglages enregistrés.');
       }
     }
@@ -667,7 +686,7 @@ const server = createServer(async (req, res) => {
     send(res, 404, layout('Introuvable', '<h1>Page introuvable</h1>', user));
   } catch (e) {
     console.error(e);
-    send(res, 500, layout('Erreur', '<h1>Une erreur est survenue</h1><p>Rien n’a été perdu : vos versions sont conservées. Prévenez le développeur.</p>'));
+    send(res, 500, layout('Erreur', '<h1>Une erreur est survenue</h1><p>Une erreur inattendue s’est produite sur cette page. Vos versions approuvées et vos exports ne sont pas modifiés par cette erreur ; si vous étiez en train d’enregistrer, vérifiez que vos dernières modifications sont bien présentes. Notez ce que vous faisiez et prévenez le développeur.</p>'));
   }
 });
 

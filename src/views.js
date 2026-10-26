@@ -258,8 +258,8 @@ ${design.ext || variant ? '' : entryCards(ed, 'svg')}
 <div class="tabs sub">${Object.entries(POSTER_FORMATS).filter(([k]) => !variant || variant.formats.includes(k)).map(([k, v]) => `<a href="/edition/${ed.id}/poster/${k}${qs}"${k === fmt ? ' class="on"' : ''}>${v.label}</a>`).join('')}<button type="button" id="bigtoggle" class="link bigtoggle" title="Masque le menu du haut pour donner toute la hauteur à l’affiche">Agrandir l’aperçu</button></div>
 <p class="fmtnote"><b>${esc(f.ratio)} · ${f.w}×${f.h}</b> — utilisé pour : ${esc(channelsOf(fmt).join(', ') || '—')}. Zones de sécurité (haut / bas) : ${f.safe.top} / ${f.safe.bottom} px. <small>Tailles courantes recommandées par les plateformes : à re-vérifier avant campagne.</small></p>
 <div class="studio"><div class="stack"><form id="pform" method="post" action="/edition/${ed.id}/poster/${fmt}/save${qs}" class="card" data-variant="${variant ? variant.id : ''}" data-edition="${ed.id}" data-fmt="${fmt}" data-w="${f.w}" data-h="${f.h}" data-elements="${esc(JSON.stringify(elementsFor(design.style, f.layout).map((k) => [k, POSTER_ELEMENTS[k]])))}">
-<input type="hidden" name="els" value="${esc(JSON.stringify(design.els || {}))}">${design.ext ? `<input type="hidden" name="ext" value="${esc(design.ext)}">` : ''}
-<div class="actions"><button class="primary">Enregistrer</button><button formaction="/edition/${ed.id}/poster/${fmt}/export${qs}">${variant ? 'Export d’essai (PNG)' : 'Exporter en PNG'}</button></div>
+<input type="hidden" name="rev" value="${esc(extra.rev || '')}"><input type="hidden" name="els" value="${esc(JSON.stringify(design.els || {}))}">${design.ext ? `<input type="hidden" name="ext" value="${esc(design.ext)}">` : ''}
+<div class="actions"><button class="primary">Enregistrer</button><span id="savestate" class="savestate" role="status" aria-live="polite"></span><button formaction="/edition/${ed.id}/poster/${fmt}/export${qs}">${variant ? 'Export d’essai (PNG)' : 'Exporter en PNG'}</button></div>
 ${design.ext ? '' : `<button formaction="/edition/${ed.id}/poster/${fmt}/sync${qs}" title="Enregistre ce format puis reporte photo, logo, style, dégradé, polices, couleurs et textes sur les autres formats. Les positions de chaque format sont conservées.">Uniformiser : appliquer aux autres formats</button>`}
 ${variant ? `<small>Essai = image non officielle pour vérifier. SVG, PDF et exports finaux : étape <a href="/edition/${ed.id}/variants/${variant.id}?step=verification">Vérification et exports</a>.</small>` : `<div class="inline"><a href="/edition/${ed.id}/poster/${fmt}/svg${qs}">${design.ext ? 'Fichier d’origine (SVG)' : 'SVG (Illustrator)'}</a> · ${design.ext ? '' : `<a href="/edition/${ed.id}/poster/${fmt}/pdf${qs}">PDF vectoriel</a>`}${design.ext ? '' : ` · <a href="/edition/${ed.id}/designs">Enregistrer dans la bibliothèque de designs</a>`}</div>`}
 <small>Titre, dates, lieu et couleurs viennent des <a href="/edition/${ed.id}/settings">infos du spectacle</a>. ${blockers ? 'L’export sera marqué BROUILLON tant que la fiche n’est pas prête.' : ''}</small>
@@ -313,10 +313,10 @@ export function videoPage(ed, c) {
   return `${tabs(ed, variant ? 'variantes' : 'videos')}${head}${msg ? `<p class="flash">${esc(msg)}</p>` : ''}
 ${ready ? '' : '<p class="status warn"><b>ffmpeg est introuvable</b> : les exports vidéo sont impossibles. Il doit se trouver dans <code>tools/ffmpeg/</code>.</p>'}
 <form id="vform" method="post" action="/edition/${ed.id}/video/save${qs}" class="vs" data-edition="${ed.id}" data-draft="${draft ? 1 : 0}" ${attrs}>
-<input type="hidden" name="design"><input type="hidden" name="cues">
+<input type="hidden" name="design"><input type="hidden" name="cues"><input type="hidden" name="rev" value="${esc(c.rev || '')}">
 <div class="vs-top">
 <button class="primary">Enregistrer</button><button formaction="/edition/${ed.id}/video/export${qs}"${ready ? '' : ' disabled'}>Lancer les exports</button>
-<span id="vdirty" class="tag warn" hidden>Modifications non enregistrées</span>
+<span id="vdirty" class="savestate" role="status" aria-live="polite" hidden></span>
 <small class="grow">Rien n’est publié : un export est un fichier produit. ${draft ? 'Les vidéos seront marquées BROUILLON (fiche non prête ou source provisoire).' : ''}</small>
 <div class="tabs sub" id="v_fmtTabs">${VIDEO_FORMATS.map((k) => `<a href="#" data-fmt="${k}">${esc(FORMATS[k].label)}</a>`).join('')}</div>
 </div>
