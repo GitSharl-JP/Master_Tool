@@ -62,6 +62,7 @@ function fieldHtml(f, v) {
   if (f.type === 'textarea') input = `<textarea id="${id}" name="${f.key}" rows="3">${esc(v)}</textarea>`;
   else if (f.type === 'select') input = `<select id="${id}" name="${f.key}">${f.options.map((o) => `<option${o === v ? ' selected' : ''}>${esc(o)}</option>`).join('')}</select>`;
   else if (f.type === 'checkbox') return `<label class="check" for="${id}"><input id="${id}" type="checkbox" name="${f.key}" value="1"${v === '1' ? ' checked' : ''}> ${esc(f.label)}</label>`;
+  else if (f.type === 'font') input = `<input id="${id}" name="${f.key}" list="fontlist" value="${esc(v)}" autocomplete="off">${v && !fontAvailable(v) ? '<small class="why">⚠ Police absente de cet ordinateur : l’export utilisera une police de remplacement.</small>' : ''}`;
   else input = `<input id="${id}" name="${f.key}" type="${f.type}" value="${esc(v)}">`;
   return `<label for="${id}">${esc(f.label)}${input}${help}</label>`;
 }
@@ -95,6 +96,7 @@ export function editionPage(ed, fieldsBySection, versions, top = '', meta = null
   }).join('');
   const prov = ed.data.provisional === '1';
   return `${tabs(ed, 'fiche')}${top}
+<datalist id="fontlist">${Object.keys(availableFonts()).map((n) => `<option value="${esc(n)}">`).join('')}</datalist>
 <p class="lead"><b>Paramètres du projet</b> — les informations du spectacle (titre, dates, lieu, billets, charte). Elles alimentent les affiches, les vidéos et le site ; on y revient rarement.</p>
 <p class="status ${blockers.length ? 'warn' : 'ok'}">${blockers.length
     ? `<b>Pour publier le site</b>, il reste : ${blockers.map(esc).join(' ')}<br><small>Une affiche ou une vidéo n’a besoin que des informations qu’elle affiche : elle n’est pas bloquée par le reste (voir les contrôles du contenu).</small>`
@@ -134,7 +136,7 @@ ${users.length < 6 ? `<form method="post" action="/settings/user" class="inline"
 
 // ---------------------------------------------------------------- onglets / assets / affiches
 import { ROLES, POSTER_FORMATS, FITS } from './studio.js';
-import { POSTER_ELEMENTS, elementsFor, FONTS } from './render.js';
+import { POSTER_ELEMENTS, elementsFor, availableFonts, WEB_FONTS, fontAvailable } from './render.js';
 import { CHANNELS, channelsOf } from './formats.js';
 
 // Navigation d'un projet : cinq destinations, dans l'ordre du travail, et les paramètres à part (secondaires).
@@ -189,7 +191,7 @@ export function assetsPage(ed, assets, msg, storageInfo = '', filter = {}) {
     && (!filter.q || fold(a.label).includes(fold(filter.q)) || fold(a.name).includes(fold(filter.q))));
   const so = (name, list, cur) => `<select name="${name}" onchange="this.form.submit()">${list.map(([v, l]) => `<option value="${esc(v)}"${v === cur ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
   const card = (a) => `<form method="post" action="/assets/${a.id}/update" class="card asset">
-<div class="thumb">${a.kind === 'image' ? `<img src="/files/${a.id}" alt="" loading="lazy">`
+<div class="thumb">${a.kind === 'image' ? `<img src="/files/${a.id}" alt="" loading="lazy">${a.warn ? `<small class="why">⚠ ${esc(a.warn)}</small>` : ''}`
     : a.kind === 'video' ? `<video src="/files/${a.id}#t=0.5" preload="metadata" controls></video>`
       : a.kind === 'audio' ? `<audio src="/files/${a.id}" preload="none" controls></audio>`
         : `<span>${esc(KIND_NAMES[a.kind] || a.kind)}</span>`}<a href="/files/${a.id}" target="_blank"><small>Ouvrir</small></a></div>
@@ -223,7 +225,10 @@ ${shown.map(card).join('') || (active ? '<p>Aucun fichier ne correspond à ces f
 // Matériel → Création → Vérification et exports → Diffusion ; on peut revenir à n'importe quelle étape.
 const wsChip = (st) => `<span class="tag ${st === 'approuvé' ? 'st-2' : st === 'à relire' ? 'warn' : ''}">${esc(st)}</span>`;
 export function workspaceHeader(ed, w) {
-  return `<div class="ws"><div class="ws-top"><a href="${w.backHref}">← ${esc(w.backLabel || 'Campagnes')}</a> <b>${esc(w.name)}</b> <span class="tag">${esc(w.type)}</span> ${wsChip(w.status)}${w.version ? ` <span class="tag">version ${w.version} approuvée</span>` : ''}</div>
+  // fil d'Ariane : Campagnes › campagne › contenu (on sait toujours où l'on est et on remonte d'un clic)
+  const crumbs = `<p class="crumbs" role="navigation" aria-label="Vous êtes ici"><a href="/edition/${ed.id}/campaigns">Campagnes</a> › ${w.campName ? `<a href="${w.backHref}">${esc(w.campName)}</a> › ` : ''}</p>`;
+  const dup = w.dup ? `<form method="post" action="${w.dup}" class="ws-dup"><input type="hidden" name="quick" value="1"><button class="sm" title="Copie complète : formats, photos, cadrages et textes. Idéal pour un test A/B.">⧉ Créer une variante</button></form>` : '';
+  return `<div class="ws"><div class="ws-top">${crumbs}<b>${esc(w.name)}</b> <span class="tag">${esc(w.type)}</span> ${wsChip(w.status)}${w.version ? ` <span class="tag">version ${w.version} approuvée</span>` : ''}${dup}</div>
 <ol class="steps">${w.steps.map((st, i) => `<li class="${st.done ? 'done' : ''}${st.key === w.step ? ' here' : ''}"><a href="${w.base}?step=${st.key}"><b>${st.done ? '✓' : i + 1}</b><span>${esc(st.label)}${st.note ? `<small>${esc(st.note)}</small>` : ''}</span></a></li>`).join('')}</ol>
 ${w.summary ? `<p class="ws-sum">${esc(w.summary)}</p>` : ''}${w.note ? `<small class="ws-note">${esc(w.note)}</small>` : ''}${w.overview ? `<small class="ws-note"><a href="${w.base}?step=creation&all=1">Textes communs à tous les formats, vidéo, enregistrer comme modèle</a></small>` : ''}</div>`;
 }
@@ -243,7 +248,7 @@ ${range('posx', 'Cadrage horizontal', 0, 100)}${range('posy', 'Cadrage vertical'
 ${variant ? '' : `<div class="inline">${others.length ? `<select name="asset" form="swapform">${others.map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join('')}</select><button form="swapform">Utiliser cette autre affiche</button>` : ''}<button form="rmform" class="link">Revenir aux affiches de l’atelier</button></div>`}</div>`;
 }
 
-const fontOpts = (cur, fiche) => `<option value="">Police de la fiche${fiche ? ` (${esc(fiche)})` : ''}</option>${Object.keys(FONTS).map((n) => `<option value="${esc(n)}"${n === cur ? ' selected' : ''} style="font-family:'${esc(n)}'">${esc(n)}</option>`).join('')}`;
+const fontOpts = (cur, fiche) => `<option value="">Police de la fiche${fiche ? ` (${esc(fiche)})` : ''}</option>${[...new Set([...Object.keys(availableFonts()), ...(cur ? [cur] : [])])].map((n) => `<option value="${esc(n)}"${n === cur ? ' selected' : ''} style="font-family:'${esc(n)}'">${esc(n)}${n in WEB_FONTS ? ' — libre, identique partout' : ''}</option>`).join('')}`;
 
 export function posterPage(ed, fmt, design, assets, exports, msg, blockers, history = [], variant = null, extra = {}) {
   const vq = variant ? `variant=${variant.id}` : '', qs = vq ? `?${vq}` : '', qa = vq ? `&${vq}` : '';
@@ -253,14 +258,15 @@ export function posterPage(ed, fmt, design, assets, exports, msg, blockers, hist
   const range = (k, label, lo, hi) => `<label>${label}<span class="rng"><input type="range" name="${k}" min="${lo}" max="${hi}" value="${design[k]}"></span></label>`;
   const f = POSTER_FORMATS[fmt];
   return `<span id="lockpage"></span>${tabs(ed, variant ? 'variantes' : 'affiches')}${msg ? `<p class="flash">${esc(msg)}</p>` : ''}
-${variant ? workspaceHeader(ed, { name: variant.name, type: extra.ws?.type || 'Affiche', status: variant.status, version: variant.approved_version, base: `/edition/${ed.id}/variants/${variant.id}`, backHref: variant.campaign_id ? `/edition/${ed.id}/campaigns/${variant.campaign_id}` : `/edition/${ed.id}/campaigns`, backLabel: variant.campaign_id ? 'Retour à la campagne' : 'Campagnes', steps: extra.ws?.steps || [], summary: extra.ws?.summary, step: 'creation', overview: true, note: 'Ici « Exporter » produit un essai ; l’export officiel se fait à l’étape Vérification et exports.' }) : ''}
+${variant ? workspaceHeader(ed, { name: variant.name, type: extra.ws?.type || 'Affiche', status: variant.status, version: variant.approved_version, base: `/edition/${ed.id}/variants/${variant.id}`, backHref: variant.campaign_id ? `/edition/${ed.id}/campaigns/${variant.campaign_id}` : `/edition/${ed.id}/campaigns`, backLabel: variant.campaign_id ? 'Retour à la campagne' : 'Campagnes', campName: (extra.ws || {}).campaignName, dup: `/edition/${ed.id}/variants/${variant.id}/duplicate`, steps: extra.ws?.steps || [], summary: extra.ws?.summary, step: 'creation', overview: true, note: 'Ici « Exporter » produit un essai ; l’export officiel se fait à l’étape Vérification et exports.' }) : ''}
 ${design.ext || variant ? '' : entryCards(ed, 'svg')}
 <div class="tabs sub">${Object.entries(POSTER_FORMATS).filter(([k]) => !variant || variant.formats.includes(k)).map(([k, v]) => `<a href="/edition/${ed.id}/poster/${k}${qs}"${k === fmt ? ' class="on"' : ''}>${v.label}</a>`).join('')}<button type="button" id="bigtoggle" class="link bigtoggle" title="Masque le menu du haut pour donner toute la hauteur à l’affiche">Agrandir l’aperçu</button></div>
-<p class="fmtnote"><b>${esc(f.ratio)} · ${f.w}×${f.h}</b> — utilisé pour : ${esc(channelsOf(fmt).join(', ') || '—')}. Zones de sécurité (haut / bas) : ${f.safe.top} / ${f.safe.bottom} px. <small>Tailles courantes recommandées par les plateformes : à re-vérifier avant campagne.</small></p>
+<p class="fmtnote"><b>${esc(f.ratio)} · ${f.print ? `${f.print.trim} + ${f.print.bleedMm} mm de fond perdu · PNG ${Math.round(f.w * f.print.dpi / 96)}×${Math.round(f.h * f.print.dpi / 96)} (${f.print.dpi} dpi), PDF à la taille réelle` : `${f.w}×${f.h}`}</b> — ${f.print ? 'pour l’imprimeur : gardez le texte loin des bords (zone de coupe).' : `utilisé pour : ${esc(channelsOf(fmt).join(', ') || '—')}.`} Zones de sécurité (haut / bas) : ${f.safe.top} / ${f.safe.bottom} px. <small>Tailles courantes recommandées par les plateformes : à re-vérifier avant campagne.</small></p>
 <div class="studio"><div class="stack"><form id="pform" method="post" action="/edition/${ed.id}/poster/${fmt}/save${qs}" class="card" data-variant="${variant ? variant.id : ''}" data-edition="${ed.id}" data-fmt="${fmt}" data-w="${f.w}" data-h="${f.h}" data-elements="${esc(JSON.stringify(elementsFor(design.style, f.layout).map((k) => [k, POSTER_ELEMENTS[k]])))}">
 <input type="hidden" name="rev" value="${esc(extra.rev || '')}"><input type="hidden" name="els" value="${esc(JSON.stringify(design.els || {}))}">${design.ext ? `<input type="hidden" name="ext" value="${esc(design.ext)}">` : ''}
 <div class="actions"><button class="primary">Enregistrer</button><span id="savestate" class="savestate" role="status" aria-live="polite"></span><button formaction="/edition/${ed.id}/poster/${fmt}/export${qs}">${variant ? 'Export d’essai (PNG)' : 'Exporter en PNG'}</button></div>
-${design.ext ? '' : `<button formaction="/edition/${ed.id}/poster/${fmt}/sync${qs}" title="Enregistre ce format puis reporte photo, logo, style, dégradé, polices, couleurs et textes sur les autres formats. Les positions de chaque format sont conservées.">Uniformiser : appliquer aux autres formats</button>`}
+${design.ext ? '' : `<button formaction="/edition/${ed.id}/poster/${fmt}/sync${qs}" title="Enregistre ce format puis reporte photo, logo, style, dégradé, polices, couleurs et textes sur les autres formats. Les positions de chaque format sont conservées.">Uniformiser : appliquer aux autres formats</button>
+<button formaction="/edition/${ed.id}/poster/${fmt}/sync${qs ? qs + '&' : '?'}positions=1" class="link" title="Comme « Uniformiser », et reporte aussi les déplacements et tailles des éléments, en proportion de chaque format. Vérifiez ensuite chaque aperçu.">… positions comprises</button>`}
 ${variant ? `<small>Essai = image non officielle pour vérifier. SVG, PDF et exports finaux : étape <a href="/edition/${ed.id}/variants/${variant.id}?step=verification">Vérification et exports</a>.</small>` : `<div class="inline"><a href="/edition/${ed.id}/poster/${fmt}/svg${qs}">${design.ext ? 'Fichier d’origine (SVG)' : 'SVG (Illustrator)'}</a> · ${design.ext ? '' : `<a href="/edition/${ed.id}/poster/${fmt}/pdf${qs}">PDF vectoriel</a>`}${design.ext ? '' : ` · <a href="/edition/${ed.id}/designs">Enregistrer dans la bibliothèque de designs</a>`}</div>`}
 <small>Titre, dates, lieu et couleurs viennent des <a href="/edition/${ed.id}/settings">infos du spectacle</a>. ${blockers ? 'L’export sera marqué BROUILLON tant que la fiche n’est pas prête.' : ''}</small>
 ${design.ext ? importedPanel(ed, design, assets, variant, extra) + '<div hidden>' : ''}<div class="elpanel"><h2>Éléments de l’affiche</h2>
@@ -307,11 +313,11 @@ export function videoPage(ed, c) {
   const fm = Object.fromEntries(VIDEO_FORMATS.map((k) => [k, { w: FORMATS[k].w, h: FORMATS[k].h, safe: FORMATS[k].safe, label: FORMATS[k].label }]));
   const videos = assets.filter((a) => a.kind === 'video').map((a) => ({ id: a.id, name: a.label || a.name, provisional: !!a.provisional }));
   const images = assets.filter((a) => a.kind === 'image' && !/\.svg$/i.test(a.name)).map((a) => ({ id: a.id, name: a.label || a.name, role: a.role, provisional: !!a.provisional }));
-  const data = { design: d, tl, cues, infos, formats: fm, fonts: FONTS, videos, images };
+  const data = { design: d, tl, cues, infos, formats: fm, fonts: availableFonts(), videos, images };
   const attrs = Object.entries(data).map(([k, v]) => `data-${k}="${esc(JSON.stringify(v))}"`).join(' ');
-  const head = variant ? workspaceHeader(ed, { name: variant.name, type: c.ws?.type || 'Vidéo', status: variant.status, version: variant.approved_version, base: `/edition/${ed.id}/variants/${variant.id}`, backHref: variant.campaign_id ? `/edition/${ed.id}/campaigns/${variant.campaign_id}` : `/edition/${ed.id}/campaigns`, backLabel: variant.campaign_id ? 'Retour à la campagne' : 'Campagnes', steps: c.ws?.steps || [], summary: c.ws?.summary, step: 'creation', note: 'Ici « Lancer les exports » produit des essais ; l’export officiel se fait à l’étape Vérification et exports.' }) : '';
+  const head = variant ? workspaceHeader(ed, { name: variant.name, type: c.ws?.type || 'Vidéo', status: variant.status, version: variant.approved_version, base: `/edition/${ed.id}/variants/${variant.id}`, backHref: variant.campaign_id ? `/edition/${ed.id}/campaigns/${variant.campaign_id}` : `/edition/${ed.id}/campaigns`, backLabel: variant.campaign_id ? 'Retour à la campagne' : 'Campagnes', campName: c.ws?.campaignName, dup: `/edition/${ed.id}/variants/${variant.id}/duplicate`, steps: c.ws?.steps || [], summary: c.ws?.summary, step: 'creation', note: 'Ici « Lancer les exports » produit des essais ; l’export officiel se fait à l’étape Vérification et exports.' }) : '';
   return `${tabs(ed, variant ? 'variantes' : 'videos')}${head}${msg ? `<p class="flash">${esc(msg)}</p>` : ''}
-${ready ? '' : '<p class="status warn"><b>ffmpeg est introuvable</b> : les exports vidéo sont impossibles. Il doit se trouver dans <code>tools/ffmpeg/</code>.</p>'}
+${ready ? '' : '<p class="status warn"><b>ffmpeg est introuvable ou incomplet</b> (filtres texte et sous-titres absents) : les exports vidéo sont impossibles. Il doit se trouver dans <code>tools/ffmpeg/</code> ; sur Mac : <code>brew install ffmpeg-full</code>.</p>'}
 <form id="vform" method="post" action="/edition/${ed.id}/video/save${qs}" class="vs" data-edition="${ed.id}" data-draft="${draft ? 1 : 0}" ${attrs}>
 <input type="hidden" name="design"><input type="hidden" name="cues"><input type="hidden" name="rev" value="${esc(c.rev || '')}">
 <div class="vs-top">

@@ -7,11 +7,60 @@ import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, extname } from 'node:path';
 import { getAsset, assetPath, getDesign, saveDesign } from './studio.js';
-import { WIN_TAR } from './studio.js';
+import { TAR } from './platform.js';
 import { cleanSvg, svgWarnings, rasterSize } from './svgclean.js';
 import { createContent } from './campaigns.js';
 import { FORMATS } from './formats.js';
 import { storage } from './storage.js';
+import { inflateSync } from 'node:zlib';
+
+// ---------------------------------------------------------------- image vide ou invisible (logo transparent, PNG vierge…)
+// Lecture minimale d'un PNG non entrelacé en 8 bits (gris, RVB, palette, avec ou sans alpha) : part de pixels visibles et clarté moyenne.
+// null si le format n'est pas lu (JPG, WebP, SVG, PNG 16 bits ou entrelacé) : on ne signale alors rien.
+function pngCoverage(buf) {
+  if (buf.length < 33 || buf.readUInt32BE(0) !== 0x89504e47) return null;
+  let p = 8, w = 0, h = 0, depth = 0, type = 0, inter = 0, pal = null, trns = null; const idat = [];
+  while (p + 8 <= buf.length) {
+    const len = buf.readUInt32BE(p), t = buf.toString('ascii', p + 4, p + 8), d = buf.subarray(p + 8, p + 8 + len);
+    if (t === 'IHDR') { w = d.readUInt32BE(0); h = d.readUInt32BE(4); depth = d[8]; type = d[9]; inter = d[12]; }
+    else if (t === 'PLTE') pal = d; else if (t === 'tRNS') trns = d; else if (t === 'IDAT') idat.push(d); else if (t === 'IEND') break;
+    p += 12 + len;
+  }
+  const ch = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 }[type];
+  if (depth !== 8 || inter || !ch || !w || !h || w * h > 4e7) return null;
+  let raw; try { raw = inflateSync(Buffer.concat(idat)); } catch { return null; }
+  const stride = w * ch, cur = Buffer.alloc(stride), prev = Buffer.alloc(stride);
+  let seen = 0, lumSum = 0;
+  for (let y = 0; y < h; y++) {
+    const f = raw[y * (stride + 1)], row = raw.subarray(y * (stride + 1) + 1, (y + 1) * (stride + 1));
+    for (let i = 0; i < stride; i++) {
+      const a = i >= ch ? cur[i - ch] : 0, b = prev[i], c = i >= ch ? prev[i - ch] : 0;
+      const pr = () => { const q = a + b - c, pa = Math.abs(q - a), pb = Math.abs(q - b), pc = Math.abs(q - c); return pa <= pb && pa <= pc ? a : pb <= pc ? b : c; };
+      cur[i] = (row[i] + (f === 1 ? a : f === 2 ? b : f === 3 ? (a + b) >> 1 : f === 4 ? pr() : 0)) & 255;
+    }
+    for (let x = 0; x < w; x++) {
+      const o = x * ch; let r, g, bl, al = 255;
+      if (type === 3) { const k = cur[o]; r = pal?.[k * 3] ?? 0; g = pal?.[k * 3 + 1] ?? 0; bl = pal?.[k * 3 + 2] ?? 0; al = trns && k < trns.length ? trns[k] : 255; }
+      else if (type === 0 || type === 4) { r = g = bl = cur[o]; if (type === 4) al = cur[o + 1]; }
+      else { r = cur[o]; g = cur[o + 1]; bl = cur[o + 2]; if (type === 6) al = cur[o + 3]; }
+      if (al > 16) { seen++; lumSum += (0.2126 * r + 0.7152 * g + 0.0722 * bl) / 255; }
+    }
+    cur.copy(prev);
+  }
+  return { visible: seen / (w * h), light: seen ? lumSum / seen : 0 };
+}
+const coverCache = new Map();
+// Avertissements d'une image (jamais bloquants) : vide / presque invisible.
+export function imageWarnings(a) {
+  if (!a || a.kind !== 'image' || extname(a.stored).toLowerCase() !== '.png') return [];
+  const k = a.stored + ':' + a.size;
+  if (!coverCache.has(k)) { let c = null; try { if (storage.exists(a.stored)) c = pngCoverage(readFileSync(assetPath(a))); } catch { c = null; } coverCache.set(k, c); }
+  const c = coverCache.get(k);
+  if (!c) return [];
+  if (c.visible < 0.003) return [`« ${a.name} » est vide ou entièrement transparent : il n’apparaîtra pas sur l’affiche. Vérifiez le fichier (export depuis Illustrator : fond transparent, mais logo visible).`];
+  if (c.visible < 0.02) return [`« ${a.name} » est presque entièrement transparent (${(c.visible * 100).toFixed(1)} % de pixels visibles) : il risque d’être invisible.`];
+  return [];
+}
 
 // ---------------------------------------------------------------- affiche reçue
 // Proportions de l'image (largeur / hauteur), ou 0 si on ne sait pas les lire.
@@ -77,7 +126,7 @@ export function documentText(a) {
     const dir = mkdtempSync(join(tmpdir(), 'atelier-doc-'));
     try {
       const inner = ext === '.docx' ? 'word/document.xml' : 'content.xml';
-      const tar = existsSync(WIN_TAR) ? WIN_TAR : 'tar';
+      const tar = existsSync(TAR) ? TAR : 'tar';
       spawnSync(tar, ['-xf', assetPath(a), '-C', dir, inner], { timeout: 30000 });
       const f = join(dir, inner);
       if (!existsSync(f)) return null;

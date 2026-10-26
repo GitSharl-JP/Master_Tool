@@ -14,7 +14,8 @@ import { join, relative, resolve, sep } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { db, DATA_DIR, log } from './db.js';
 import { storage } from './storage.js';
-import { EXPORT_PATH, WIN_TAR } from './studio.js';
+import { EXPORT_PATH } from './studio.js';
+import { TAR, browserPath, fontFileNames } from './platform.js';
 import { FFMPEG } from './media.js';
 
 db.exec(`
@@ -66,7 +67,7 @@ export function integrity() {
 // --- dépendances : inclus, référencé (non inclus) ou absent
 const WIN_FONTS = ['georgia', 'segoe ui', 'arial', 'times new roman', 'verdana', 'tahoma', 'calibri', 'trebuchet ms', 'cambria', 'consolas', 'courier new'];
 const OPEN_FONTS = ['inter', 'noto sans jp', 'noto serif jp', 'noto sans', 'noto serif', 'roboto', 'open sans', 'lato', 'montserrat', 'source sans pro'];
-const fontFiles = () => { try { return readdirSync('C:/Windows/Fonts').map((f) => f.toLowerCase().replace(/[^a-z0-9]/g, '')); } catch { return []; } };
+const fontFiles = () => fontFileNames().map((f) => f.toLowerCase().replace(/[^a-z0-9]/g, ''));
 export function dependencies() {
   const used = new Set();
   for (const e of db.prepare('SELECT data FROM editions').all()) { const d = JSON.parse(e.data); for (const k of ['font_title', 'font_body']) if (d[k]) used.add(String(d[k]).trim()); }
@@ -79,7 +80,7 @@ export function dependencies() {
     return { name, status: 'référencé (non inclus)', installed, note: 'Licence inconnue : vérifiez le droit de la partager avant de la joindre à une archive.' };
   });
   const ff = spawnSync(FFMPEG, ['-version'], { timeout: 8000, encoding: 'utf8' });
-  const edge = ['C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', 'C:/Program Files/Microsoft/Edge/Application/msedge.exe', 'C:/Program Files/Google/Chrome/Application/chrome.exe'].find(existsSync);
+  const edge = browserPath();
   const videos = db.prepare("SELECT COUNT(*) c FROM assets WHERE kind='video'").get().c, subs = db.prepare("SELECT COUNT(*) c FROM assets WHERE kind='text'").get().c;
   return {
     fonts,
@@ -127,10 +128,10 @@ export async function createBackup({ dir, exportsMode = 'pinned', who = 'systèm
     manifest.missingFromDisk = integrity().missing.map((m) => `${m.what} : ${m.ref}`);
     writeFileSync(root + 'manifest.json', JSON.stringify(manifest, null, 2));
     const out = join(dir, name + '.zip');
-    const code = await run(WIN_TAR, ['-a', '-c', '-f', out, '-C', stage, name]);
+    const code = await run(TAR,['-a', '-c', '-f', out, '-C', stage, name]);
     if (code !== 0 || !existsSync(out)) throw new Error('La création de l’archive a échoué (espace disque ? droits d’écriture ?).');
     // contrôle : le zip contient bien tous les fichiers annoncés
-    const listing = spawnSync(WIN_TAR, ['-tf', out], { encoding: 'utf8', maxBuffer: 1e8 }).stdout.split('\n').map((l) => l.trim().replace(/\\/g, '/')).filter(Boolean);
+    const listing = spawnSync(TAR,['-tf', out], { encoding: 'utf8', maxBuffer: 1e8 }).stdout.split('\n').map((l) => l.trim().replace(/\\/g, '/')).filter(Boolean);
     const lacking = manifest.files.filter((f) => !listing.includes(`${name}/${f.path}`));
     if (lacking.length) throw new Error(`Archive incomplète (${lacking.length} fichier(s) absent(s)) : sauvegarde refusée.`);
     const bytes = statSync(out).size;

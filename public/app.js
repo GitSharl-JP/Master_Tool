@@ -92,7 +92,7 @@ document.querySelectorAll('.rng input[type=range]').forEach(enhance);
 
 // Envoi d'un ou plusieurs fichiers, un envoi par fichier. Le type n'est pas demandé : le serveur le devine (il se corrige ensuite dans la liste).
 async function sendFiles(files, { edition, variant, msg }) {
-  const list = [...files], ok = [], bad = []; let last = null;
+  const list = [...files], ok = [], bad = [], warn = []; let last = null;
   for (const [i, f] of list.entries()) {
     msg.textContent = list.length > 1 ? `Envoi ${i + 1}/${list.length} : ${f.name}…` : `Envoi de ${f.name}…`;
     const q = new URLSearchParams({ edition, name: f.name });
@@ -101,10 +101,10 @@ async function sendFiles(files, { edition, variant, msg }) {
       const r = await fetch('/assets/upload?' + q, { method: 'POST', body: f });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || 'Échec');
-      ok.push(f.name); last = j;
+      ok.push(f.name); last = j; if (j.warning) warn.push(j.warning);
     } catch (err) { bad.push(`${f.name} (${err.message})`); }
   }
-  return { ok, bad, last };
+  return { ok, bad, last, warn };
 }
 // Zone de dépôt : on peut glisser des fichiers dessus (plusieurs à la fois) ; `onFiles` reçoit la liste.
 function dropZone(zone, onFiles) {
@@ -120,9 +120,9 @@ if (up) {
   const msg = $('upmsg'), input = $('upfile');
   const run = async (files) => {
     if (!files || !files.length) return;
-    const { ok, bad } = await sendFiles(files, { edition: up.dataset.edition, msg });
+    const { ok, bad, warn } = await sendFiles(files, { edition: up.dataset.edition, msg });
     if (!ok.length) { msg.textContent = 'Erreur : ' + bad.join(' ; '); return; }
-    location.href = `/edition/${up.dataset.edition}/assets?m=` + encodeURIComponent(`${plural(ok.length, 'fichier ajouté', 'fichiers ajoutés')}.${bad.length ? ' Refusé : ' + bad.join(' ; ') : ''}`);
+    location.href = `/edition/${up.dataset.edition}/assets?m=` + encodeURIComponent(`${plural(ok.length, 'fichier ajouté', 'fichiers ajoutés')}.${bad.length ? ' Refusé : ' + bad.join(' ; ') : ''}${warn.length ? ' ⚠ ' + warn.join(' ') : ''}`);
   };
   up.addEventListener('submit', (e) => { e.preventDefault(); run(input.files); });
   input.addEventListener('change', () => run(input.files));
@@ -165,11 +165,11 @@ document.querySelectorAll('form.upm').forEach((form) => {
     const input = form.querySelector('input[type=file]');
     const run = async (files) => {
       if (!files || !files.length) return;
-      const { ok, bad, last } = await sendFiles(files, { edition: form.dataset.edition, variant: form.dataset.variant, msg: msg0 });
+      const { ok, bad, last, warn } = await sendFiles(files, { edition: form.dataset.edition, variant: form.dataset.variant, msg: msg0 });
       if (!ok.length) { msg0.textContent = 'Erreur : ' + bad.join(' ; '); return; }
       const base = `/edition/${form.dataset.edition}/variants/${form.dataset.variant}?step=materiel&m=`;
       location.href = ok.length === 1 && !bad.length && last?.url ? last.url
-        : base + encodeURIComponent(`${plural(ok.length, 'fichier ajouté', 'fichiers ajoutés')} : choisissez ci-dessous où les utiliser (photo de fond, logo, affiche reçue).${bad.length ? ' Refusé : ' + bad.join(' ; ') : ''}`);
+        : base + encodeURIComponent(`${plural(ok.length, 'fichier ajouté', 'fichiers ajoutés')} : choisissez ci-dessous où les utiliser (photo de fond, logo, affiche reçue).${bad.length ? ' Refusé : ' + bad.join(' ; ') : ''}${warn.length ? ' ⚠ ' + warn.join(' ') : ''}`);
     };
     form.addEventListener('submit', (e) => { e.preventDefault(); run(input.files); });
     input.addEventListener('change', () => run(input.files));
@@ -218,10 +218,10 @@ if (pform) {
     const W = Number(pform.dataset.w), H = Number(pform.dataset.h);
     const locked = matchMedia('(min-width: 901px)').matches; // grand écran : l'aperçu est verrouillé, hauteur imposée par la page
     if (!locked) wrap.style.height = '';
-    const k = Math.min(1, wrap.clientWidth / W, locked ? wrap.clientHeight / H : 1);
+    const k = Math.min(1, wrap.clientWidth / W, wrap.clientHeight ? wrap.clientHeight / H : 1); // l'aperçu entier tient dans son cadre (téléphone compris)
     frame.style.transform = `scale(${k})`;
     frame.style.left = Math.max(0, (wrap.clientWidth - W * k) / 2) + 'px';
-    frame.style.top = locked ? Math.max(0, (wrap.clientHeight - H * k) / 2) + 'px' : '0px';
+    frame.style.top = wrap.clientHeight ? Math.max(0, (wrap.clientHeight - H * k) / 2) + 'px' : '0px';
     if (!locked) wrap.style.height = H * k + 'px';
   };
 

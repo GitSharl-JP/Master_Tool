@@ -14,10 +14,15 @@ import { db, log, getEdition } from './db.js';
 import { getDesign, saveDesign, getAsset, listAssets, buildPosterHtml, htmlToPng, EXPORT_PATH, designSaveHooks } from './studio.js';
 import { getVideoDesign, saveVideoDesign, getCues, saveCues, planExports } from './video.js';
 import { designFromVersion } from './library.js';
-import { createContent, setContentExport, linkContent, linksOfContent, isFrozenState } from './campaigns.js';
+import { createContent, setContentExport, linkContent, linksOfContent, isFrozenState, OFF_CAMPAIGN } from './campaigns.js';
 import { posterNeeds, videoNeeds, blockersFor, explainNeeds } from './schema.js';
-import { FORMATS } from './formats.js';
-import { autoFit, aspectOf, posterWarnings } from './intake.js';
+import { FORMATS, VIDEO_FORMATS } from './formats.js';
+import { autoFit, aspectOf, posterWarnings, imageWarnings } from './intake.js';
+import { ffmpegReady, FFMPEG_HELP } from './media.js';
+import { fontAvailable } from './render.js';
+// Contraste WCAG entre deux couleurs #rrggbb (1 = aucun, 21 = noir sur blanc).
+const lum = (hex) => { const n = parseInt(hex.slice(1), 16); return [n >> 16, (n >> 8) & 255, n & 255].map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }).reduce((a, v, i) => a + v * [0.2126, 0.7152, 0.0722][i], 0); };
+export const contrast = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS variants(
@@ -103,11 +108,12 @@ function guard(pid, b, exceptId) {
 }
 const chosenFormats = (b) => Object.keys(FORMATS).filter((k) => b['fmt_' + k]);
 
-function setMessages(designs, v) {
+// keep : une copie garde les textes retouchés format par format quand la variante n'a pas de texte commun pour cet élément.
+function setMessages(designs, v, keep = false) {
   const out = {};
   for (const [fmt, d] of Object.entries(designs)) {
     const els = { ...(d.els || {}) };
-    const put = (id, text) => { const e = { ...(els[id] || {}) }; if (text) e.text = text; else delete e.text; if (Object.keys(e).length) els[id] = e; else delete els[id]; };
+    const put = (id, text) => { const e = { ...(els[id] || {}) }; if (text) e.text = text; else if (!keep) delete e.text; if (Object.keys(e).length) els[id] = e; else delete els[id]; };
     put('title', v.msg_title); put('kicker', v.msg_tagline); put('top', v.msg_top); put('cta', v.msg_cta);
     out[fmt] = { ...d, els };
   }
@@ -137,7 +143,7 @@ export function createVariant(pid, b, who, source) { // source : variante à dup
     designs[fmt] = { ...d, hero: own(b.hero) ?? d.hero, logo: own(b.logo) ?? d.logo };
     if (poster) designs[fmt] = { ...designs[fmt], ext: poster.id, fit: autoFit(poster, fmt, aspect), bgc: d.bgc || '#000000', posx: 50, posy: 50, zoom: 100 };
   }
-  for (const [fmt, d] of Object.entries(setMessages(designs, v))) saveDesign(pid, dkey(id, fmt), d, who, `Création de la variante « ${v.name} »`);
+  for (const [fmt, d] of Object.entries(setMessages(designs, v, !!source))) saveDesign(pid, dkey(id, fmt), d, who, `Création de la variante « ${v.name} »`);
   if (v.with_video) {
     const vd = source?.with_video ? getVideoDesign(pid, scope(source.id)) : getVideoDesign(pid);
     saveVideoDesign(pid, { ...vd, asset: b.video_asset || vd.asset }, scope(id), who);
@@ -154,6 +160,14 @@ export function duplicateVariant(id, b, who) {
     with_video: src.with_video, owner: b.owner ?? src.owner, reviewer: b.reviewer ?? src.reviewer, simple: b.simple, type: b.type };
   for (const f of src.formats) merged['fmt_' + f] = '1';
   return createVariant(src.project_id, merged, who, src);
+}
+
+// Nom de la prochaine variante d'un contenu : « Affiche A » → « Affiche A — B », puis « — C »… (lettre libre dans le projet).
+export function nextVariantName(v) {
+  const base = v.name.replace(/\s+—\s+[B-Z]$/, '');
+  const taken = new Set(db.prepare('SELECT name FROM variants WHERE project_id=?').all(v.project_id).map((x) => x.name));
+  for (const l of 'BCDEFGHIJKLMNOPQRSTUVWXYZ') if (!taken.has(`${base} — ${l}`)) return `${base} — ${l}`;
+  return `${base} — copie`;
 }
 
 // --- modification des intentions / textes
@@ -297,6 +311,9 @@ export function syncContents(id, who = '') {
     if (c) { if (c.export_id !== e.id) { setContentExport(c.id, e.id, who, 'approuvé'); db.prepare('UPDATE contents SET variant_version=? WHERE id=?').run(v.approved_version, c.id); } continue; }
     const o = createContent(v.project_id, { export_id: e.id, title: `${v.name} · ${FORMATS[e.fmt].ratio}${kind === 'video' ? ' (vidéo)' : ''}`, angle: v.angle, audience: v.audience, language: v.language }, who || 'système');
     if (o.ok) db.prepare("UPDATE contents SET variant_id=?, variant_version=?, format=?, status='approuvé' WHERE id=?").run(id, v.approved_version, e.fmt, o.id);
+    // Le contenu appartient déjà à sa campagne : sa première sortie y est associée d'office, en brouillon (rien n'est transmis).
+    // Une seule fois, à la création de la sortie : une association retirée à la main n'est jamais recréée.
+    if (o.ok && v.campaign_id && db.prepare('SELECT name FROM campaigns WHERE id=?').get(v.campaign_id)?.name !== OFF_CAMPAIGN) linkContent(o.id, v.adset_id ? { adset_id: v.adset_id } : { campaign_id: v.campaign_id }, who || 'système');
   }
 }
 export const contentsOf = (id) => db.prepare('SELECT c.*, e.file, e.draft FROM contents c LEFT JOIN exports e ON e.id=c.export_id WHERE c.variant_id=? ORDER BY c.format, c.kind').all(id);
@@ -406,6 +423,7 @@ export function checks(id) {
     else if (getAsset(Number(g.hero))?.provisional === 1) add('conseil', `La photo du format ${FORMATS[fmt].ratio} est marquée « provisoire » : l’export sera en BROUILLON.`, `/edition/${v.project_id}/assets`);
   }
   if (!allImported && Object.values(st.designs).length && Object.values(st.designs).filter((g) => !g.ext).every((g) => !g.logo)) add('conseil', 'Aucun logo choisi sur les affiches.', posterHref(v.formats[0]));
+  for (const aid of new Set(Object.values(st.designs).filter((g) => !g.ext).flatMap((g) => [g.logo, g.hero]).filter(Boolean))) for (const w of imageWarnings(getAsset(Number(aid)))) add('conseil', w, `/edition/${v.project_id}/variants/${id}?step=materiel`);
   const title = (v.msg_title || d.title_en || '').trim();
   if (!title && !allImported && hasPosters) add('bloquant', 'Le titre est vide (ni titre de variante, ni titre dans la fiche).', `/edition/${v.project_id}/variants/${id}?step=creation&all=1`);
   if (!allImported && hasPosters && title.length > 48) add('conseil', `Titre long (${title.length} caractères) : il risque de déborder sur les petits formats. Vérifiez les aperçus.`, `/edition/${v.project_id}/variants/${id}?step=creation&all=1`);
@@ -413,11 +431,22 @@ export function checks(id) {
   if (!allImported && hasPosters && /placeholder|provisoire|lorem/i.test(shown)) add('conseil', 'Un texte affiché contient encore « placeholder » ou « provisoire ».', `/edition/${v.project_id}/variants/${id}?step=creation&all=1`);
   const ctaShown = Object.entries(st.designs).some(([, g]) => !g.ext && !g.els?.cta?.hide && !g.els?.host?.hide);
   if (!d.booking_url && ctaShown) add('conseil', 'Un bouton ou une adresse de réservation est affiché sans lien de réservation dans les infos du spectacle : il ne mènera nulle part (masquez-le dans l’éditeur ou renseignez l’adresse).', `/edition/${v.project_id}/settings#sec-booking`);
+  // polices et contrastes de la charte (affiches composées seulement : une affiche reçue est déjà finie)
+  const composed = Object.entries(st.designs).filter(([, g]) => !g.ext);
+  if (composed.length) {
+    const missing = [...new Set(composed.flatMap(([, g]) => [g.ft || d.font_title, g.fb || d.font_body]).filter((f) => f && !fontAvailable(f)))];
+    if (missing.length) add('conseil', `Police${missing.length > 1 ? 's' : ''} absente${missing.length > 1 ? 's' : ''} de cet ordinateur : ${missing.join(', ')}. L’export utilisera une police de remplacement (Georgia / Segoe UI). Choisissez une police libre (ex. Cormorant Garamond, Inter) dans les infos du spectacle ou dans l’éditeur.`, `/edition/${v.project_id}/settings#sec-brand`);
+    const col = (c, dflt) => (/^#[0-9a-f]{6}$/i.test(c || '') ? c : dflt);
+    const P = col(d.color_primary, '#1b1b2f'), S = col(d.color_secondary, '#c8a24a'), X = col(d.color_text, '#f5f1e8');
+    const low = [[contrast(P, S), 'texte du bouton sur sa couleur (principale sur secondaire)'], [contrast(X, P), 'texte sur le fond assombri (texte sur principale)'], [contrast(S, P), 'accroche et dates (secondaire sur principale)']].filter(([r]) => r < 3);
+    if (low.length) add('conseil', `Contraste faible dans la charte : ${low.map(([r, w]) => `${w} ${r.toFixed(1)}:1`).join(' ; ')}. Visez au moins 3:1 (4,5:1 pour les petits textes) : foncez ou éclaircissez une des couleurs.`, `/edition/${v.project_id}/settings#sec-brand`);
+  }
   const why = explainNeeds(ed, contentNeeds(st, v));
   if (why.length) add('transmission', `Pour sortir du BROUILLON, il manque dans les infos du spectacle : ${why.slice(0, 3).map((w) => w.text.replace(/ \(.*\)\.?$/, '')).join(' ; ')}${why.length > 3 ? ` (+ ${why.length - 3})` : ''}. Sans cela, l’export est marqué BROUILLON et ne peut pas être transmis.`, `/edition/${v.project_id}/settings#sec-${why[0].section}`);
   else if ((allImported || (!hasPosters && st.video)) && ed.data.venue_status !== 'confirmé') add('conseil', 'Le lieu du spectacle n’est pas confirmé : vérifiez que ce contenu ne le cite pas avant de le diffuser.', `/edition/${v.project_id}/settings#sec-venue`);
   if (st.video) {
     const vd = st.video.design;
+    if (!ffmpegReady()) add('conseil', FFMPEG_HELP + ' Les affiches s’exportent normalement.', `/edition/${v.project_id}/video?variant=${id}`);
     if (!vd.asset) add('bloquant', 'La vidéo n’a pas de source : choisissez-la dans l’éditeur vidéo de la variante.', `/edition/${v.project_id}/video?variant=${id}`);
     else if (vd.end > 0 && vd.end <= vd.start) add('bloquant', 'Extrait vidéo invalide : la fin est avant le début.', `/edition/${v.project_id}/video?variant=${id}`);
     if (vd.asset && vd.subs?.on && !st.video.cues.length) add('conseil', 'Les sous-titres sont activés mais vides.', `/edition/${v.project_id}/video?variant=${id}`);
@@ -434,6 +463,7 @@ export function nextStep(id) {
   if (v.status !== 'approuvé' || !pristine) {
     if (blocking.length) return { text: `À corriger avant d’approuver : ${blocking[0].text}`, href: blocking[0].href };
     if (v.approved_version && !pristine) return { text: `Vous avez modifié la variante depuis son approbation. Vérifiez les aperçus, puis approuvez à nouveau (la version v${v.approved_version} reste intacte).`, action: 'approve-export', label: 'Approuver et exporter' };
+    if (v.with_video && !ffmpegReady()) return { text: `Vérifiez les aperçus. ${v.formats.length ? 'Les affiches s’exporteront ; la vidéo non : ' : ''}${FFMPEG_HELP}`, action: 'approve-export', label: v.formats.length ? 'Approuver et exporter les affiches' : 'Approuver (sans export vidéo)' };
     return { text: 'Vérifiez les aperçus et les textes. Quand c’est bon, une seule action suffit.', action: 'approve-export', label: 'Approuver et exporter' };
   }
   const outs = outputsOf(id);
@@ -445,7 +475,7 @@ export function nextStep(id) {
     ? { text: 'Fichiers prêts. Associez-les à la campagne (en brouillon, rien n’est transmis).', action: 'link-auto', label: 'Associer à la campagne' }
     : { text: 'Fichiers prêts. Utilisables tels quels (organique) ; pour une campagne, ouvrez l’étape Diffusion.' };
   const camp = v.campaign_id ? `/edition/${v.project_id}/campaigns/${v.campaign_id}` : `/edition/${v.project_id}/campaigns`;
-  if (links.some((l) => ['brouillon', 'à relire'].includes(l.state))) return { text: 'Associée en brouillon. Validez-la pour la campagne.', href: camp, label: 'Ouvrir la campagne' };
+  if (links.some((l) => ['brouillon', 'à relire'].includes(l.state))) return { text: 'Fichiers prêts et rangés dans la campagne (en brouillon). Quand tous les contenus sont prêts : « Tout approuver pour la campagne » sur sa page.', href: camp + '?vue=diffusion', label: 'Ouvrir la campagne', dup: true };
   if (links.some((l) => l.state === 'approuvé')) return { text: 'Prête à transmettre : récapitulatif, puis dépôt dans Ads Manager.', href: camp, label: 'Ouvrir la campagne' };
   if (links.some((l) => l.state === 'transmis')) return { text: 'Transmise. Quand elle est en ligne dans Meta, marquez-la « publiée ».', href: camp, label: 'Ouvrir la campagne' };
   return { text: 'Terminé. Pensez à saisir les résultats après quelques jours (page de la campagne).', href: camp, label: 'Ouvrir la campagne' };
@@ -505,6 +535,12 @@ export function applyMaterial(id, b, who) {
     }
     done.push('formats mis à jour');
   }
+  if (b.set_vformats && getVariant(id).with_video) { // formats de la vidéo : distincts des formats d'affiche (cocher ici ne crée jamais d'affiche)
+    const want = VIDEO_FORMATS.filter((k) => b['vfmt_' + k]);
+    if (!want.length) return { ok: false, error: 'Gardez au moins un format vidéo.' };
+    saveVideoDesign(pid, { ...getVideoDesign(pid, scope(id)), formats: want }, scope(id), who);
+    done.push(`formats vidéo : ${want.map((k) => FORMATS[k].ratio).join(', ')}`);
+  }
   if (b.video_asset && getVariant(id).with_video) {
     const a = own(b.video_asset);
     if (a?.kind !== 'video') return { ok: false, error: 'Choisissez un fichier vidéo de ce projet.' };
@@ -522,7 +558,8 @@ export function workspaceInfo(id) {
   const material = Object.values(st.designs).some((d) => d.ext || d.hero) || !!st.video?.design.asset;
   const es = exportStatus(id);
   const who = waitingOn(v), people = [who && `attendu : ${who}`, v.due_date && `échéance ${v.due_date}`].filter(Boolean).join(' · ');
-  return { type: variantType(v), summary: es.summary + (people ? ' · ' + people : ''), status: es, steps: [
+  const camp = v.campaign_id ? db.prepare('SELECT name FROM campaigns WHERE id=?').get(v.campaign_id) : null;
+  return { type: variantType(v), campaignName: camp?.name || '', summary: es.summary + (people ? ' · ' + people : ''), status: es, steps: [
     { key: 'materiel', label: 'Matériel', done: material, note: material ? '' : 'à choisir' },
     { key: 'creation', label: 'Création', done: v.approved_version > 0 || v.status === 'à relire', note: '' },
     { key: 'verification', label: 'Vérification et exports', done: v.status === 'approuvé' && es.complete, note: blocking ? `${blocking} à corriger` : v.approved_version && !es.complete ? `${es.have}/${es.total} fichiers` : '' },

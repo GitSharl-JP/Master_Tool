@@ -14,7 +14,8 @@ import { db, log, getEdition, saveEdition } from './db.js';
 import { storage } from './storage.js';
 import { FORMATS } from './formats.js';
 import { renderPoster } from './render.js';
-import { listAssets, getAsset, assetsByRole, getDesign, saveDesign, MIME, htmlToPng, EXPORT_PATH, WIN_TAR, POSTER_DEFAULTS } from './studio.js';
+import { listAssets, getAsset, assetsByRole, getDesign, saveDesign, MIME, htmlToPng, EXPORT_PATH, POSTER_DEFAULTS } from './studio.js';
+import { TAR } from './platform.js';
 import { getVideoDesign, saveVideoDesign } from './video.js';
 import { posterSvg, posterPdf } from './designexport.js';
 import { illustratorChecklist } from './illustrator-check.js';
@@ -207,7 +208,7 @@ export async function exportBundle(versionId, projectId, who) {
     `POLICES À INSTALLER POUR ÉDITER LE TEXTE DANS ILLUSTRATOR : ${[...fonts].join(', ') || '(aucune détectée)'}\nSans ces polices, Illustrator les remplace et le texte change d'aspect.\n\n` +
     `LIMITES : un paragraphe est découpé en lignes (une ligne = un objet texte) ; les ombres et effets propres au navigateur ne sont pas restitués ; le format .ai d'Adobe n'est pas produit (propriétaire) : utilisez le SVG ou le PDF.\n`);
   const zip = EXPORT_PATH + name + `-${Date.now()}.zip`;
-  spawnSync(WIN_TAR, ['-a', '-c', '-f', zip, '-C', dir, name], { timeout: 120000 });
+  spawnSync(TAR, ['-a', '-c', '-f', zip, '-C', dir, name], { timeout: 120000 });
   rmSync(dir, { recursive: true, force: true });
   if (!existsSync(zip)) return { ok: false, error: 'L’archive n’a pas pu être créée.' };
   const r = db.prepare('INSERT INTO exports(edition_id,kind,label,file,draft,source_ids,created,created_by) VALUES(?,?,?,?,?,?,?,?)').run(projectId, 'bundle', `Archive du design « ${t.name} » v${v.version}`, basename(zip), 0, '[]', now(), who);
@@ -220,7 +221,7 @@ export function importBundle(zipFile, projectId, who) {
   const tmp = EXPORT_PATH + `import-${Date.now()}/`;
   mkdirSync(tmp, { recursive: true });
   try {
-    const x = spawnSync(WIN_TAR, ['-x', '-f', zipFile, '-C', tmp], { timeout: 120000 });
+    const x = spawnSync(TAR, ['-x','-f', zipFile, '-C', tmp], { timeout: 120000 });
     const top = readdirSync(tmp).find((d) => existsSync(tmp + d + '/design.json'));
     if (x.status !== 0 || !top) return { ok: false, error: 'Archive non reconnue (design.json introuvable).' };
     const root = tmp + top + '/', j = JSON.parse(readFileSync(root + 'design.json', 'utf8'));

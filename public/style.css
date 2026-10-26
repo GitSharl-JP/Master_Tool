@@ -130,7 +130,7 @@ code{background:var(--bg);padding:1px 6px;border-radius:4px;font-size:.85em}
 .vframe #vsub{position:absolute;touch-action:none;text-align:center;color:#fff;font-weight:700;font-family:Arial,sans-serif;line-height:1.2;text-shadow:0 0 6px #000,0 0 6px #000,2px 2px 0 #000,-2px -2px 0 #000;display:none;pointer-events:none}
 .vframe #vdraft{position:absolute;top:0;left:0;right:0;background:#b3261e;color:#fff;font:700 20px Arial;text-align:center;letter-spacing:.08em;display:none;pointer-events:none}
 .vbar{position:absolute;left:0;right:0;bottom:0;height:56px;background:#1a1a1a;display:flex;align-items:center;gap:12px;padding:0 14px}
-.vbar button{padding:.35rem .8rem}.vbar input[type=range]{flex:1}.vbar span{color:#ddd;font-size:.85rem;min-width:86px;text-align:right}
+.vbar label{color:#ddd}.vbar button{padding:.35rem .8rem}.vbar input[type=range]{flex:1}.vbar span{color:#ddd;font-size:.85rem;min-width:86px;text-align:right}
 .vhint{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#ddd;text-align:center;padding:2rem}
 .cues{display:flex;flex-direction:column;gap:6px;margin:8px 0;max-height:320px;overflow-y:auto}
 .cue{display:grid;grid-template-columns:64px 64px 1fr auto auto;gap:6px;align-items:start}.cue input{padding:6px}.cue textarea{padding:6px}
@@ -530,3 +530,36 @@ table.cal td.off{background:var(--bg)}
 
 /* Téléphone : les colonnes du studio peuvent rétrécir sous la largeur de leur contenu (sinon défilement horizontal) */
 .studio>*{min-width:0}
+
+/* Repères : fil d'Ariane, variante en un clic, validation groupée, raisons d'un blocage */
+.crumbs{display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:.85rem;color:var(--mute);margin:0 0 8px}
+.crumbs a{color:var(--mute)}.crumbs a:hover{color:var(--acc)}.crumbs b{color:var(--ink);font-weight:600}
+.ws-top .crumbs{margin:0}
+.ws-dup{margin-left:auto}
+.approve-all{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;margin:10px 0;padding:12px 14px;background:var(--ok-lt);border-left:3px solid var(--ok)}
+.why{color:var(--warn)}
+button[disabled]+.why{display:inline-block;margin-left:6px}
+.home-frise{margin-top:6px}
+.orow form.inline{margin-left:6px}
+
+/* Éditeur d'affiche : l'état d'enregistrement a sa propre ligne et ne pousse plus les boutons hors du panneau */
+.studio .actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.studio .actions .savestate{order:-1;flex:0 0 100%;box-sizing:border-box}
+
+/* Matériel : boutons de rôle plus discrets (trois gros boutons rouges par fichier, c'était trop) */
+.matitem .inline button.sm{padding:.3rem .6rem;font-size:.8rem;background:var(--card);color:var(--charcoal);border:1px solid var(--line-strong)}
+.matitem .inline button.sm.on{background:var(--ok);color:var(--washi);border-color:var(--ok)}
+
+/* Téléphone : l'aperçu reste visible en haut pendant les réglages */
+@media(max-width:900px){
+  .studio .preview{order:-1;position:sticky;top:var(--nav-h);z-index:6;height:42vh;max-height:42vh}
+  .studio .actions{position:static;margin:0}
+}
+.approve-all.blocked{background:var(--warn-lt);border-left-color:var(--warn)}
+.approve-all .why ul{margin:4px 0 0 18px;padding:0}
+.ws-dup button{background:var(--card);color:var(--charcoal);border:1px solid var(--line-strong);padding:.4rem .8rem;font-size:.85rem}
+.ws-dup button:hover{border-color:var(--acc);color:var(--acc)}
+
+/* Vignettes d'images : damier sous les zones transparentes (un logo blanc ou vide se voit tel qu'il est) */
+.matitem img,.asset .thumb img{background:repeating-conic-gradient(#d9d3c7 0 25%,#f4f0e8 0 50%) 50%/16px 16px}
+.matitem.warn{border-color:var(--warn)}

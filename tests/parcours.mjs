@@ -8,12 +8,14 @@ import { mkdtempSync, writeFileSync, readFileSync, rmSync, existsSync, readdirSy
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openBrowser, edgeAvailable } from './cdp.mjs';
+import { TAR } from '../src/platform.js';
+import { FFMPEG, FFPROBE } from '../src/media.js';
 
 const ROOT = decodeURIComponent(new URL('../', import.meta.url).pathname).replace(/^\/([A-Za-z]:)/, '$1');
 const TMP = mkdtempSync(join(tmpdir(), 'atelier-test-'));
 const DATA = join(TMP, 'data'), BK = join(TMP, 'sauvegardes'), RESTORED = join(TMP, 'restaure');
 const PORT = 3990, PORT2 = 3991, U = `http://127.0.0.1:${PORT}`;
-const FF = join(ROOT, 'tools/ffmpeg/ffmpeg.exe');
+const FF = FFMPEG;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const sha = (buf) => createHash('sha256').update(buf).digest('hex');
 
@@ -31,6 +33,15 @@ function png(w, h, seed, solid) {
   for (let y = 0; y < h; y++) { raw[y * (w * 3 + 1)] = 0; for (let x = 0; x < w; x++) { const o = y * (w * 3 + 1) + 1 + x * 3; raw[o] = (x * 255 / w + seed * 40) & 255; raw[o + 1] = (y * 255 / h) & 255; raw[o + 2] = (128 + seed * 60 + ((x ^ y) & 31)) & 255; if (solid) { raw[o] = solid[0]; raw[o + 1] = solid[1]; raw[o + 2] = solid[2]; } } }
   const ih = Buffer.alloc(13); ih.writeUInt32BE(w, 0); ih.writeUInt32BE(h, 4); ih[8] = 8; ih[9] = 2;
   return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ih), chunk('IDAT', deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]);
+}
+
+// PNG RGBA entièrement transparent (logo « vide »)
+function pngClear(w, h) {
+  const src = png(1, 1, 0), crcT = new Int32Array(256).map((_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c; });
+  const crc = (b) => { let c = -1; for (const x of b) c = crcT[(c ^ x) & 255] ^ (c >>> 8); return (c ^ -1) >>> 0; };
+  const chunk = (t, d) => { const l = Buffer.alloc(4); l.writeUInt32BE(d.length); const td = Buffer.concat([Buffer.from(t), d]); const c = Buffer.alloc(4); c.writeUInt32BE(crc(td)); return Buffer.concat([l, td, c]); };
+  const ih = Buffer.alloc(13); ih.writeUInt32BE(w, 0); ih.writeUInt32BE(h, 4); ih[8] = 8; ih[9] = 6;
+  return Buffer.concat([src.subarray(0, 8), chunk('IHDR', ih), chunk('IDAT', deflateSync(Buffer.alloc((w * 4 + 1) * h))), chunk('IEND', Buffer.alloc(0))]);
 }
 
 // ---------- serveur
@@ -68,7 +79,8 @@ const campAll2 = (path) => campAll(path, A2);
 await step('0. Démarrage de l’atelier sur des données vierges', async () => {
   srv = startServer(PORT, DATA);
   check('le serveur démarre', await waitUp(PORT), srv.log().split('\n')[0]);
-  await fetch(U + '/setup', { method: 'POST', headers: F(U), body: new URLSearchParams({ name: 'Alice', password: 'motdepasse-alice' }) });
+  const su = await fetch(U + '/setup', { method: 'POST', redirect: 'manual', headers: F(U), body: new URLSearchParams({ name: 'Alice', password: 'motdepasse-alice' }) });
+  check('après la création du compte, on est connecté tout de suite (pas de seconde saisie)', /sid=[0-9a-f]{64}/.test(su.headers.get('set-cookie') || ''));
   A = await client(U, 'Alice', 'motdepasse-alice');
   check('un seul compte suffit : tout le parcours se fait seul(e)', !!A.ck);
 });
@@ -120,6 +132,9 @@ await step('1b. Polices par format et « Uniformiser » : un format réglé se r
   check('l’autre format reprend dégradé, police et position du texte', /name="gradient"[^>]*value="33"/.test(p1) && /<option value="Impact" selected/.test(p1) && /<option value="Verdana" selected/.test(p1) && /<option selected>haut/.test(p1));
   const els = /name="els" value="([^"]*)"/.exec(p1)?.[1] || '';
   check('la couleur de l’élément est reportée, pas sa position', /ff0000/.test(els) && !/&quot;dx&quot;:40/.test(els), els);
+  const rp = await A.post('/edition/1/poster/4x5/sync?positions=1', body);
+  const els2 = /name="els" value="([^"]*)"/.exec(await A.text('/edition/1/poster/1x1'))?.[1] || '';
+  check('« Uniformiser … positions comprises » reporte aussi les déplacements, en proportion du format', /reportées en proportion/.test(decodeURIComponent(A.loc(rp))) && /&quot;dx&quot;:40/.test(els2), els2);
   for (const fmt of ['4x5', '9x16', '1x1']) await A.post('/edition/1/poster/' + fmt + '/save', { hero: String(ids.hero), logo: String(ids.logo), partners: '1', style: 'classique', gradient: '65' });
 });
 
@@ -182,7 +197,7 @@ await step('4. Variantes guidées : intention obligatoire, pas de quasi-doublon'
   check('filtre par type : les textes ne montrent pas les affiches', !/Émerveillement/.test(await A.text('/edition/1/variants?type=texte')) && /Émerveillement/.test(await A.text('/edition/1/variants?type=affiche')));
 });
 
-await step('4b. Parcours court d’une personne seule : 3 actions de la création à l’association', async () => {
+await step('4b. Parcours court d’une personne seule : 2 actions de la création à l’association', async () => {
   const wiz = await A.text('/edition/1/variants/new?mode=test');
   check('assistant détaillé : responsable et relecteur facultatif proposés', /Responsable/.test(wiz) && /Relecteur/.test(wiz));
   const pre = await A.text(`/edition/1/variants/new?mode=test&campaign=${ids.c}&adset=${ids.adset}&formats=1x1,16x9`);
@@ -207,11 +222,11 @@ await step('4b. Parcours court d’une personne seule : 3 actions de la créatio
   const ae = await A.post(`/edition/1/variants/${vid}/approve-export`, {});
   check('« Approuver et exporter » en UNE action', /Approuvée \(v1\) et exportée/.test(A.loc(ae)), A.loc(ae));
   const page2 = await A.text(`/edition/1/variants/${vid}`);
-  check('la prochaine étape devient « associer à la campagne »', /Associer à la campagne/.test(page2));
-  const li = await A.post(`/edition/1/variants/${vid}/link`, { target: 'auto' });
-  check('association à l’ensemble choisi en UNE action (sans choisir de niveau)', /associée\(s\) en brouillon/.test(A.loc(li)), A.loc(li));
+  check('les sorties sont rangées d’office dans leur campagne, en brouillon (plus d’action « associer »)', /rangés dans la campagne/.test(page2) && !/Associer à la campagne/.test(page2));
+  const camp = await A.text(`/edition/1/campaigns/${ids.c}?vue=diffusion`);
+  check('association à l’ensemble choisi, sans choisir de niveau, et « Tout approuver pour la campagne » proposé', camp.includes('Dernières places · ') && /Tout approuver pour la campagne/.test(camp));
   const actions = A.posts - before;
-  check('3 actions seulement de la création à l’association (hors réglages de design)', actions === 3, `${actions} action(s)`);
+  check('2 actions seulement de la création à l’association (hors réglages de design)', actions === 2, `${actions} action(s)`);
   ids.v4 = vid; ids.actionsStandard = actions;
 });
 
@@ -275,7 +290,7 @@ await step('4d. Points d’entrée libres : affiche reçue (SVG / image) et docu
   // documents : concept Word, texte, PDF illisible
   const dir = join(TMP, 'docx'); mkdirSync(join(dir, 'word'), { recursive: true });
   writeFileSync(join(dir, 'word', 'document.xml'), '<?xml version="1.0"?><w:document xmlns:w="x"><w:body><w:p><w:r><w:t>Concept : lanternes &amp; silence</w:t></w:r></w:p><w:p><w:r><w:t>Scène 1 — le pont de pierre</w:t></w:r></w:p></w:body></w:document>');
-  spawnSync(join(process.env.SystemRoot || 'C:/Windows', 'System32/tar.exe'), ['-a', '-c', '-f', join(TMP, 'concept.zip'), '-C', dir, 'word']);
+  spawnSync(TAR, ['-a', '-c', '-f', join(TMP, 'concept.zip'), '-C', dir, 'word']);
   const dc = await rawUp('brief', 'concept-teaser.docx', readFileSync(join(TMP, 'concept.zip')), 'content');
   check('un document Word devient un contenu texte lu automatiquement', /Document import/.test(decodeURIComponent(dc.json.url || '')), dc.json.url || dc.json.error);
   const cp = await A.text(`/edition/${P}/contents`);
@@ -306,7 +321,7 @@ await step('4e. Gestionnaire de projets : essai, renommer, archiver, supprimer',
   const t = await A.post('/edition/test'); const T = Number(/edition\/(\d+)/.exec(t.headers.get('location'))?.[1]);
   check('projet d’essai créé avec une fiche d’exemple provisoire', !!T && /provisoire/.test(await A.text('/')) && /TEST SHOW/.test(await A.text(`/edition/${T}/settings`)));
   const hp = await A.text(`/edition/${T}`);
-  check('« Y aller » mène aux paramètres, section concernée (pas à l’accueil lui-même)', new RegExp(`href="/edition/${T}/settings#sec-[a-z]+"[^>]*>Y aller`).test(hp), (/Prochaine étape[^]*?Y aller/.exec(hp) || [''])[0].slice(-200));
+  check('« Y aller » mène aux paramètres, section concernée (pas à l’accueil lui-même)', new RegExp(`href="/edition/${T}/settings#sec-[a-z]+"[^>]*>Continuer`).test(hp), (/home-actions[^]*?Continuer/.exec(hp) || [''])[0].slice(-200));
   const aid = await A.up(T, 'hero', 'essai.png', png(300, 300, 1));
   const ex = await A.post(`/edition/${T}/poster/4x5/export`, { hero: String(aid), partners: '0', style: 'classique', gradient: '50' });
   check('un export existe dans le projet d’essai', /export/i.test(A.loc(ex)));
@@ -333,7 +348,7 @@ await step('4e. Gestionnaire de projets : essai, renommer, archiver, supprimer',
 await step('4f. Navigation simplifiée : Accueil de travail, cinq destinations, paramètres à part', async () => {
   const h = await A.text('/edition/1');
   check('cinq destinations + Paramètres du projet (plus de « Contenus » à part : un contenu naît dans une campagne)', ['Accueil', 'Campagnes', 'Calendrier', 'Site web', 'Bibliothèque', 'Paramètres du projet'].every((w) => h.includes(`>${w}<`)) && !h.includes('>Contenus<'));
-  check('l’Accueil mène aux campagnes et au calendrier ; pas de création de contenu hors campagne', /Mes campagnes/.test(h) && /Calendrier du projet/.test(h) && !/\+ Créer un contenu/.test(h));
+  check('l’Accueil mène aux campagnes et au calendrier ; pas de création de contenu hors campagne', /Mes campagnes/.test(h) && />Calendrier</.test(h) && !/\+ Créer un contenu/.test(h));
   check('l’Accueil n’est plus la fiche (pas de formulaire de fiche)', !/name="title_en"/.test(h) && !/Dupliquer ce projet/.test(h));
   check('l’Accueil distingue production à reprendre, validations, échéances, suivi et configuration', ['Production à reprendre', 'Validations attendues', 'Prochaines échéances', 'Suivi et configuration'].every((w) => h.includes(w)));
   check('un contenu n’apparaît qu’une fois sur l’Accueil', ((h.match(/Émerveillement/g) || []).length) <= 2);
@@ -354,7 +369,7 @@ await step('4g. Espace de contenu : créer, matériel, création, vérification,
   check('création sans nom ni hypothèse : un nom est proposé, arrivée sur le matériel', !!v1 && /step=materiel/.test(A.loc(c1)), A.loc(c1));
   const m1 = await A.text('/edition/' + P + '/variants/' + v1 + '?step=materiel');
   check('quatre étapes visibles : Matériel, Création, Vérification et exports, Diffusion', ['Matériel', 'Création', 'Vérification et exports', 'Diffusion'].every((w) => m1.includes(w)));
-  check('matériel : import direct, affiche reçue, formats, brief marketing replié', /Ajouter un fichier/.test(m1) && /Aucune image dans ce projet|Affiche reçue/.test(m1) && /Formats de sortie/.test(m1) && /Brief marketing/.test(m1));
+  check('matériel : import direct, affiche reçue, formats, brief marketing replié', /Ajouter un fichier/.test(m1) && /Aucune image dans ce projet|Affiche reçue/.test(m1) && /Formats de l’affiche/.test(m1) && /Brief marketing/.test(m1));
   const ph = await rawUp('role=hero&name=photo-test.png&what=hero&variant=' + v1, png(900, 1100, 1));
   check('un import depuis le matériel est utilisé tout de suite (sans quitter l’espace)', ph.status === 200 && /step=materiel/.test(ph.json.url) && /photo/i.test(decodeURIComponent(ph.json.url)), ph.json.url);
   check('…et il est dans la bibliothèque', /photo-test\.png/.test(await A.text('/edition/' + P + '/assets')));
@@ -446,7 +461,7 @@ await step('4h. Campagnes, bibliothèque et calendrier reliés au parcours de co
   const sv = await A.post('/edition/1/campaigns/meta', { ad_account: 'act_42', page_name: 'Page test', from: 'settings' });
   check('enregistrer la connexion ramène aux paramètres, donnée conservée', /\/settings/.test(A.loc(sv)) && /value="act_42"/.test(await A.text('/edition/1/settings')));
   const cp = await campAll('/edition/1/campaigns/' + ids.c);
-  check('page campagne : contenus et avancement avant la configuration Meta', cp.indexOf('Contenus de cette campagne') > 0 && cp.indexOf('Contenus de cette campagne') < cp.indexOf('Configuration Meta') && /Brief interne et lien avec Meta/.test(cp));
+  check('page campagne : contenus et avancement avant la configuration Meta', cp.indexOf('Contenus de cette campagne') > 0 && cp.indexOf('Contenus de cette campagne') < cp.indexOf('Configuration Meta') && cp.indexOf('Brief interne') < cp.lastIndexOf('Configuration Meta'));
   check('page campagne : le fil Brief › Contenus › Validation › Export › Meta, avec le prochain pas', /class="frise"/.test(cp) && ['Brief', 'Contenus', 'Validation', 'Export', 'Meta'].every((w) => cp.includes(`. ${w}</b>`)) && /class="now"/.test(cp));
   const oc = await A.post('/edition/1/variants/new', { type: 'affiche', name: 'Visuel organique' }), ov = Number(/variants\/(\d+)/.exec(A.loc(oc))?.[1]);
   const lst = await A.text('/edition/1/campaigns');
@@ -577,6 +592,45 @@ await step('4i. Validations ciblées, modèles de contenu et kit graphique', asy
   check('l’archive d’un kit se crée aussi (sans format)', /Archive créée/.test(A.loc(bz)), A.loc(bz));
 });
 
+await step('4j. Retours d’usage (designer) : variante B en un clic, bandeau lisible, validation groupée, textes de publicité, impression', async () => {
+  const nc = await A.post('/edition/1/campaigns/new', { name: 'Test retours designer', brief_objective: 'Préventes', brief_audience: 'Touristes' });
+  const cid = Number(/campaigns\/(\d+)/.exec(A.loc(nc))?.[1]);
+  check('nouvelle campagne : « créée » (plus « reliée »), pas d’étiquette « inconnu » trompeuse', /Campagne créée/.test(decodeURIComponent(A.loc(nc))) && /pas encore dans Meta/.test(await A.text(`/edition/1/campaigns/${cid}`)));
+  const c = await A.post('/edition/1/variants/new', { simple: '1', type: 'affiche', name: 'Affiche A', campaign_id: String(cid), fmt_4x5: '1', fmt_1x1: '1' });
+  const vid = Number(/variants\/(\d+)/.exec(A.loc(c))?.[1]);
+  await A.post(`/edition/1/variants/${vid}/material`, { hero: String(ids.hero), logo: String(ids.logo) });
+  await A.post(`/edition/1/poster/4x5/save?variant=${vid}`, { hero: String(ids.hero), logo: String(ids.logo), partners: '0', style: 'bandeau', gradient: '60', text_pos: 'haut', els: JSON.stringify({ kicker: { text: 'Kyoto · Spring 2027' } }) });
+  const r = await A.text(`/render/poster/1/4x5?variant=${vid}`);
+  check('bandeau : l’accroche saisie est affichée (plus avalée), pied de page assombri, titre équilibré', /class="bk"[^>]*>Kyoto · Spring 2027/.test(r) && /class="shade"/.test(r) && /text-wrap:balance/.test(r));
+  const d = await A.post(`/edition/1/variants/${vid}/duplicate`, { quick: '1' });
+  const vb = Number(/variants\/(\d+)/.exec(A.loc(d))?.[1]);
+  check('« Créer une variante » en un clic : nommée « … — B », ouverte dans la création', !!vb && vb !== vid && /Affiche A — B/.test(decodeURIComponent(A.loc(d))) && /step=creation/.test(A.loc(d)), decodeURIComponent(A.loc(d)));
+  check('la variante B garde TOUT, y compris le texte retouché du format', /Kyoto · Spring 2027/.test(await A.text(`/render/poster/1/4x5?variant=${vb}`)) && /Kyoto · Spring 2027/.test(await A.text(`/render/poster/1/4x5?variant=${vid}`)));
+  const ws = await A.text(`/edition/1/variants/${vb}?step=verification`);
+  check('fil d’Ariane Campagnes › campagne › contenu, et bouton « Créer une variante » sur chaque étape', /class="crumbs"/.test(ws) && ws.includes('>Campagnes</a> › <a href="/edition/1/campaigns/' + cid + '"') && /⧉ Créer une variante/.test(ws));
+  await A.post(`/edition/1/variants/${vid}/approve-export`, {});
+  const cp = await A.text(`/edition/1/campaigns/${cid}?vue=diffusion`);
+  check('la sortie exportée est rangée d’office dans sa campagne, en brouillon', cp.includes('Affiche A · 4:5'));
+  check('« Tout approuver pour la campagne » proposé ; un blocage est expliqué AVANT le clic', /Tout approuver pour la campagne \(\d+\)/.test(cp) && (/class="why"/.test(cp) || !/BROUILLON/.test(cp)));
+  const aa = await A.post(`/edition/1/campaigns/${cid}/approve-all`, {});
+  check('« Tout approuver » valide en une action ce qui peut l’être et dit ce qui reste bloqué', /contenu\(s\) approuvé\(s\) pour la campagne/.test(decodeURIComponent(A.loc(aa))), decodeURIComponent(A.loc(aa)));
+  const t = await A.post('/edition/1/variants/new', { type: 'texte', name: 'Texte pub', campaign_id: String(cid) });
+  const tid = Number(/texts\/(\d+)/.exec(A.loc(t))?.[1]);
+  await A.post(`/edition/1/texts/${tid}/save`, { title: 'Texte pub', body: 'A night of light in a 1,100-year-old temple.', ad_headline: 'Night of a Thousand Lanterns', ad_description: 'Kyoto, spring 2027' });
+  const tp = await A.text(`/edition/1/texts/${tid}?step=creation`);
+  check('texte de publicité : texte principal, titre, description, avec compteurs Meta', /name="ad_headline" value="Night of a Thousand Lanterns" data-count="40"/.test(tp) && /name="ad_description"/.test(tp) && /data-count="125"/.test(tp));
+  check('un nouveau texte démarre en brouillon et apparaît dans les contenus de sa campagne', /brouillon/.test(tp) && (await A.text(`/edition/1/campaigns/${cid}`)).includes(`/edition/1/texts/${tid}`));
+  const a3 = await A.text('/edition/1/poster/a3');
+  check('format d’impression A3 avec fond perdu (PNG 300 dpi, PDF à la taille réelle)', /297 × 420 mm \+ 3 mm de fond perdu/.test(a3) && /3578×5031/.test(a3));
+  check('PNG opaque : aucun avertissement (pas de faux positif)', !/est vide ou entièrement transparent/.test(await A.text('/edition/1/assets')));
+  const emptyLogo = await A.up(1, 'logo', 'logo-vide.png', pngClear(60, 40));
+  await A.post(`/edition/1/variants/${vb}/material`, { logo: String(emptyLogo) });
+  const chk = await A.text(`/edition/1/variants/${vb}?step=verification`);
+  check('logo vide ou transparent : signalé dans la bibliothèque, le matériel et les contrôles', /logo-vide\.png » est vide ou entièrement transparent/.test(await A.text('/edition/1/assets')) && /vide ou transparent : il n’apparaîtra pas/.test(await A.text(`/edition/1/variants/${vb}?step=materiel`)) && /logo-vide\.png » est vide/.test(chk));
+  await A.post(`/assets/${emptyLogo}/update`, { status: 'archivé' });
+  await A.post(`/edition/1/variants/${vid}/archive`, {}); await A.post(`/edition/1/variants/${vb}/archive`, {});
+});
+
 await step('5. Corriger textes, cadrage et sous-titres', async () => {
   const msg = await A.post(`/edition/1/variants/${ids.v1}/messages`, { msg_title: 'LIGHT & SOUND', msg_tagline: 'Wonder after dark', msg_top: 'Every evening from sunset', msg_cta: 'Book now' });
   check('textes appliqués aux formats', /Textes appliqués/.test(A.loc(msg)));
@@ -657,7 +711,8 @@ await step('7b. Fichier d’export disparu : l’atelier le dit, la reprise ne c
   check('après l’export : 2/2 fichiers disponibles', /Création approuvée \(v\d+\) · 2\/2 fichiers disponibles/.test(pg), (/Création approuvée[^<]*/.exec(pg) || [''])[0]);
   const before = links(pg);
   const r = await A.get('/exports/' + before[0] + '?dl=1');
-  const file = /filename="([^"]+)"/.exec(r.headers.get('content-disposition') || '')?.[1];
+  check('nom de fichier lisible au téléchargement (projet, contenu, format, version)', /filename="[a-z0-9-]+-test-reprise-export-(4x5|1x1)-v\d+(-BROUILLON)?\.png"/.test(r.headers.get('content-disposition') || ''), r.headers.get('content-disposition'));
+  const file = readdirSync(join(DATA, 'exports')).find((f) => f.startsWith(`variante-${vid}-v`)); // le fichier stocké garde son nom technique
   await r.arrayBuffer();
   rmSync(join(DATA, 'exports', file), { force: true });
   pg = await page();
@@ -838,7 +893,7 @@ await step('11d. Timeline vidéo : clips bout à bout, éléments (échelle, rot
   if (job?.status !== 'done') return;
   const mp4 = join(TMP, 'tl-' + job.id + '.mp4');
   writeFileSync(mp4, Buffer.from(await (await A.get('/exports/' + job.export_id)).arrayBuffer()));
-  const dur = Number(spawnSync(join(ROOT, 'tools/ffmpeg/ffprobe.exe'), ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', mp4]).stdout.toString());
+  const dur = Number(spawnSync(FFPROBE, ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', mp4]).stdout.toString());
   check('durée = somme des deux clips (3 s)', Math.abs(dur - 3) < 0.25, String(dur));
   const frame = (sec) => spawnSync(FF, ['-v', 'error', '-ss', String(sec), '-i', mp4, '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'], { maxBuffer: 30e6 }).stdout;
   const W = 1080, H = 1920, at = (rgb, x, y) => { const o = (y * W + x) * 3; return [rgb[o], rgb[o + 1], rgb[o + 2]]; };
@@ -980,7 +1035,7 @@ await step('11g. Pistes : l’ordre des pistes décide de ce qui est au-dessus ;
     const mp4 = join(TMP, 'pistes-' + job.id + '.mp4');
     writeFileSync(mp4, Buffer.from(await (await A.get('/exports/' + job.export_id)).arrayBuffer()));
     const frame = (sec) => spawnSync(FF, ['-v', 'error', '-ss', String(sec), '-i', mp4, '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'], { maxBuffer: 30e6 }).stdout;
-    const probe = spawnSync(join(ROOT, 'tools/ffmpeg/ffprobe.exe'), ['-v', 'error', '-show_entries', 'stream=codec_type', '-of', 'csv=p=0', mp4]).stdout.toString();
+    const probe = spawnSync(FFPROBE, ['-v', 'error', '-show_entries', 'stream=codec_type', '-of', 'csv=p=0', mp4]).stdout.toString();
     return { frame, audio: /audio/.test(probe) };
   };
   const at = (rgb, x, y) => { const o = (y * W + x) * 3; return [rgb[o], rgb[o + 1], rgb[o + 2]]; };
@@ -1121,7 +1176,7 @@ await step('14. Pages dans un vrai navigateur (assistant, éditeur de variante, 
     await br.sleep(1200);
     check('F01 au retour dans l’éditeur : plus de modification en attente et l’élément est resté où il était', await br.ev(`window.__poster.dirty() === false && document.querySelector('#pform [name=els]').value.includes('"title"')`), await br.ev(`document.querySelector('#pform [name=els]').value.slice(0, 120)`));
     await shot('editeur-variante');
-    for (const [p, n, re] of [['/edition/1/calendar?month=2027-01', 'calendrier', 'Réunion de lancement'], [`/edition/1/campaigns/${ids.c}`, 'campagne', 'Configuration Meta'], [`/edition/1/campaigns/${ids.c}/guide`, 'guide-meta', 'Guide Ads Manager'], ['/edition/1/variants', 'variantes', 'Tous les contenus'], ['/settings', 'reglages', 'Sauvegardes'], ['/edition/1/contents', 'contenus', 'Associé']]) {
+    for (const [p, n, re] of [['/edition/1/calendar?month=2027-01', 'calendrier', 'Réunion de lancement'], [`/edition/1/campaigns/${ids.c}`, 'campagne', 'Contenus de cette campagne'], [`/edition/1/campaigns/${ids.c}/guide`, 'guide-meta', 'Guide Ads Manager'], ['/edition/1/variants', 'variantes', 'Tous les contenus'], ['/settings', 'reglages', 'Sauvegardes'], ['/edition/1/contents', 'contenus', 'Associé']]) {
       await br.go(U + p);
       check(`page ${n} s’affiche`, await br.ev(`document.body.innerText.includes(${JSON.stringify(re)})`));
       await shot(n);

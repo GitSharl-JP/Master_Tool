@@ -7,6 +7,7 @@ import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readdirSync, cpSync, exi
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { deflateSync } from 'node:zlib';
+import { TAR } from '../src/platform.js';
 
 const ROOT = decodeURIComponent(new URL('../', import.meta.url).pathname).replace(/^\/([A-Za-z]:)/, '$1');
 const TMP = mkdtempSync(join(tmpdir(), 'ai-sample-')), PORT = 3988, U = `http://127.0.0.1:${PORT}`;
@@ -43,7 +44,7 @@ try {
   const zip = join(TMP, 'archive.zip');
   writeFileSync(zip, Buffer.from(await (await fetch(`${U}/exports/${id}`, { headers: { cookie: ck } })).arrayBuffer()));
   const ex = join(TMP, 'x'); mkdirSync(ex);
-  spawnSync('C:/Windows/System32/tar.exe', ['-x', '-f', zip, '-C', ex]);
+  spawnSync(TAR, ['-x', '-f', zip, '-C', ex]);
   const top = readdirSync(ex)[0];
   rmSync(OUT, { recursive: true, force: true }); mkdirSync(OUT, { recursive: true });
   for (const f of ['svg/4x5.svg', 'svg/16x9.svg', 'pdf/4x5.pdf', 'pdf/16x9.pdf', 'apercus/4x5.png', 'apercus/16x9.png', 'VERIFICATION-ILLUSTRATOR.txt', 'design.json']) {

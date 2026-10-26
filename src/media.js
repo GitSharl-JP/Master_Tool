@@ -1,13 +1,28 @@
 // Outils média : ffmpeg/ffprobe, sous-titres (SRT/VTT/ASS) et calcul du cadrage.
-// ffmpeg est cherché dans tools/ffmpeg/ (installation portable du projet), sinon dans le PATH, sinon via ATELIER_FFMPEG.
+// ffmpeg est cherché via ATELIER_FFMPEG, sinon dans tools/ffmpeg/ (installation portable du projet), sinon (macOS) dans
+// ffmpeg-full de Homebrew (le ffmpeg simple de Homebrew n'a ni drawtext ni libass), sinon dans le PATH.
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 
 const LOCAL = decodeURIComponent(new URL('../tools/ffmpeg/', import.meta.url).pathname).replace(/^\/([A-Za-z]:)/, '$1');
-const pick = (name) => process.env['ATELIER_' + name.toUpperCase()] || (existsSync(LOCAL + name + '.exe') ? LOCAL + name + '.exe' : name);
+const DIRS = [LOCAL, '/opt/homebrew/opt/ffmpeg-full/bin/', '/usr/local/opt/ffmpeg-full/bin/'];
+const pick = (name) => process.env['ATELIER_' + name.toUpperCase()] || DIRS.flatMap((d) => [d + name + '.exe', d + name]).find(existsSync) || name;
 export const FFMPEG = pick('ffmpeg');
 export const FFPROBE = pick('ffprobe');
-export const ffmpegReady = () => { try { return spawnSync(FFMPEG, ['-version'], { timeout: 10000 }).status === 0; } catch { return false; } };
+// Prêt = ffmpeg se lance ET possède les filtres des exports (texte du bandeau BROUILLON, sous-titres).
+// Résultat gardé une minute : la question est posée à chaque page qui propose une vidéo.
+let readyCache = null;
+export const ffmpegReady = () => {
+  if (readyCache && Date.now() - readyCache.at < 60000) return readyCache.ok;
+  let ok = false;
+  try {
+    const r = spawnSync(FFMPEG, ['-hide_banner', '-filters'], { timeout: 10000, encoding: 'utf8' });
+    ok = r.status === 0 && / drawtext /.test(r.stdout) && / ass /.test(r.stdout);
+  } catch { ok = false; }
+  readyCache = { ok, at: Date.now() };
+  return ok;
+};
+export const FFMPEG_HELP = 'L’export vidéo est impossible sur cet ordinateur : ffmpeg est introuvable ou incomplet (filtres texte et sous-titres absents). Il doit se trouver dans tools/ffmpeg/ ; sur Mac : brew install ffmpeg-full.';
 
 // { w, h, duration, fps, hasAudio } — w/h tiennent compte de la rotation des vidéos de téléphone.
 export function probe(file) {

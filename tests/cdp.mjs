@@ -2,8 +2,9 @@
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { browserPath } from '../src/platform.js';
 
-const EDGE = ['C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', 'C:/Program Files/Microsoft/Edge/Application/msedge.exe', 'C:/Program Files/Google/Chrome/Application/chrome.exe'].find(existsSync);
+const EDGE = browserPath();
 export const edgeAvailable = !!EDGE;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 

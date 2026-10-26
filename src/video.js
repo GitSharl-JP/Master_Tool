@@ -7,6 +7,7 @@ import { FFMPEG, probe, reframe, parseSubtitles, toAss } from './media.js';
 import { getAsset, assetPath, getDesign, buildPosterHtml, htmlToPng, EXPORT_PATH, fireDesignSaved } from './studio.js';
 import { FORMATS, VIDEO_FORMATS } from './formats.js';
 import { posterBlockers } from './schema.js';
+import { ASS_FONTSDIR, DRAFT_FONT } from './platform.js';
 import { cleanTl, tlSummary, tlAssetIds, legacyToTl, buildTlJob, infoOf, resolveSubs, mergedCues, cleanCues } from './timeline.js';
 
 db.exec(`
@@ -247,9 +248,9 @@ async function runJob(id) {
     fg.push(`[${idx.logo}:v]scale=${lw}:-1,format=rgba[lg]`, `[${cur}][lg]overlay=${x}:${y}:format=auto[v1]`);
     cur = 'v1';
   }
-  if (ass) { fg.push(`[${cur}]ass=subs.ass:fontsdir='C\\:/Windows/Fonts'[v2]`); cur = 'v2'; }
+  if (ass) { fg.push(`[${cur}]ass=subs.ass${ASS_FONTSDIR}[v2]`); cur = 'v2'; }
   if (draft) {
-    fg.push(`[${cur}]drawbox=x=0:y=0:w=iw:h=${Math.round(f.h * 0.028)}:color=0xb3261e@1:t=fill,drawtext=fontfile='C\\:/Windows/Fonts/arialbd.ttf':text='DRAFT - NOT FOR PUBLICATION':fontcolor=white:fontsize=${Math.round(f.h * 0.017)}:x=(w-text_w)/2:y=${Math.round(f.h * 0.0045)}[v3]`);
+    fg.push(`[${cur}]drawbox=x=0:y=0:w=iw:h=${Math.round(f.h * 0.028)}:color=0xb3261e@1:t=fill,drawtext=fontfile='${DRAFT_FONT}':text='DRAFT - NOT FOR PUBLICATION':fontcolor=white:fontsize=${Math.round(f.h * 0.017)}:x=(w-text_w)/2:y=${Math.round(f.h * 0.0045)}[v3]`);
     cur = 'v3';
   }
   const aMain = info.hasAudio ? '[0:a]' : `[${idx.sil0}:a]`;

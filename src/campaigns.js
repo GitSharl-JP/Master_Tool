@@ -48,6 +48,9 @@ for (const [c, d] of [['meta_synced_at', 'TEXT'], ['meta_source', "TEXT NOT NULL
 addCol('content_links', 'text_version_id', 'INTEGER');
 for (const [c, d] of [['superseded_by', 'INTEGER'], ['period_from', T], ['period_to', T], ['currency', T], ['result_type', T], ['clicks_kind', T], ['missing', T]]) addCol('results', c, d);
 for (const [c, d] of [['variant_id', 'INTEGER'], ['variant_version', 'INTEGER'], ['body', T], ['asset_id', 'INTEGER']]) addCol('contents', c, d);
+// texte de publicité : titre et description en plus du texte principal (body), figés avec lui dans chaque version
+for (const c of ['ad_headline', 'ad_description']) addCol('contents', c, T);
+for (const c of ['headline', 'description']) addCol('text_versions', c, T);
 // anciennes valeurs -> nouveau vocabulaire ; anciens champs recopiés vers la configuration Meta / le brief interne
 db.exec(`
 UPDATE content_links SET state='brouillon' WHERE state='prévu';
@@ -97,8 +100,9 @@ export function createContent(pid, b, who) {
 export function updateContent(id, b, who) {
   const c = getContent(id);
   if (!c) return;
-  db.prepare('UPDATE contents SET title=?,angle=?,audience=?,language=?,channel=?,status=?,notes=?,body=?,updated=? WHERE id=?')
-    .run(txt(b.title, 140) || c.title, txt(b.angle, 140), txt(b.audience, 140), txt(b.language, 40), txt(b.channel, 40), CONTENT_STATUSES.includes(b.status) ? b.status : c.status, txt(b.notes, 500), b.body === undefined ? c.body : txt(b.body, 20000), now(), id);
+  db.prepare('UPDATE contents SET title=?,angle=?,audience=?,language=?,channel=?,status=?,notes=?,body=?,ad_headline=?,ad_description=?,updated=? WHERE id=?')
+    .run(txt(b.title, 140) || c.title, txt(b.angle, 140), txt(b.audience, 140), txt(b.language, 40), txt(b.channel, 40), CONTENT_STATUSES.includes(b.status) ? b.status : c.status, txt(b.notes, 500), b.body === undefined ? c.body : txt(b.body, 20000),
+      b.ad_headline === undefined ? c.ad_headline : txt(b.ad_headline, 200), b.ad_description === undefined ? c.ad_description : txt(b.ad_description, 200), now(), id);
   log(who, `Contenu modifié : ${c.title}`);
 }
 // Nouvelle version d'un contenu : n'affecte AUCUNE association existante (elles restent épinglées sur leur export).
@@ -204,9 +208,10 @@ export const campaignIdOfLink = (l) => targetOf(l)?.campaign_id || null;
 export const getTextVersion = (id) => (id ? db.prepare('SELECT * FROM text_versions WHERE id=?').get(id) : null);
 function snapshotText(c, who) {
   const body = String(c.body || '');
-  const same = db.prepare('SELECT id FROM text_versions WHERE content_id=? AND body=? AND title=? AND language=? ORDER BY id DESC').get(c.id, body, c.title, c.language || '');
+  const h = c.ad_headline || '', ds = c.ad_description || '';
+  const same = db.prepare('SELECT id FROM text_versions WHERE content_id=? AND body=? AND title=? AND language=? AND headline=? AND description=? ORDER BY id DESC').get(c.id, body, c.title, c.language || '', h, ds);
   if (same) return same.id;
-  return Number(db.prepare('INSERT INTO text_versions(content_id,title,body,language,created,created_by) VALUES(?,?,?,?,?,?)').run(c.id, c.title, body, c.language || '', now(), who || '').lastInsertRowid);
+  return Number(db.prepare('INSERT INTO text_versions(content_id,title,body,language,headline,description,created,created_by) VALUES(?,?,?,?,?,?,?,?)').run(c.id, c.title, body, c.language || '', h, ds, now(), who || '').lastInsertRowid);
 }
 export const textVersionsOf = (contentId) => db.prepare('SELECT * FROM text_versions WHERE content_id=? ORDER BY id DESC').all(contentId);
 // Le texte réellement associé : la version figée ; `historical` = association antérieure aux versions (l'original n'est pas garanti).
@@ -214,7 +219,7 @@ export function linkedText(l) {
   const c = getContent(l.content_id);
   if (!c || c.kind !== 'texte') return null;
   const v = getTextVersion(l.text_version_id);
-  return v ? { ...v, historical: false, current: v.body === c.body && v.title === c.title } : { id: null, body: c.body, title: c.title, language: c.language, historical: true, current: true };
+  return v ? { ...v, historical: false, current: v.body === c.body && v.title === c.title && v.headline === (c.ad_headline || '') && v.description === (c.ad_description || '') } : { id: null, body: c.body, title: c.title, language: c.language, historical: true, current: true };
 }
 export function linkContent(contentId, target, who) { // target : { campaign_id } | { adset_id } | { ad_id }
   const c = getContent(contentId);
@@ -237,7 +242,9 @@ export function transitionRecap(linkId, toState) {
   if (!l || !LINK_STATES.includes(toState)) return null;
   const c = getContent(l.content_id), e = l.export_id ? getExport(l.export_id) : null, tg = targetOf(l);
   const errors = [], warnings = [], tx = c?.kind === 'texte' ? linkedText(l) : null;
-  if (tx && !tx.historical && !tx.current && ['approuvé', 'transmis'].includes(toState)) errors.push('Le texte a été modifié depuis cette association : associez la version actuelle (l’ancienne reste telle quelle).');
+  // tant qu'une association de texte est en préparation, elle suit le texte actuel (re-épinglée à l'approbation) ; ensuite seulement, elle est figée
+  const follows = tx && ['brouillon', 'à relire'].includes(l.state) && toState === 'approuvé';
+  if (tx && !follows && !tx.historical && !tx.current && ['approuvé', 'transmis'].includes(toState)) errors.push('Le texte a été modifié depuis cette association : associez la version actuelle (l’ancienne reste telle quelle).');
   if (tx?.historical) warnings.push('Association antérieure aux versions de texte : l’original n’est pas garanti, le texte affiché est le texte actuel.');
   if (isFrozenState(l.state) && toState !== 'publié' && toState !== 'erreur') errors.push(`Cette association est déjà « ${l.state} » : version diffusée, figée.`);
   if (l.state === 'publié') errors.push('Cette association est déjà publiée : elle ne change plus depuis l’atelier.');
@@ -251,7 +258,9 @@ export function transitionRecap(linkId, toState) {
   if (['transmis', 'publié'].includes(toState)) warnings.push('Aucune connexion à Meta : l’atelier n’envoie rien. Ce changement est une déclaration manuelle de ce qui a été fait dans Ads Manager.');
   const recap = {
     de: l.state, vers: toState, contenu: c?.title, format: c?.format, version_export: l.export_id, fichier: e?.file, version_du: e?.created, version_texte: tx ? (tx.historical ? 'historique non garantie' : `v${tx.id}`) : undefined, empreinte_texte: tx ? createHash('sha1').update(`${tx.title}
-${tx.body}`).digest('hex').slice(0, 10) : undefined,
+${tx.body}${tx.headline || tx.description ? `
+${tx.headline}
+${tx.description}` : ''}`).digest('hex').slice(0, 10) : undefined,
     niveau: tg?.level, cible: tg?.name, id_meta: tg?.meta_id || '(non renseigné)', statut_meta: `${tg?.meta.status} — ${tg?.meta.manual ? 'saisi à la main' : 'synchronisé le ' + tg?.meta.syncedAt}`,
   };
   return { link: l, recap, errors, warnings, hash: createHash('sha1').update(JSON.stringify(recap)).digest('hex').slice(0, 12) };
@@ -263,6 +272,8 @@ export function setLinkState(linkId, state, who, confirmHash) {
   if (r.errors.length && state !== r.link.state) return { ok: false, error: r.errors[0] };
   if (needsConfirm && confirmHash !== r.hash) return { ok: false, error: 'Confirmation manquante ou périmée : relisez le récapitulatif.', needsRecap: true };
   if (isFrozenState(r.link.state) && !['publié', 'erreur'].includes(state)) return { ok: false, error: 'Version diffusée : association figée.' };
+  const c = getContent(r.link.content_id);
+  if (state === 'approuvé' && c?.kind === 'texte' && ['brouillon', 'à relire'].includes(r.link.state)) db.prepare('UPDATE content_links SET text_version_id=? WHERE id=?').run(snapshotText(c, who), linkId); // épinglé sur le texte approuvé
   db.prepare('UPDATE content_links SET state=?, transmitted_at=CASE WHEN ?=\'transmis\' THEN ? ELSE transmitted_at END WHERE id=?').run(state, state, now(), linkId);
   log(who, `Association ${linkId} : ${r.link.state} → ${state}${needsConfirm ? ' (déclaration manuelle confirmée : rien n’a été envoyé à Meta par l’atelier)' : ''}`);
   return { ok: true };

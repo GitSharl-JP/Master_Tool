@@ -3,7 +3,8 @@
 // et ses fichiers ; la bibliothèque de designs (modèles partagés entre projets) n'est pas touchée.
 import { existsSync, unlinkSync } from 'node:fs';
 import { db, log, createEdition, saveEdition, getEdition, backup } from './db.js';
-import { defaults, publishBlockers, SECTIONS } from './schema.js';
+import { defaults, SECTIONS, posterNeeds, explainNeeds } from './schema.js';
+import { getDesign } from './studio.js';
 import './studio.js'; import './video.js'; import './variants.js'; import './campaigns.js'; import './plan.js'; import './site.js'; import './library.js';
 import { storage } from './storage.js';
 import { EXPORT_PATH } from './studio.js';
@@ -85,19 +86,21 @@ export function deleteEdition(id, typedName, who) {
 // n'importe quelle étape) : la première étape non faite est simplement proposée comme « prochaine ».
 export function pipeline(ed) {
   const id = ed.id, c = projectCounts(id);
-  const blockers = publishBlockers(ed).length;
+  // même compte que « À faire maintenant » : ce qui empêche une affiche de sortir du BROUILLON (le site a ses propres exigences, sur sa page)
+  const needs = explainNeeds(ed, posterNeeds([['4x5', getDesign(id, 'poster_4x5')]]));
+  const blockers = needs.length;
   const approved = n("SELECT COUNT(*) c FROM variants WHERE project_id=? AND approved_version>0", id);
   const exported = n('SELECT COUNT(*) c FROM exports WHERE edition_id=? AND variant_id IS NOT NULL', id);
-  const links = n('SELECT COUNT(*) c FROM content_links l JOIN contents c ON c.id=l.content_id WHERE c.project_id=?', id);
+  const links = n("SELECT COUNT(*) c FROM content_links l JOIN contents c ON c.id=l.content_id WHERE c.project_id=? AND l.state IN ('approuvé','transmis','publié')", id);
   // « Y aller » doit mener là où l'on peut corriger : la première section des paramètres qui bloque, ou le contenu qui attend une action.
-  const sec = ed.data.venue_status !== 'confirmé' ? 'venue' : SECTIONS.find((s) => ed.validation[s.id]?.status !== 'approuvé')?.id;
+  const sec = needs[0]?.section || SECTIONS.find((s) => ed.validation[s.id]?.status !== 'approuvé')?.id;
   const waiting = variantsMod.listVariants(id).filter((v) => v.status !== 'archivé').find((v) => { const ns = variantsMod.nextStep(v.id); return ns && (ns.action === 'approve-export' || ns.action === 'export' || /^À corriger/.test(ns.text)); });
   const steps = [
-    { n: 1, label: 'Décrire le spectacle', page: ['fiche'], done: blockers === 0, hint: blockers ? `${blockers} point(s) à compléter dans les paramètres du projet (surtout utiles pour le site)` : 'Infos complètes', href: `/edition/${id}/settings${sec ? '#sec-' + sec : ''}` },
+    { n: 1, label: 'Décrire le spectacle', page: ['fiche'], done: blockers === 0, hint: blockers ? `${blockers} point(s) pour sortir les affiches du BROUILLON` : 'Infos prêtes pour les affiches', href: `/edition/${id}/settings${sec ? '#sec-' + sec : ''}` },
     { n: 2, label: 'Ajouter le matériel', page: ['assets', 'designs', 'contenus'], done: c.assets > 0, hint: c.assets ? `${c.assets} fichier(s)` : 'Photos, affiche reçue ou document', href: `/edition/${id}/assets` },
     { n: 3, label: 'Créer une campagne et ses contenus', page: ['variantes', 'affiches', 'videos'], done: c.variants > 0, hint: c.variants ? `${c.variants} contenu(s)` : 'Une campagne, puis son premier contenu', href: `/edition/${id}/campaigns` },
     { n: 4, label: 'Approuver et exporter', page: [], done: approved > 0 && exported > 0, hint: exported ? `${exported} fichier(s) exporté(s)` : 'Un clic sur le contenu', href: waiting ? `/edition/${id}/variants/${waiting.id}?step=verification` : `/edition/${id}/variants` },
-    { n: 5, label: 'Relier à Meta', page: ['campagnes'], done: links > 0, hint: links ? `${links} association(s)` : 'Depuis la campagne, une fois les contenus prêts', href: `/edition/${id}/campaigns` },
+    { n: 5, label: 'Valider pour la campagne', page: ['campagnes'], done: links > 0, hint: links ? `${links} contenu(s) prêt(s) pour Meta` : '« Tout approuver » sur la page de la campagne', href: `/edition/${id}/campaigns` },
   ];
   const next = steps.find((s) => !s.done) || null;
   return { steps, next };

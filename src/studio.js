@@ -10,6 +10,7 @@ import { posterBlockers as posterBlockersOf } from './schema.js';
 export const posterBlockers = posterBlockersOf;
 import { storage } from './storage.js';
 import { FORMATS, CHANNELS, formatsForChannels } from './formats.js';
+import { browserPath as browser, fileUrl, TAR } from './platform.js';
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS assets(
@@ -153,8 +154,10 @@ export function getDesign(editionId, key) {
   };
 }
 // « Uniformiser » : reporte sur les autres formats ce qui doit être identique (photo, logo, style, dégradé, polices, couleurs et textes des éléments).
-// Les positions et tailles (propres à chaque forme) et le cadrage de la photo restent ceux de chaque format.
-export function applyToOtherFormats(editionId, fromKey, toKeys, who) {
+// Les positions et tailles (propres à chaque forme) et le cadrage de la photo restent ceux de chaque format,
+// sauf avec { positions: true } : décalages et tailles sont alors reportés proportionnellement à la taille de chaque format.
+export function applyToOtherFormats(editionId, fromKey, toKeys, who, { positions = false } = {}) {
+  const fmtOf = (k) => FORMATS[k.split('_').pop()] || FORMATS['4x5'], F0 = fmtOf(fromKey);
   const src = getDesign(editionId, fromKey);
   if (src.ext) return 0;
   let n = 0;
@@ -165,7 +168,8 @@ export function applyToOtherFormats(editionId, fromKey, toKeys, who) {
     const els = {};
     for (const id of new Set([...Object.keys(cur.els || {}), ...Object.keys(src.els || {})])) {
       const mine = cur.els?.[id] || {}, from = src.els?.[id] || {};
-      els[id] = { ...(mine.dx ? { dx: mine.dx } : {}), ...(mine.dy ? { dy: mine.dy } : {}), ...(mine.s ? { s: mine.s } : {}), ...(from.hide ? { hide: true } : {}), ...(from.color ? { color: from.color } : {}), ...(from.align ? { align: from.align } : {}), ...(from.text ? { text: from.text } : {}) };
+      const F1 = fmtOf(key), pos = positions ? { dx: Math.round((from.dx || 0) * F1.w / F0.w), dy: Math.round((from.dy || 0) * F1.h / F0.h), s: from.s } : { dx: mine.dx, dy: mine.dy, s: mine.s };
+      els[id] = { ...(pos.dx ? { dx: pos.dx } : {}), ...(pos.dy ? { dy: pos.dy } : {}), ...(pos.s ? { s: pos.s } : {}), ...(from.hide ? { hide: true } : {}), ...(from.color ? { color: from.color } : {}), ...(from.align ? { align: from.align } : {}), ...(from.text ? { text: from.text } : {}) };
     }
     const next = { ...cur, hero: src.hero, logo: src.logo, gradient: src.gradient, style: src.style, partners: src.partners, text_pos: src.text_pos, zoom: src.zoom, title_scale: src.title_scale, els };
     delete next.ft; delete next.fb;
@@ -221,12 +225,6 @@ export const listExports = (editionId) => db.prepare('SELECT * FROM exports WHER
 export const getExport = (id) => db.prepare('SELECT * FROM exports WHERE id=?').get(id);
 export const exportPath = (e) => EXPORT_DIR + e.file;
 
-const BROWSERS = [
-  'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
-  'C:/Program Files/Microsoft/Edge/Application/msedge.exe',
-  'C:/Program Files/Google/Chrome/Application/chrome.exe',
-];
-const browser = () => BROWSERS.find((p) => existsSync(p));
 // Le navigateur sans fenêtre doit avoir son PROPRE profil : si Edge est déjà ouvert avec le profil par défaut (cas courant : l'utilisateur
 // consulte l'atelier dans Edge), la commande est transmise à cette instance et AUCUN fichier n'est produit, sans message d'erreur.
 export function isolatedProfile() {
@@ -266,8 +264,9 @@ export function htmlToPng(html, fmt, pngFile) {
     const htmlFile = pngFile.replace(/\.png$/, '.html');
     writeFileSync(htmlFile, html);
     const prof = isolatedProfile();
-    const p = spawn(exe, [...prof.args, '--headless=new', '--disable-gpu', '--hide-scrollbars', '--force-device-scale-factor=1',
-      `--window-size=${f.w},${f.h}`, `--screenshot=${pngFile}`, 'file:///' + htmlFile.replace(/\\/g, '/')], { stdio: 'ignore' });
+    // virtual-time-budget : laisse le temps aux polices web et images de se charger avant la capture
+    const p = spawn(exe, [...prof.args, '--headless=new', '--disable-gpu', '--hide-scrollbars', `--force-device-scale-factor=${f.print ? f.print.dpi / 96 : 1}`, '--virtual-time-budget=5000',
+      `--window-size=${f.w},${f.h}`, `--screenshot=${pngFile}`, fileUrl(htmlFile)], { stdio: 'ignore' });
     const timer = setTimeout(() => p.kill(), 60000);
     p.on('close', () => { clearTimeout(timer); prof.cleanup(); try { unlinkSync(htmlFile); } catch {} resolve(existsSync(pngFile)); });
     p.on('error', () => { clearTimeout(timer); resolve(false); });
@@ -290,7 +289,7 @@ function runBrowser(args, capture = false) {
   });
 }
 export async function renderTextBox(blockHtml, pngFile) {
-  const htmlFile = pngFile.replace(/\.png$/, '.html'), url = 'file:///' + htmlFile.replace(/\\/g, '/');
+  const htmlFile = pngFile.replace(/\.png$/, '.html'), url = fileUrl(htmlFile);
   const doc = (script) => `<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;background:transparent}#t{display:inline-block}</style></head><body><div id="t">${blockHtml}</div>${script}</body></html>`;
   writeFileSync(htmlFile, doc('<script>const r=document.getElementById("t").getBoundingClientRect();document.documentElement.setAttribute("data-size",Math.ceil(r.width)+"x"+Math.ceil(r.height));</script>'));
   const m = await runBrowser(['--dump-dom', url], true);
@@ -317,7 +316,7 @@ export function exportPoster(ed, fmt, who, draftReasons, opts = {}) {
   writeFileSync(htmlFile, html);
   const prof = isolatedProfile();
   spawnSync(exe, [...prof.args, '--headless=new', '--disable-gpu', '--hide-scrollbars', '--force-device-scale-factor=1',
-    `--window-size=${f.w},${f.h}`, `--screenshot=${pngFile}`, 'file:///' + htmlFile.replace(/\\/g, '/')], { timeout: 60000 });
+    `--window-size=${f.w},${f.h}`, `--screenshot=${pngFile}`, fileUrl(htmlFile)], { timeout: 60000 });
   prof.cleanup();
   try { unlinkSync(htmlFile); } catch {}
   if (!existsSync(pngFile)) return { ok: false, error: 'La génération de l’image a échoué. Réessayez ; rien n’a été enregistré.' };
@@ -348,8 +347,6 @@ export function saveDesignPreview(editionId, key, q) {
 
 // --- pack campagne : un dossier par canal, avec tous les formats utiles, + un zip
 import { mkdirSync as mk, copyFileSync as cp, rmSync as rm } from 'node:fs';
-// tar de Windows (bsdtar) : sait créer des zip, contrairement au tar de Git qui peut passer devant dans le PATH.
-export const WIN_TAR = (process.env.SystemRoot || 'C:/Windows').replace(/\\/g, '/') + '/System32/tar.exe';
 export function exportPack(ed, channelKeys, who, draftReasons) {
   const keys = channelKeys.filter((k) => CHANNELS[k]);
   if (!keys.length) return { ok: false, error: 'Choisissez au moins un canal.' };
@@ -368,7 +365,7 @@ export function exportPack(ed, channelKeys, who, draftReasons) {
     for (const [fmt, use] of CHANNELS[k].uses) cp(EXPORT_DIR + made[fmt].file, `${dir}${k}/${use.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\w]+/g, '-').replace(/^-|-$/g, '')}_${fmt}.png`);
   }
   const zip = EXPORT_DIR + name + '.zip';
-  spawnSync(WIN_TAR, ['-a', '-c', '-f', zip, '-C', EXPORT_DIR, name], { timeout: 60000 });
+  spawnSync(TAR, ['-a', '-c', '-f', zip, '-C', EXPORT_DIR, name], { timeout: 60000 });
   rm(dir, { recursive: true, force: true });
   if (!existsSync(zip)) return { ok: false, error: 'Les images sont créées, mais le zip n’a pas pu être produit.' };
   const res = db.prepare('INSERT INTO exports(edition_id,kind,label,file,draft,source_ids,created,created_by) VALUES(?,?,?,?,?,?,?,?)')
@@ -378,7 +375,7 @@ export function exportPack(ed, channelKeys, who, draftReasons) {
 }
 export const EXPORT_PATH = EXPORT_DIR;
 
-export const browserPath = browser;
+export { browser as browserPath };
 
 // --- colonnes de suivi des variantes sur les exports (migration idempotente) + crochets de sauvegarde
 for (const [c, d] of [['variant_id', 'INTEGER'], ['variant_version', 'INTEGER'], ['fmt', "TEXT NOT NULL DEFAULT ''"], ['content_key', "TEXT NOT NULL DEFAULT ''"]]) {

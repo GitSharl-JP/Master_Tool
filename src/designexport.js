@@ -11,6 +11,7 @@ import { spawn } from 'node:child_process';
 import { writeFileSync, unlinkSync, existsSync } from 'node:fs';
 import { buildPosterHtml, browserPath, isolatedProfile, EXPORT_PATH } from './studio.js';
 import { FORMATS } from './formats.js';
+import { fileUrl } from './platform.js';
 import { gradientSpec, POSTER_ELEMENTS } from './render.js';
 
 const X = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -33,7 +34,7 @@ function run(args, { capture = false, timeout = 60000 } = {}) {
 const withFile = async (html, fn) => {
   const f = EXPORT_PATH + `tmp-${Date.now()}-${Math.random().toString(36).slice(2, 7)}.html`;
   writeFileSync(f, html);
-  try { return await fn('file:///' + f.replace(/\\/g, '/')); } finally { try { unlinkSync(f); } catch { /* déjà supprimé */ } }
+  try { return await fn(fileUrl(f)); } finally { try { unlinkSync(f); } catch { /* déjà supprimé */ } }
 };
 
 // --- PDF vectoriel (texte vivant, formes vectorielles) : une page aux dimensions exactes du format
@@ -42,7 +43,7 @@ const current = (ed, fmt) => (flags) => buildPosterHtml(ed, fmt, [], { noDraft: 
 
 export async function posterPdf(ed, fmt, outFile, builder = current(ed, fmt)) {
   const { html } = builder({ print: true });
-  const r = await withFile(html, (u) => run(['--headless=new', '--disable-gpu', '--no-pdf-header-footer', `--print-to-pdf=${outFile}`, u]));
+  const r = await withFile(html, (u) => run(['--headless=new', '--disable-gpu', '--virtual-time-budget=5000', '--no-pdf-header-footer', `--print-to-pdf=${outFile}`, u]));
   return r.ok && existsSync(outFile);
 }
 
@@ -50,7 +51,7 @@ export async function posterPdf(ed, fmt, outFile, builder = current(ed, fmt)) {
 export async function posterSvg(ed, fmt, builder = current(ed, fmt)) {
   const spec = FORMATS[fmt];
   const { html, srcs, design } = builder({ measure: true });
-  const dom = await withFile(html, (u) => run(['--headless=new', '--disable-gpu', '--dump-dom', u], { capture: true }));
+  const dom = await withFile(html, (u) => run(['--headless=new', '--disable-gpu', '--virtual-time-budget=5000', '--dump-dom', u], { capture: true }));
   if (!dom.ok) return { ok: false, error: dom.error };
   const m = /<script type="application\/json" id="__geo">([\s\S]*?)<\/script>/.exec(dom.out);
   if (!m) return { ok: false, error: 'Relevé de mise en page introuvable (le navigateur n’a pas répondu).' };
@@ -60,6 +61,8 @@ export async function posterSvg(ed, fmt, builder = current(ed, fmt)) {
   const fonts = new Set();
   const gs = gradientSpec(design, spec.layout);
   const gv = { right: [0, 0, 1, 0], bottom: [0, 0, 0, 1], top: [0, 1, 0, 0] }[gs.to];
+  // composition « bandeau » : pied de page toujours assombri (même règle que render.js)
+  const shade = design.style === 'bandeau' && spec.layout !== 'banner' ? { h: Math.round(geo.H * .38), a: Math.max(.75, design.gradient / 100) } : null;
 
   const text = (t) => { fonts.add(t.family.split(',')[0].replace(/["']/g, '').trim());
     return `<text x="${n(t.x)}" y="${n(t.y)}" font-family="${X(t.family.replace(/"/g, "'"))}" font-size="${n(t.size)}" font-weight="${t.weight}"${t.style !== 'normal' ? ` font-style="${t.style}"` : ''} fill="${t.color}"${t.alpha < 1 ? ` fill-opacity="${t.alpha}"` : ''}${t.ls ? ` letter-spacing="${n(t.ls)}"` : ''} xml:space="preserve">${X(t.text)}</text>`; };
@@ -89,10 +92,11 @@ export async function posterSvg(ed, fmt, builder = current(ed, fmt)) {
 <title>${X(ed.label)} — ${X(spec.label)}</title>
 <defs>
 <linearGradient id="fade" x1="${gv[0]}" y1="${gv[1]}" x2="${gv[2]}" y2="${gv[3]}">${gs.stops.map(([p, a]) => `<stop offset="${p}" stop-color="${c.p}" stop-opacity="${n(a)}"/>`).join('')}</linearGradient>
+${shade ? `<linearGradient id="shade" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="${c.p}" stop-opacity="${n(shade.a)}"/><stop offset="1" stop-color="${c.p}" stop-opacity="0"/></linearGradient>` : ''}
 <linearGradient id="ph" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${c.p}"/><stop offset="1" stop-color="${c.s}"/></linearGradient>
 </defs>
 <g id="Fond"><rect width="${geo.W}" height="${geo.H}" fill="${c.p}"/>${bg}</g>
-<g id="Degrade"><rect width="${geo.W}" height="${geo.H}" fill="url(#fade)"/></g>
+<g id="Degrade"><rect width="${geo.W}" height="${geo.H}" fill="url(#fade)"/>${shade ? `<rect y="${n(geo.H - shade.h)}" width="${geo.W}" height="${n(shade.h)}" fill="url(#shade)"/>` : ''}</g>
 ${geo.els.map(node).join('\n')}
 </svg>
 `;

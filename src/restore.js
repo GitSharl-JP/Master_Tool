@@ -12,6 +12,7 @@ import { createHash } from 'node:crypto';
 import { join, dirname, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { DatabaseSync } from 'node:sqlite';
+import { TAR } from './platform.js';
 
 const args = process.argv.slice(2);
 const zip = args.find((a) => !a.startsWith('--') && a !== args[args.indexOf('--data') + 1]);
@@ -20,7 +21,6 @@ const force = args.includes('--force');
 const here = decodeURIComponent(new URL('../', import.meta.url).pathname).replace(/^\/([A-Za-z]:)/, '$1');
 const DATA = resolve(dataArg || process.env.ATELIER_DATA || here + 'data');
 const ASSETS = resolve(process.env.ATELIER_ASSETS || join(DATA, 'assets'));
-const TAR = (process.env.SystemRoot || 'C:/Windows').replace(/\\/g, '/') + '/System32/tar.exe';
 const die = (m, code = 1) => { console.error('\n✗ ' + m); process.exit(code); };
 const say = (m) => console.log(m);
 

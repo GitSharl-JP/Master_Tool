@@ -7,6 +7,7 @@ import { probe, reframe, toAss } from './media.js';
 import { getAsset, assetPath, renderTextBox } from './studio.js';
 import { aspectOf } from './intake.js';
 import { FONTS } from './render.js';
+import { ASS_FONTSDIR, DRAFT_FONT } from './platform.js';
 
 export const EL_TYPES = ['logo', 'image', 'text', 'subs', 'video'];
 // Taille de base à 100 % : largeur de l'image = 20 % de la largeur du format ; texte = 6 % ; sous-titres = 4,5 %. (L'aperçu utilise les mêmes valeurs.)
@@ -107,7 +108,7 @@ export function legacyToTl(d, cues = []) {
     }
     els.push({ id: 'e1', type: 'logo', track: els.length + 1, asset: String(d.logo.asset), start: 0, end: 0, fx: 0.8, fy: 0.1, pos, s: Math.round(d.logo.size * 100 / (BASE.image * 100)), rot: 0, op: 100 });
   }
-  if (d.subs?.on) {
+  if (d.subs?.on && cues.length) { // sous-titres activés mais vides : pas de piste vide à la conversion
     const pos = {};
     for (const fmt of VIDEO_FORMATS) {
       const f = FORMATS[fmt], p = d.subs.pos?.[fmt];
@@ -183,7 +184,7 @@ export async function buildTlJob({ d, cues, fmt, f, tmp, draft, endSecs }) {
       const txt = toAss(list, { W: f.w, H: f.h, fontSize: Math.round(f.w * BASE.subs * e.s / 100), marginV: f.safe.bottom, marginSide: f.safe.side, from: 0, to: total, pos: posOf(e, f, fmt), rot: e.rot, opacity: e.op });
       if (!txt.includes('Dialogue:')) continue;
       writeFileSync(`${tmp}subs${si}.ass`, txt);
-      fg.push(`[${cur}]ass=subs${si}.ass:fontsdir='C\\:/Windows/Fonts'[vs${si}]`); cur = `vs${si}`; si++;
+      fg.push(`[${cur}]ass=subs${si}.ass${ASS_FONTSDIR}[vs${si}]`); cur = `vs${si}`; si++;
       continue;
     }
     let file, wpx, vs = 0, vdur = 0, vinfo = null;
@@ -227,7 +228,7 @@ export async function buildTlJob({ d, cues, fmt, f, tmp, draft, endSecs }) {
   let aOut = 'am';
   if (mixes.length) { fg.push(`[am]${mixes.join('')}amix=inputs=${1 + mixes.length}:duration=first:normalize=0[amx]`); aOut = 'amx'; }
   if (draft) {
-    fg.push(`[${cur}]drawbox=x=0:y=0:w=iw:h=${Math.round(f.h * 0.028)}:color=0xb3261e@1:t=fill,drawtext=fontfile='C\\:/Windows/Fonts/arialbd.ttf':text='DRAFT - NOT FOR PUBLICATION':fontcolor=white:fontsize=${Math.round(f.h * 0.017)}:x=(w-text_w)/2:y=${Math.round(f.h * 0.0045)}[vd]`);
+    fg.push(`[${cur}]drawbox=x=0:y=0:w=iw:h=${Math.round(f.h * 0.028)}:color=0xb3261e@1:t=fill,drawtext=fontfile='${DRAFT_FONT}':text='DRAFT - NOT FOR PUBLICATION':fontcolor=white:fontsize=${Math.round(f.h * 0.017)}:x=(w-text_w)/2:y=${Math.round(f.h * 0.0045)}[vd]`);
     cur = 'vd';
   }
   if (endSecs) {

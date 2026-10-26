@@ -14,6 +14,9 @@ export const FORMATS = {
   '16x9':   { label: '16:9 — X / YouTube',         ratio: '16:9',   w: 1600, h: 900,  layout: 'landscape', safe: { top: 60,  bottom: 60,  side: 80 } },
   'link':   { label: '1,91:1 — lien partagé',      ratio: '1.91:1', w: 1200, h: 630,  layout: 'landscape', safe: { top: 40,  bottom: 40,  side: 56 } },
   'banner': { label: '3:1 — bannière / en-tête',   ratio: '3:1',    w: 1500, h: 500,  layout: 'banner',    safe: { top: 30,  bottom: 30,  side: 60 } },
+  // Impression : A3 (297 × 420 mm) + fond perdu de 3 mm de chaque côté = 303 × 426 mm. Composé à 96 px/pouce (1145 × 1610 px = taille réelle en PDF),
+  // exporté en PNG à 300 dpi (3578 × 5031 px). Les zones de sécurité gardent le texte à plus de 15 mm du bord de coupe.
+  'a3':     { label: 'A3 imprimé — fond perdu 3 mm', ratio: 'A3',     w: 1145, h: 1610, layout: 'portrait',  safe: { top: 72,  bottom: 80,  side: 72 }, print: { dpi: 300, bleedMm: 3, trim: '297 × 420 mm' } },
 };
 
 // Formats proposés pour les vidéos (la bannière n'a pas de sens en vidéo).

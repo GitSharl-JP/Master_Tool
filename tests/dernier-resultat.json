@@ -1,144 +1,159 @@
 {
-  "date": "2026-10-26T09:27:41.995Z",
-  "seconds": 169,
-  "passed": 437,
+  "date": "2026-10-26T15:51:10.787Z",
+  "seconds": 110,
+  "passed": 427,
   "failed": [
-    "page campagne s’affiche",
-    "aucune erreur dans la console du navigateur",
-    "largeur téléphone : aucune erreur console"
+    "exports vidéo terminés sans erreur",
+    "les sorties deviennent des contenus de la bibliothèque",
+    "état compact : création, fichiers disponibles, diffusion",
+    "la reprise relance la MÊME tâche (pas de doublon) et réussit",
+    "un seul contenu vidéo issu de cette reprise",
+    "export du montage terminé",
+    "export vidéo avec positions choisies : terminé",
+    "logo : placé par son centre (540 × 600) dans la vidéo exportée",
+    "logo : agrandi (20 % → 40 %), son centre ne bouge pas",
+    "sous-titres : placés par leur centre (300 × 1300), à la tolérance des polices près",
+    "sous-titres : taille 100 % → 160 %, leur centre ne bouge pas",
+    "sans position choisie : le logo reste dans son coin d’origine (haut droite) et les sous-titres en bas, comme avant",
+    "export terminé",
+    "export avec pistes et vidéo superposée : terminé, son présent"
   ],
   "steps": [
     {
       "step": "0. Démarrage de l’atelier sur des données vierges",
-      "time": 0.405
+      "time": 0.415
     },
     {
       "step": "0b. Installé dans un dossier dont le nom contient un espace (cas de l’installateur)",
-      "time": 1.052
+      "time": 0.974
     },
     {
       "step": "1. Projet prêt : fiche approuvée, assets originaux",
-      "time": 1.556
+      "time": 1.09
     },
     {
       "step": "1b. Polices par format et « Uniformiser » : un format réglé se reporte sur les autres",
-      "time": 0.067
+      "time": 0.014
     },
     {
       "step": "1c. Bibliothèque : un seul dispositif d’ajout, aperçus, filtres, nom affiché distinct du fichier d’origine",
-      "time": 0.038
+      "time": 0.005
     },
     {
       "step": "2. Design : enregistrer, modifier, retrouver l’ancien",
-      "time": 3.202
+      "time": 1.758
     },
     {
       "step": "3. Campagne Meta reliée à la main (déclarée ACTIVE) — configuration et brief séparés",
-      "time": 0.063
+      "time": 0.019
     },
     {
       "step": "4. Variantes guidées : intention obligatoire, pas de quasi-doublon",
-      "time": 0.084
+      "time": 0.054
     },
     {
-      "step": "4b. Parcours court d’une personne seule : 3 actions de la création à l’association",
-      "time": 3.352
+      "step": "4b. Parcours court d’une personne seule : 2 actions de la création à l’association",
+      "time": 1.837
     },
     {
       "step": "4c. Le site du projet : un site, son domaine, ses identifiants",
-      "time": 0.07
+      "time": 0.008
     },
     {
       "step": "4d. Points d’entrée libres : affiche reçue (SVG / image) et documents, dans un ordre quelconque",
-      "time": 3.247
+      "time": 1.218
     },
     {
       "step": "4e. Gestionnaire de projets : essai, renommer, archiver, supprimer",
-      "time": 1.626
+      "time": 0.77
     },
     {
       "step": "4f. Navigation simplifiée : Accueil de travail, cinq destinations, paramètres à part",
-      "time": 0.043
+      "time": 0.015
     },
     {
       "step": "4g. Espace de contenu : créer, matériel, création, vérification, diffusion (affiche, vidéo, texte)",
-      "time": 4.052
+      "time": 2.007
     },
     {
       "step": "4h. Campagnes, bibliothèque et calendrier reliés au parcours de contenu",
-      "time": 0.423
+      "time": 0.208
     },
     {
       "step": "4i. Validations ciblées, modèles de contenu et kit graphique",
-      "time": 14.152
+      "time": 6.603
+    },
+    {
+      "step": "4j. Retours d’usage (designer) : variante B en un clic, bandeau lisible, validation groupée, textes de publicité, impression",
+      "time": 1.63
     },
     {
       "step": "5. Corriger textes, cadrage et sous-titres",
-      "time": 0.26
+      "time": 0.046
     },
     {
       "step": "6. Prévisualiser puis approuver (seul(e), contrôles automatiques à la place d’un relecteur)",
-      "time": 0.058
+      "time": 0.012
     },
     {
       "step": "7. Exporter la version approuvée — sans doublon",
-      "time": 21.698
+      "time": 7.477
     },
     {
       "step": "7b. Fichier d’export disparu : l’atelier le dit, la reprise ne crée aucun doublon",
-      "time": 5.069
+      "time": 2.368
     },
     {
       "step": "8. Un changement ne modifie JAMAIS une version approuvée",
-      "time": 0.308
+      "time": 0.084
     },
     {
       "step": "9. Associer à la campagne ACTIVE : version diffusée figée, nouvelle variante possible",
-      "time": 4.065
+      "time": 1.982
     },
     {
       "step": "9b. Guide Ads Manager : valeurs à copier, textes de publicité, import du rapport exporté",
-      "time": 0.911
+      "time": 0.398
     },
     {
       "step": "10. Calendrier de production",
-      "time": 0.122
+      "time": 0.026
     },
     {
       "step": "11. Reprise après erreur sans doublon (vidéo)",
-      "time": 4.82
+      "time": 1.546
     },
     {
       "step": "11d. Timeline vidéo : clips bout à bout, éléments (échelle, rotation, opacité, début/fin), texte libre — l’export suit exactement",
-      "time": 5.711
+      "time": 1.255
     },
     {
       "step": "11c. Vidéo : logo et sous-titres placés par leur centre ; l’export suit exactement ce qui est choisi",
-      "time": 5.778
+      "time": 1.806
     },
     {
       "step": "11e. Montage à timeline approuvé : l’export part de la version figée, une modification ne la touche pas",
-      "time": 4.404
+      "time": 1.884
     },
     {
       "step": "11f. Plusieurs blocs de sous-titres : chacun a ses lignes, sa position, sa taille et son timing",
-      "time": 2.693
+      "time": 0.62
     },
     {
       "step": "11g. Pistes : l’ordre des pistes décide de ce qui est au-dessus ; vidéo superposée (début, position, taille, son)",
-      "time": 3.157
+      "time": 0.753
     },
     {
       "step": "12. Sauvegarde externe et vérification d’intégrité",
-      "time": 2.17
+      "time": 1.24
     },
     {
       "step": "13. Restauration complète dans une installation VIERGE",
-      "time": 2.096
+      "time": 1.14
     },
     {
       "step": "14. Pages dans un vrai navigateur (assistant, éditeur de variante, suivi, sauvegardes)",
-      "time": 71.59
+      "time": 68.582
     }
   ]
 }

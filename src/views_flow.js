@@ -17,7 +17,11 @@ const flash = (m) => (m ? `<p class="flash">${esc(m)}</p>` : '');
 const userOpts = (users, cur) => `<option value="">—</option>${users.map((u) => opt(u, u, cur)).join('')}`;
 
 // Statut tel que Meta le déclare : toujours dire d'où vient l'information.
-const metaChip = (row) => { const m = metaInfo(row); return `<span class="tag ${m.status === 'active' ? 'st-2' : ''}">${esc(m.status)}</span> <span class="tag warn">${m.manual ? 'saisi à la main' : 'synchronisé ' + fr(m.syncedAt)}</span>`; };
+const metaChip = (row) => {
+  const m = metaInfo(row);
+  if (m.manual && m.status === 'inconnu' && !row.meta_id) return '<span class="tag" title="Rien n’a encore été saisi depuis Meta : c’est normal tant que la campagne n’y est pas créée.">pas encore dans Meta</span>';
+  return `<span class="tag ${m.status === 'active' ? 'st-2' : ''}">${esc(m.status)}</span> <span class="tag warn">${m.manual ? 'saisi à la main' : 'synchronisé ' + fr(m.syncedAt)}</span>`;
+};
 
 // Parcours d'une sortie : brouillon → à relire → approuvé → exporté → transmis → publié. Trois mots à ne jamais confondre.
 const stepper = (stage) => {
@@ -198,13 +202,18 @@ ${design0?.ext ? `<p class="status ok">Affiche reçue en place : <b>${esc(assets
 ${imgs.length ? `<div class="matgrid">${imgs.filter((a) => a.role !== 'partner').slice(0, 18).map((a) => {
   const isH = String(design0?.hero) === String(a.id), isL = String(design0?.logo) === String(a.id), isP = String(design0?.ext) === String(a.id);
   const mat = (field, label, on, off) => `<form method="post" action="${base}/material"><input type="hidden" name="${field}" value="${on ? off : a.id}"><button class="sm${on ? ' on' : ''}">${on ? '✓ ' : ''}${label}</button></form>`;
-  return `<div class="matitem"><img src="/files/${a.id}" alt=""><span class="name" title="${esc(a.name)}">${esc(a.name)}${a.provisional ? ' (provisoire)' : ''}</span><div class="inline">${design0?.ext ? '' : mat('hero', 'Photo de fond', isH, '') + mat('logo', 'Logo', isL, '')}${mat('poster', 'Affiche reçue', isP, 'none')}</div></div>`;
+  return `<div class="matitem${a.warn ? ' warn' : ''}"><img src="/files/${a.id}" alt=""><span class="name" title="${esc(a.name)}">${esc(a.name)}${a.provisional ? ' (provisoire)' : ''}</span>${a.warn ? '<small class="why">⚠ vide ou transparent : il n’apparaîtra pas</small>' : ''}<div class="inline">${design0?.ext ? '' : mat('hero', 'Photo de fond', isH, '') + mat('logo', 'Logo', isL, '')}${mat('poster', 'Affiche reçue', isP, 'none')}</div></div>`;
 }).join('')}</div>` : '<p><small>Aucune image dans ce projet pour l’instant : ajoutez un fichier ci-dessus.</small></p>'}
 ${templates.length ? `<form method="post" action="${base}/material" class="inline"><select name="design_version" required><option value="">Reprendre un design enregistré…</option>${templates.map((t) => opt(t.version_id, `${t.name} — v${t.version}`, '')).join('')}</select><button>Appliquer</button></form><small>Un design enregistré remplace la composition ; vos textes sont conservés. L’original n’est jamais modifié.</small>` : '<small>Aucun design enregistré pour l’instant (Bibliothèque › Designs et modèles).</small>'}</div>` : ''}
 ${hasVideo ? `<div class="card"><h2>Vidéo</h2><form method="post" action="${base}/material" class="inline"><select name="video_asset" required>${optA(assets.filter((a) => a.kind === 'video'), vdesign?.asset, 'Choisir la vidéo source…')}</select><button>Utiliser cette vidéo</button></form></div>` : ''}
-<div class="card"><h2>Formats de sortie</h2><form method="post" action="${base}/material" class="vwizard"><input type="hidden" name="set_formats" value="1">
+${hasVideo ? `<div class="card"><h2>Formats de la vidéo</h2><form method="post" action="${base}/material" class="vwizard"><input type="hidden" name="set_vformats" value="1">
+<div class="chanlist inline">${VIDEO_FORMATS.map((k) => `<label class="check"><input type="checkbox" name="vfmt_${k}" value="1"${(vdesign?.formats?.length ? vdesign.formats : ['9x16']).includes(k) ? ' checked' : ''}> ${esc(FORMATS[k].label)}</label>`).join('')}</div>
+<button>Enregistrer les formats vidéo</button></form><small>Une vidéo par format coché, recadrée pour chacun.</small></div>` : ''}
+${hasPosters ? `<div class="card"><h2>Formats de l’affiche</h2><form method="post" action="${base}/material" class="vwizard"><input type="hidden" name="set_formats" value="1">
 <div class="chanlist inline">${Object.keys(FORMATS).map((k) => `<label class="check"><input type="checkbox" name="fmt_${k}" value="1"${v.formats.includes(k) ? ' checked' : ''}> ${esc(FORMATS[k].label)}</label>`).join('')}</div>
-<label class="check"><input type="checkbox" name="with_video" value="1"${hasVideo ? ' checked' : ''}> Avec une vidéo</label><button>Enregistrer les formats</button></form></div>
+<label class="check"><input type="checkbox" name="with_video" value="1"${hasVideo ? ' checked' : ''}> Avec aussi une vidéo</label><button>Enregistrer les formats</button></form></div>`
+  : `<details class="card"><summary><b>Ajouter aussi des affiches</b> <small>(images fixes tirées de la même campagne)</small></summary><form method="post" action="${base}/material" class="vwizard"><input type="hidden" name="set_formats" value="1"><input type="hidden" name="with_video" value="1">
+<div class="chanlist inline">${Object.keys(FORMATS).map((k) => `<label class="check"><input type="checkbox" name="fmt_${k}" value="1"> ${esc(FORMATS[k].label)}</label>`).join('')}</div><button>Ajouter ces affiches</button></form></details>`}
 ${next2('creation', 'Continuer vers la création')}`;
   const SAVE_MODEL = `<details class="card"><summary><b>Enregistrer comme modèle</b> <small>(réutilisable dans « Créer un contenu »)</small></summary>
 <form method="post" action="${base}/save-model" class="grid"><label>Nom du modèle<input name="name" value="${esc(v.name)}"></label>
@@ -234,7 +243,7 @@ ${v.status !== 'archivé' ? `<form method="post" action="${base}/archive" class=
   const brief = `<details class="card brief"><summary><b>Brief marketing</b> <small>(angle, audience, hypothèse — facultatif)</small></summary>${P_INTENT}</details>`;
   const bodies = { materiel, creation, verification: `${P_ETATS}\n${P_VALID}\n${P_SORTIES}\n${P_EXP}`, diffusion };
   return `${tabs(ed, 'campagnes')}${flash(msg)}
-${workspaceHeader(ed, { name: v.name, type: ws.type, status: v.status, version: v.approved_version, base, backHref: v.campaign_id ? `/edition/${ed.id}/campaigns/${v.campaign_id}` : `/edition/${ed.id}/campaigns`, backLabel: v.campaign_id ? 'Retour à la campagne' : 'Campagnes', steps: ws.steps, summary: ws.summary, step, note: v.status === 'approuvé' ? '' : '' })}
+${workspaceHeader(ed, { name: v.name, type: ws.type, status: v.status, version: v.approved_version, base, backHref: v.campaign_id ? `/edition/${ed.id}/campaigns/${v.campaign_id}` : `/edition/${ed.id}/campaigns`, backLabel: v.campaign_id ? 'Retour à la campagne' : 'Campagnes', campName: ws.campaignName, dup: v.status === 'archivé' ? '' : base + '/duplicate', steps: ws.steps, summary: ws.summary, step, note: v.status === 'approuvé' ? '' : '' })}
 ${nextBanner}
 ${brief}
 ${bodies[step]}`;
@@ -311,7 +320,7 @@ ${x.variant_id ? '' : `<form method="post" action="/edition/${ed.id}/contents/${
 const progressChips = (links) => {
   const n = (s) => links.filter((l) => l.state === s).length;
   const parts = [[n('brouillon') + n('à relire'), 'en préparation', 'en préparation', ''], [n('approuvé'), 'prêt à transmettre', 'prêts à transmettre', 'st-2'], [n('transmis'), 'transmis', 'transmis', 'st-2'], [n('publié'), 'publié', 'publiés', 'st-2'], [n('erreur'), 'en erreur', 'en erreur', 'warn']].filter(([k]) => k);
-  return parts.length ? parts.map(([k, one, many, cls]) => `<span class="tag ${cls}">${k} ${k > 1 ? many : one}</span>`).join(' ') : '<span class="tag">aucun contenu associé</span>';
+  return parts.length ? parts.map(([k, one, many, cls]) => `<span class="tag ${cls}">${k} ${k > 1 ? many : one}</span>`).join(' ') : '<span class="tag">rien de prêt à diffuser pour l’instant</span>';
 };
 
 export function campaignsPage(ed, c) {
@@ -332,6 +341,7 @@ ${x.brief_message ? `<p class="hyp">Brief : ${esc(x.brief_message)}</p>` : ''}
 <label>Nom de la campagne <small>(le même nom sera utilisé dans Meta)</small><input name="name" required placeholder="Ex. Lancement préventes — EN"></label>
 <label>Objectif <small>(interne)</small><select name="brief_objective"><option value="">À préciser</option>${OBJECTIVES.map((o) => `<option>${esc(o)}</option>`).join('')}</select></label>
 <label style="grid-column:1/-1">Message clé <small>(ce qu’on veut obtenir et ce qu’on veut dire)</small><textarea name="brief_message" rows="2" placeholder="Ce qu’on veut obtenir et ce qu’on veut dire"></textarea></label>
+<label>Audience souhaitée <small>(facultatif)</small><input name="brief_audience" placeholder="Ex. Touristes anglophones à Kyoto"></label>
 <div><button class="primary">Créer la campagne</button></div></form>
 <small>Le lien avec Meta se fait plus tard, depuis la campagne, quand ses contenus sont prêts. Une campagne « Hors campagne » reçoit les contenus créés sans campagne (publications organiques, visuels du site).</small></details>`;
 }
@@ -343,13 +353,15 @@ const linkActions = (ed, l) => {
   if (l.state === 'publié') return '<span class="tag st-2">🔒 publiée — figée</span>';
   if (l.state === 'transmis') return `<span class="tag st-2">🔒 transmise — figée</span> ${go('publié', 'Marquer comme publiée…')} ${f('erreur', 'Signaler une erreur')}`;
   if (l.state === 'approuvé') return `${go('transmis', 'Transmettre…')} ${f('brouillon', 'Repasser en brouillon')} ${rm}`;
-  if (l.state === 'à relire') return `${f('approuvé', 'Approuver pour cette campagne', 'btn sm')} ${f('brouillon', 'Repasser en brouillon')} ${rm}`;
+  // bloqué : le bouton est grisé et la raison est dite AVANT le clic
+  const ap = (cls) => (l.why ? `<button class="${cls || 'link'}" disabled title="${esc(l.why)}">Approuver pour cette campagne</button> <small class="why">⛔ ${esc(l.why)}</small>` : f('approuvé', 'Approuver pour cette campagne', cls));
+  if (l.state === 'à relire') return `${ap('btn sm')} ${f('brouillon', 'Repasser en brouillon')} ${rm}`;
   if (l.state === 'erreur') return `${f('brouillon', 'Repasser en brouillon')} ${rm}`;
-  return `${f('à relire', 'Demander la relecture')} ${f('approuvé', 'Approuver pour cette campagne')} ${rm}`;
+  return `${ap()} ${f('à relire', 'Demander la relecture')} ${rm}`;
 };
 const linkList = (ed, links) => (links.length ? `<ul class="log links">${links.map((l) => `<li>
 ${l.kind === 'image' && l.export_id ? `<a href="/exports/${l.export_id}" target="_blank"><img src="/exports/${l.export_id}" class="lthumb" alt=""></a>` : ''}
-<span><b>${esc(l.title)}</b> ${fmtTag(l.format)} ${l.kind === 'texte' ? (l.text_version_id ? `<span class="tag" title="Version figée du texte au moment de l’association">texte v${l.text_version_id}</span>` : '<span class="tag warn" title="Association antérieure aux versions de texte : l’original n’est pas garanti">version historique non garantie</span>') : ''} ${chip(l.state)} ${l.export_id ? '<span class="tag st-2">exporté</span>' : ''} ${l.draft ? '<span class="tag warn">BROUILLON</span>' : ''}
+<span><b>${esc(l.title)}</b> ${fmtTag(l.format)} ${l.kind === 'texte' ? (l.text_version_id ? `<span class="tag" title="Version figée du texte au moment de l’association">texte v${l.text_version_id}</span>` : '<span class="tag warn" title="Association antérieure aux versions de texte : l’original n’est pas garanti">version historique non garantie</span>') : ''} ${chip(l.state)} ${l.export_id ? '<span class="tag st-2">exporté</span>' : ''} ${l.draft ? '<span class="tag warn" title="Le fichier porte le bandeau DRAFT : fiche non prête ou source provisoire">fichier BROUILLON</span>' : ''}
 ${l.variant_id ? `<a href="/edition/${ed.id}/variants/${l.variant_id}">variante</a>` : ''}
 ${l.export_id !== l.current_export ? '<span class="tag warn">nouvelle version du contenu disponible — non appliquée</span>' : ''}<br>
 <small>version épinglée du ${fr(l.linked_at)} · ${esc(l.angle || 'sans angle')} · ${esc(l.language || '')}${l.transmitted_at ? ' · marquée transmise le ' + fr(l.transmitted_at) : ''}</small><br>${linkActions(ed, l)}</span></li>`).join('')}</ul>` : '<small>Aucun contenu associé à ce niveau.</small>');
@@ -369,6 +381,14 @@ function campaignSteps(ed, camp, variants, c) {
   ];
   const cur = steps.findIndex((s) => !s[1]);
   return `<ol class="frise">${steps.map(([n, done, href, hint], i) => `<li class="${done ? 'done' : i === cur ? 'now' : ''}"><a href="${href}"><b>${i + 1}. ${n}</b><small>${esc(hint)}</small></a></li>`).join('')}</ol>`;
+}
+
+// Une seule action pour valider tous les contenus prêts de la campagne ; ce qui est bloqué est annoncé avant le clic, avec sa raison.
+function approveAllBox(ed, camp, pending) {
+  if (!pending.length) return '';
+  const ready = pending.filter((l) => !l.why), reasons = [...new Set(pending.filter((l) => l.why).map((l) => l.why))];
+  return `<div class="approve-all${ready.length ? '' : ' blocked'}">${ready.length ? `<form method="post" action="/edition/${ed.id}/campaigns/${camp.id}/approve-all" class="inline"><button class="primary">Tout approuver pour la campagne (${ready.length})</button></form>` : `<b>Rien d’approuvable pour l’instant</b>`}
+${reasons.length ? `<div class="why">⛔ ${pending.length - ready.length} contenu(s) en attente :<ul>${reasons.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div>` : '<small>Les contenus restent à déposer vous-même dans Ads Manager : rien n’est envoyé.</small>'}</div>`;
 }
 
 export function campaignPage(ed, c) {
@@ -404,33 +424,37 @@ ${linkList(ed, a.links)}${linkForm('ad_id', a.id)}</div>`).join('')}
   const vue = ['contenus', 'diffusion', 'resultats', 'brief'].includes(c.vue) ? c.vue : 'contenus';
   const show = (v, html) => (vue === v ? html : '');
   const vbase = `/edition/${ed.id}/campaigns/${camp.id}`;
-  const vtabs = `<nav class="tabs sub campviews" aria-label="Vues de la campagne">${[['contenus', `Contenus (${variants.length})`], ['diffusion', `Diffusion (${adsets.length} ensemble${adsets.length > 1 ? 's' : ''})`], ['resultats', 'Résultats'], ['brief', 'Brief']].map(([k, n]) => `<a href="${vbase}?vue=${k}"${vue === k ? ' class="on" aria-current="page"' : ''}>${n}</a>`).join('')}</nav>`;
+  const vtabs = `<nav class="tabs sub campviews" aria-label="Vues de la campagne">${[['contenus', `Contenus (${variants.length + (c.texts || []).length})`], ['diffusion', `Diffusion (${adsets.length} ensemble${adsets.length > 1 ? 's' : ''})`], ['resultats', 'Résultats'], ['brief', 'Brief']].map(([k, n]) => `<a href="${vbase}?vue=${k}"${vue === k ? ' class="on" aria-current="page"' : ''}>${n}</a>`).join('')}</nav>`;
   return `${tabs(ed, 'campagnes')}${flash(msg)}
-<p><a href="/edition/${ed.id}/campaigns">← Campagnes</a></p>
+<p class="crumbs" role="navigation" aria-label="Vous êtes ici"><a href="/edition/${ed.id}/campaigns">Campagnes</a> › <b>${esc(camp.name)}</b></p>
 <div class="card"><h2>${esc(camp.name)} ${camp.name === OFF_CAMPAIGN ? '<span class="tag">organique · sans Meta</span>' : metaChip(camp)}</h2>
 ${campaignSteps(ed, camp, variants, c)}
 <p>${progressChips(c.allLinks)}</p>
+${approveAllBox(ed, camp, c.pending || [])}
 ${active ? '<p class="status ok"><b>Campagne active dans Meta</b> (statut saisi à la main). Les versions diffusées (associations « transmises » ou « publiées ») sont <b>figées</b> et identifiables 🔒. Vous pouvez continuer à préparer de <b>nouveaux contenus en brouillon</b> pour cette campagne ; rien ne part vers Meta sans récapitulatif et confirmation de votre part.</p>' : ''}
 <p class="inline"><a class="btn primary" href="/edition/${ed.id}/variants/new?campaign=${camp.id}">+ Ajouter un contenu</a> <a class="btn" href="/edition/${ed.id}/campaigns/${camp.id}/guide">Guide Ads Manager : quoi saisir dans Meta</a></p></div>
 ${vtabs}
 ${show('contenus', `<div class="card"><h2>Contenus de cette campagne</h2>
 ${variants.map((v) => `<div class="orow"><a href="/edition/${ed.id}/variants/${v.id}"><b>${esc(v.name)}</b></a> <span class="tag">${esc(variantType(v))}</span> ${chip(v.status)}
 <span class="outs">${(c.outputs?.[v.id] || []).map((o) => `<span class="tag ${['exporté', 'transmis', 'publié', 'approuvé'].includes(o.stage) ? 'st-2' : ''}">${o.kind === 'video' ? 'Vidéo' : esc(FORMATS[o.fmt]?.ratio || '')} · ${esc(o.stage)}</span>`).join(' ')}</span>
-${c.nexts?.[v.id] ? `<br><small>${esc(c.nexts[v.id])}</small>` : ''}</div>`).join('') || '<small>Aucun contenu pour cette campagne : utilisez « + Ajouter un contenu » ci-dessus.</small>'}</div>`)}
+<form method="post" action="/edition/${ed.id}/variants/${v.id}/duplicate" class="inline"><input type="hidden" name="quick" value="1"><button class="mini" title="Copie complète (formats, photos, cadrages, textes) pour un test A/B">⧉ Créer une variante</button></form>
+${c.nexts?.[v.id] ? `<br><small>${esc(c.nexts[v.id])}</small>` : ''}</div>`).join('')}
+${(c.texts || []).map((t) => `<div class="orow"><a href="/edition/${ed.id}/texts/${t.id}"><b>${esc(t.title)}</b></a> <span class="tag">Texte</span> ${chip(t.status)}${t.body ? `<br><small>${esc(String(t.body).slice(0, 140))}${String(t.body).length > 140 ? '…' : ''}</small>` : ''}</div>`).join('')}
+${variants.length || (c.texts || []).length ? '' : '<small>Aucun contenu pour cette campagne : utilisez « + Ajouter un contenu » ci-dessus.</small>'}</div>`)}
 ${show('diffusion', `<div class="card"><h2>Contenus associés à la campagne entière</h2>${linkList(ed, c.campLinks)}${linkForm('campaign_id', camp.id).replace('Associer un contenu (en brouillon)…', 'Associer un contenu existant à toute la campagne (en brouillon)…')}</div>
 
 ${adsetHtml}`)}
-${show('brief', `<details class="card" id="config" open><summary><b>Brief interne et lien avec Meta</b> <small>(le brief d’abord ; la configuration Meta se saisit à la main, une fois la campagne prête)</small></summary><div class="two"><div><h3>Configuration Meta <small class="tag warn">${camp.meta_source === 'meta' ? 'synchronisée ' + fr(camp.meta_synced_at) : 'provisoire : saisie à la main, jamais synchronisée'}</small></h3>
-${metaForm(`/edition/${ed.id}/campaigns/${camp.id}/meta`, { ...camp, name: camp.name }, `<label>Objectif dans Meta<input name="meta_objective" value="${esc(camp.meta_objective)}"></label><label>Budget configuré dans Meta<input name="meta_budget" value="${esc(camp.meta_budget)}"></label>
-<label>Début (Meta)<input type="date" name="meta_start" value="${esc(camp.meta_start)}"></label><label>Fin (Meta)<input type="date" name="meta_end" value="${esc(camp.meta_end)}"></label>`)}
-<small>Ces champs seront remplacés par les valeurs réelles de Meta dès que la connexion sera active.</small></div>
-<div><h3>Brief interne <small class="tag">à nous, jamais écrasé par Meta</small></h3><form method="post" action="/edition/${ed.id}/campaigns/${camp.id}/brief" class="grid">
+${show('brief', `<div class="card" id="config"><h2>Brief interne <small class="tag">à nous, jamais écrasé par Meta</small></h2><form method="post" action="/edition/${ed.id}/campaigns/${camp.id}/brief" class="grid">
 <label>Objectif interne<input name="brief_objective" value="${esc(camp.brief_objective)}"></label><label>Langues visées<input name="brief_languages" value="${esc(camp.brief_languages)}"></label>
 <label style="grid-column:1/-1">Message clé<textarea name="brief_message" rows="2">${esc(camp.brief_message)}</textarea></label>
 <label>Audience souhaitée<input name="brief_audience" value="${esc(camp.brief_audience)}"></label><label>Budget prévu<input name="brief_budget" value="${esc(camp.brief_budget)}"></label>
 <label style="grid-column:1/-1">Hypothèse à tester<input name="brief_hypothesis" value="${esc(camp.brief_hypothesis)}"></label>
 <label style="grid-column:1/-1">Consignes et notes<textarea name="brief_notes" rows="2">${esc(camp.brief_notes)}</textarea></label><div><button>Enregistrer le brief</button></div></form>
-<small>Budget prévu ≠ budget configuré · audience souhaitée ≠ ciblage réel · objectif interne ≠ objectif Meta.</small></div></div></details>`)}
+<small>Budget prévu ≠ budget configuré · audience souhaitée ≠ ciblage réel · objectif interne ≠ objectif Meta.</small></div>
+<details class="card"><summary><b>Configuration Meta</b> <small>(à remplir une fois la campagne créée dans Ads Manager)</small></summary><h3>Configuration Meta <small class="tag warn">${camp.meta_source === 'meta' ? 'synchronisée ' + fr(camp.meta_synced_at) : 'provisoire : saisie à la main, jamais synchronisée'}</small></h3>
+${metaForm(`/edition/${ed.id}/campaigns/${camp.id}/meta`, { ...camp, name: camp.name }, `<label>Objectif dans Meta<input name="meta_objective" value="${esc(camp.meta_objective)}"></label><label>Budget configuré dans Meta<input name="meta_budget" value="${esc(camp.meta_budget)}"></label>
+<label>Début (Meta)<input type="date" name="meta_start" value="${esc(camp.meta_start)}"></label><label>Fin (Meta)<input type="date" name="meta_end" value="${esc(camp.meta_end)}"></label>`)}
+<small>Ces champs seront remplacés par les valeurs réelles de Meta dès que la connexion sera active.</small></details>`)}
 ${show('diffusion', `<div class="card"><h2>+ Relier un ensemble de publicités créé dans Meta</h2><form method="post" action="/edition/${ed.id}/campaigns/${camp.id}/adset" class="grid">
 <label>Nom (dans Meta)<input name="name" required></label><label>ID Meta (facultatif)<input name="meta_id"></label><label><span>Statut dans Meta <small>(saisi)</small></span>${sel('meta_status', META_STATUSES, 'inconnu')}</label>
 <label>Audience souhaitée<input name="brief_audience"></label><label>Langues<input name="brief_languages" placeholder="EN, JA"></label>
@@ -526,7 +550,8 @@ export function projectHomePage(ed, d, msg) {
     ? `<ul class="worklist">${list.map((w) => `<li><a href="${esc(w.href)}"><b>${esc(w.name)}</b></a> <span class="tag">${esc(w.type)}</span> ${chip(w.status)}${w.next ? `<small>${esc(w.next)}</small>` : ''}${w.summary ? `<small class="sum">${esc(w.summary)}</small>` : ''}</li>`).join('')}</ul>`
     : `<p class="empty">${empty}</p>`;
   return `${tabs(ed, 'accueil')}${flash(msg)}
-<div class="home-actions"><a class="btn primary big" href="/edition/${ed.id}/campaigns">Mes campagnes : créer ou ouvrir</a><a class="btn big" href="/edition/${ed.id}/calendar">Calendrier du projet</a></div>
+<ol class="frise home-frise" aria-label="Le parcours du projet">${d.pipeline.steps.map((st) => `<li class="${st.done ? 'done' : next && st.n === next.n ? 'now' : ''}"><a href="${esc(st.href)}"><b>${st.done ? '✓' : st.n}. ${esc(st.label)}</b><small>${esc(st.hint)}</small></a></li>`).join('')}</ol>
+<div class="home-actions">${next ? `<a class="btn primary big" href="${esc(next.href)}">Continuer : ${esc(next.label)} →</a><a class="btn big" href="/edition/${ed.id}/campaigns">Mes campagnes</a>` : `<a class="btn primary big" href="/edition/${ed.id}/campaigns">Mes campagnes : créer ou ouvrir</a>`}<a class="btn big" href="/edition/${ed.id}/calendar">Calendrier</a></div>
 <div class="home-grid">
 <div class="card"><h2>Production à reprendre</h2>${work(d.recent, d.toReview.length ? 'Rien d’autre à produire.' : 'Rien en cours. Ouvrez une campagne pour y créer un contenu.')}</div>
 <div class="card"><h2>Validations attendues</h2>${work(d.toReview, 'Rien en attente de relecture.')}</div>
@@ -535,13 +560,13 @@ export function projectHomePage(ed, d, msg) {
 <p><a href="/edition/${ed.id}/calendar">Ouvrir le calendrier</a></p></div>
 ${todoCard(d.todo, 'Suivi et configuration')}
 </div>
-${next ? `<div class="next conf"><b>Configuration du projet — ${esc(next.label)}</b> ${esc(next.hint)}. <a class="btn sm" href="${esc(next.href)}">Y aller</a></div>` : ''}`;
+`;
 }
 
 // ------------------------------------------------------------------ « Créer un contenu » : trois choix, rien d'autre au départ
 export function contentNewPage(ed, c) {
   const { campaigns, variants, error, values: v = {}, prefill = {}, preset = {}, from = {}, templates = [] } = c;
-  const types = [['affiche', '🖼️ Affiche / image', 'Un visuel décliné en plusieurs formats'], ['video', '🎬 Vidéo', 'Un extrait, recadré par format, avec sous-titres'], ['texte', '📝 Texte', 'Un concept, un script, une légende']];
+  const types = [['affiche', '🖼️ Affiche / image', 'Un visuel décliné en plusieurs formats'], ['video', '🎬 Vidéo', c.videoReady === false ? '⚠ Montage possible, mais l’export vidéo est impossible sur cet ordinateur (ffmpeg incomplet)' : 'Un extrait, recadré par format, avec sous-titres'], ['texte', '📝 Texte', 'Texte de publicité (texte principal, titre, description), script, légende']];
   const cur = v.type || from.type || 'affiche';
   return `${tabs(ed, 'campagnes')}${error ? `<p class="status warn">${esc(error)}</p>` : ''}
 <h2>Ajouter un contenu</h2>
@@ -575,7 +600,10 @@ ${t.asset_id ? `<p><a href="/files/${t.asset_id}" target="_blank">Fichier d’or
     creation: `<div class="card"><h2>Rédaction</h2><form method="post" action="${base}/save" class="grid">
 <label>Titre<input name="title" value="${esc(t.title)}" required></label><label>Langue<input name="language" value="${esc(t.language)}" placeholder="EN, JA…"></label>
 <label><span>Angle <small>(facultatif)</small></span><input name="angle" value="${esc(t.angle)}"></label><label><span>Audience <small>(facultatif)</small></span><input name="audience" value="${esc(t.audience)}"></label>
-<label style="grid-column:1/-1">Texte<textarea name="body" rows="14">${esc(t.body)}</textarea></label><div><button class="primary">Enregistrer</button></div></form>
+<label style="grid-column:1/-1"><span>Texte principal <small>(au-dessus du visuel dans Meta ; conseillé : ${LIMITS.primary} caractères ou moins — ou un script, un concept plus long)</small></span><textarea name="body" rows="8" data-count="${LIMITS.primary}">${esc(t.body)}</textarea><small class="cnt"></small></label>
+<label><span>Titre de la publicité <small>(facultatif, ≤ ${LIMITS.headline})</small></span><input name="ad_headline" value="${esc(t.ad_headline)}" data-count="${LIMITS.headline}"><small class="cnt"></small></label>
+<label><span>Description <small>(facultatif, ≤ ${LIMITS.description})</small></span><input name="ad_description" value="${esc(t.ad_description)}" data-count="${LIMITS.description}"><small class="cnt"></small></label>
+<div><button class="primary">Enregistrer</button></div></form>
 <p><a class="btn sm" href="/edition/${ed.id}/variants/new?content=${t.id}">Créer une affiche ou une vidéo à partir de ce texte</a></p></div>${next2('verification', 'Continuer vers la vérification')}`,
     verification: `<div class="card"><h2>Contrôles</h2>${checksL.length ? `<ul class="log checks">${checksL.map(([l, x]) => `<li class="${l}">${l === 'bloquant' ? '🔴 <b>À corriger</b>' : '🟡 <b>À savoir</b>'} — ${esc(x)}</li>`).join('')}</ul>` : '<p>✅ Rien à signaler.</p>'}</div>
 <div class="card"><h2>Validation</h2><p>Statut : ${chip(t.status)}. Approuver confirme que ce texte est prêt à être utilisé.</p><div class="inline">
@@ -591,7 +619,7 @@ ${links.length ? `<ul class="log">${links.map((l) => `<li>${chip(l.state)} ${l.a
 <div class="card"><h2>Télécharger uniquement</h2><a class="btn sm" href="${base}/download">Télécharger en .txt</a></div>`,
   };
   return `${tabs(ed, 'campagnes')}${flash(msg)}
-${workspaceHeader(ed, { name: t.title, type: 'Texte', status: t.status, version: 0, base, backHref: `/edition/${ed.id}/campaigns`, backLabel: 'Campagnes', steps: ws.steps, step })}
+${workspaceHeader(ed, { name: t.title, type: 'Texte', status: t.status, version: 0, base, backHref: ws.campaignId ? `/edition/${ed.id}/campaigns/${ws.campaignId}` : `/edition/${ed.id}/campaigns`, campName: ws.campaignName, steps: ws.steps, step })}
 ${bodies[step]}`;
 }
 
@@ -606,7 +634,10 @@ export function metaGuidePage(ed, c) {
   const dates = [camp.meta_start || camp.starts, camp.meta_end || camp.ends].filter(Boolean).join(' → ');
   const sheets = adsets.map((s) => ({ s, ads: s.ads.map((a) => ({ a, sheet: adSheet({ ed, meta, camp, adset: s, ad: a, links: a.links }) })) }));
   const nWarn = sheets.reduce((n, x) => n + x.ads.reduce((m, y) => m + y.sheet.warnings.length, 0), 0) + adsets.reduce((n, s) => n + coverage(s, s.links).missing.length, 0);
+  const texts = c.texts || [];
+  const fromText = (a) => (texts.length ? `<form method="post" action="${base}/adcopy" class="inline"><input type="hidden" name="ad_id" value="${a.id}"><select name="from_text" required><option value="">Reprendre un texte du projet…</option>${texts.map((t) => `<option value="${t.id}">${esc(t.title)}${t.status === 'approuvé' ? ' ✓' : ''}</option>`).join('')}</select><button>Reprendre</button></form><small>Texte principal, titre et description sont recopiés ; le texte d’origine ne change pas.</small>` : '');
   const copyForm = (s, a) => `<details class="copyform"><summary>Modifier les textes et références de cette publicité</summary>
+${fromText(a)}
 <form method="post" action="${base}/adcopy" class="grid"><input type="hidden" name="ad_id" value="${a.id}">
 <label>Nom de la publicité<input name="name" value="${esc(a.name)}"></label>
 <label>Bouton<select name="cta"><option value="">— choisir —</option>${META_CTAS.map((x) => `<option${x === a.cta ? ' selected' : ''}>${esc(x)}</option>`).join('')}</select></label>

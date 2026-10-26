@@ -4,7 +4,7 @@
 
 ## Principe : peu de temps, une ou deux personnes
 
-L'atelier est utilisé par **une ou deux personnes**. Chaque contenu peut avoir un **responsable**, un **relecteur facultatif** et une **échéance** (étape Vérification et exports) ; la personne attendue pour la prochaine action s'affiche dans le résumé. **Aucune validation à deux n'est obligatoire.** Les contrôles automatiques assistent la relecture (ils ne garantissent ni la qualité artistique, ni la traduction, ni l'exactitude commerciale) ; un parcours standard coûte **3 actions** (créer la variante, « Approuver et exporter », « Associer à la campagne ») ; « À faire maintenant » et « Prochaine étape » disent quoi faire sans chercher. Toute fonction doit réduire le temps ou les erreurs d'une personne qui n'a pas le temps.
+L'atelier est utilisé par **une ou deux personnes**. Chaque contenu peut avoir un **responsable**, un **relecteur facultatif** et une **échéance** (étape Vérification et exports) ; la personne attendue pour la prochaine action s'affiche dans le résumé. **Aucune validation à deux n'est obligatoire.** Les contrôles automatiques assistent la relecture (ils ne garantissent ni la qualité artistique, ni la traduction, ni l'exactitude commerciale) ; un parcours standard coûte **2 actions** (créer le contenu, « Approuver et exporter » : ses sorties sont rangées d'office dans sa campagne, en brouillon) puis, pour toute la campagne d'un coup, « Tout approuver pour la campagne » ; une variante B se crée en un clic (« ⧉ Créer une variante », copie complète) ; « À faire maintenant » et « Prochaine étape » disent quoi faire sans chercher. Toute fonction doit réduire le temps ou les erreurs d'une personne qui n'a pas le temps.
 
 ## Nomenclature
 

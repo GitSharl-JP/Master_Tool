@@ -361,6 +361,9 @@
     const pos = {};
     for (const [k, f] of Object.entries(FM)) { const fs = Math.round(f.w * BASE.subs); pos[k] = { x: Math.round(f.w / 2), y: Math.round(f.h - f.safe.bottom - Math.round(f.h * 0.02) - Math.round(fs * 0.7)) }; }
     const t = r1(S.t);
+    // un bloc de sous-titres vide existe déjà : on le remplit plutôt que d'empiler une seconde piste
+    const empty = S.tl.els.find((e) => e.type === 'subs' && !(e.cues || []).length);
+    if (empty) { empty.cues = [{ start: t, end: r1(t + 3), text: 'Nouveau sous-titre' }]; touch(); renderLayer(); select({ kind: 'el', id: empty.id }); return; }
     addEl({ type: 'subs', pos, start: t, end: r1(t + 3), cues: [{ start: t, end: r1(t + 3), text: 'Nouveau sous-titre' }] });
   });
   function removeSel() {

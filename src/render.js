@@ -1,8 +1,18 @@
 // Rendu HTML de l'affiche et du site à partir de la fiche. Aucun texte commercial en dur ici.
 import { LANGS } from './schema.js';
 import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { FORMATS } from './formats.js';
+import { IS_WIN, fontFileNames } from './platform.js';
 const MEASURE_JS = readFileSync(new URL('../public/svg-measure.js', import.meta.url), 'utf8');
+// Titre : jamais un mot de 1 ou 2 lettres seul sur sa ligne (« NIGHT OF / A / THOUSAND ») — on réduit le titre par petits pas (12 % au plus).
+// Exécuté dans la page même (aperçu, export PNG, relevé SVG) : la mesure est celle du vrai rendu.
+const FIT_JS = `(function(){function fit(){document.querySelectorAll('.p h1').forEach(function(h){var t=h.firstChild;if(!t||t.nodeType!==3)return;h.style.fontSize='';var base=parseFloat(getComputedStyle(h).fontSize);
+function orphan(){var re=/\\S+/g,m,rows={},r=document.createRange();while((m=re.exec(t.data))){r.setStart(t,m.index);r.setEnd(t,m.index+m[0].length);var b=r.getClientRects()[0];if(!b)continue;var k=Math.round(b.top/4);(rows[k]=rows[k]||[]).push(m[0]);}
+var ks=Object.keys(rows);return ks.length>1&&ks.some(function(k){return rows[k].length===1&&rows[k][0].length<=2;});}
+for(var i=1;i<=6&&orphan();i++)h.style.fontSize=(base*(1-0.02*i))+'px';});}fit();if(document.fonts)document.fonts.ready.then(fit);})();`;
+// empreinte du script, autorisée par la politique de sécurité des aperçus servis par l'atelier
+export const FIT_CSP = `'sha256-${createHash('sha256').update(FIT_JS).digest('base64')}'`;
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const L = LANGS[0];
@@ -21,11 +31,37 @@ export const dateLabel = (d) => {
   return a && b && a !== b ? `${a} – ${b}` : a || b || 'Dates to be announced';
 };
 
-// Polices proposées par format d'affiche (installées avec Windows) ; sans choix, on garde les polices de la fiche du spectacle.
-export const FONTS = {
+// Polices proposées par format d'affiche ; sans choix, on garde les polices de la fiche du spectacle.
+// Catalogue complet (un choix enregistré reste valide partout) ; la liste PROPOSÉE ne garde que les polices disponibles sur cet ordinateur.
+const WIN_FONTS = {
   'Georgia': 'serif', 'Times New Roman': 'serif', 'Palatino Linotype': 'serif', 'Book Antiqua': 'serif', 'Cambria': 'serif', 'Constantia': 'serif', 'Rockwell': 'serif',
   'Segoe UI': 'sans', 'Arial': 'sans', 'Calibri': 'sans', 'Candara': 'sans', 'Corbel': 'sans', 'Trebuchet MS': 'sans', 'Verdana': 'sans', 'Tahoma': 'sans',
   'Century Gothic': 'sans', 'Franklin Gothic Medium': 'sans', 'Bahnschrift': 'sans', 'Impact': 'sans', 'Segoe Script': 'sans',
+};
+const MAC_FONTS = { 'Baskerville': 'serif', 'Didot': 'serif', 'Hoefler Text': 'serif', 'Helvetica Neue': 'sans', 'Avenir Next': 'sans', 'Futura': 'sans', 'Gill Sans': 'sans' };
+// Polices libres (SIL OFL) chargées depuis Google Fonts : identiques sur tous les ordinateurs, redistribuables, utilisables en impression.
+// À installer sur le poste qui ouvre le SVG dans Illustrator (le fichier ne les embarque pas).
+export const WEB_FONTS = {
+  'Cormorant Garamond': 'serif', 'Playfair Display': 'serif', 'DM Serif Display': 'serif', 'Lora': 'serif', 'Shippori Mincho': 'serif', 'Noto Serif JP': 'serif',
+  'Inter': 'sans', 'Montserrat': 'sans', 'Oswald': 'sans', 'Bebas Neue': 'sans', 'Noto Sans JP': 'sans',
+};
+export const FONTS = { ...WIN_FONTS, ...MAC_FONTS, ...WEB_FONTS };
+const squash = (x) => String(x).toLowerCase().replace(/[^a-z0-9]/g, '');
+let installedCache = null;
+// Polices utilisables ici : web (toujours), Windows (fournies avec le système), sinon présentes dans les dossiers de polices.
+export function availableFonts() {
+  if (!installedCache) {
+    const files = fontFileNames().map(squash);
+    const has = (name) => IS_WIN ? name in WIN_FONTS || files.some((f) => f.startsWith(squash(name))) : files.some((f) => f.startsWith(squash(name)));
+    installedCache = Object.fromEntries(Object.entries(FONTS).filter(([n]) => n in WEB_FONTS || has(n)));
+  }
+  return installedCache;
+}
+export const fontAvailable = (name) => !name || name in WEB_FONTS || name in availableFonts() || (!(name in FONTS) && fontFileNames().map(squash).some((f) => f.startsWith(squash(name))));
+// Feuille Google Fonts pour les polices web utilisées par une affiche (aucune si elle n'en utilise pas).
+export const webFontLink = (names) => {
+  const fams = [...new Set(names.filter((x) => x in WEB_FONTS))];
+  return fams.length ? `<link rel="stylesheet" href="https://fonts.googleapis.com/css2?${fams.map((f) => 'family=' + f.replace(/ /g, '+') + ':wght@400;600;700').join('&')}&display=block">` : '';
 };
 const fontOf = (name) => font(name, FONTS[name] === 'serif' ? 'Georgia,serif' : 'Segoe UI,Arial,sans-serif');
 
@@ -45,7 +81,7 @@ export const POSTER_ELEMENTS = {
 export const elementsFor = (style, layout = 'portrait') => {
   if (layout === 'banner') return ['logo', 'title', 'info', 'cta', 'partners'];
   return style === 'bandeau'
-    ? ['logo', 'top', 'band', 'title', 'dates', 'info', 'partners']
+    ? ['logo', 'top', 'band', 'kicker', 'title', 'dates', 'info', 'partners']
     : ['logo', 'kicker', 'title', 'info', 'cta', 'host', 'partners'];
 };
 
@@ -113,6 +149,7 @@ export function renderPoster(ed, fmt, g, { heroSrc, logoSrc, partnerSrcs = [], d
 .ph{background:linear-gradient(135deg,${c.p},${c.s});display:flex;align-items:center;justify-content:center;font:700 44px ${c.fb};letter-spacing:.2em;color:${rgba(c.x, .35)}}
 .grad{position:absolute;inset:0;background:${grad}}
 [data-el]{transform-origin:center}
+h1,.kick,.bk,.top{text-wrap:balance}
 [data-oc],[data-oc] *{color:var(--oc)!important}
 .logo{position:absolute;left:${side}px;top:${safeTop}px;max-height:${logoH}px;max-width:${Math.round(340 * (wide ? u : 1))}px}
 .kick{font-size:${Math.round((tall ? 40 : 34) * (wide ? u : 1))}px;letter-spacing:.14em;text-transform:uppercase;color:${c.s};margin-bottom:${Math.round(18 * (wide ? u : 1))}px}
@@ -139,16 +176,20 @@ h1{font:700 ${titleSize}px/1.02 ${c.ft};margin-bottom:${Math.round(28 * (wide ? 
   // --- composition « bandeau » : phrase en haut, titre incliné sur fond sombre, lieu + site en bas
   const bandeau = `
 <style>${css}
-.top{position:absolute;left:${side}px;right:${side}px;top:${safeTop + (logoSrc ? 120 * (wide ? u : 1) : 0)}px;text-align:center;font:700 ${Math.round((tall ? 38 : 32) * (wide ? u : 1))}px ${c.fb};letter-spacing:.16em;text-transform:uppercase}
-.band{position:absolute;left:50%;top:${g.text_pos === 'haut' ? '32%' : g.text_pos === 'bas' ? '58%' : '45%'};width:${wide ? 70 : 88}%;transform:translate(-50%,-50%) rotate(-5deg);background:${rgba(c.p, .93)};border:4px solid ${c.x};padding:${Math.round((tall ? 54 : 40) * (wide ? u : 1))}px 36px;text-align:center}
+.top{position:absolute;left:${side}px;right:${side}px;top:${safeTop + (logoSrc && shown('logo') ? logoH + 30 * (wide ? u : 1) : 0)}px;text-align:center;font:700 ${Math.round((tall ? 38 : 32) * (wide ? u : 1))}px ${c.fb};letter-spacing:.16em;text-transform:uppercase}
+.band{position:absolute;left:50%;top:${g.text_pos === 'haut' ? (tall ? '32%' : '40%') : g.text_pos === 'bas' ? '58%' : (tall ? '45%' : '48%')};width:${wide ? 70 : 88}%;transform:translate(-50%,-50%) rotate(-5deg);background:${rgba(c.p, .93)};border:4px solid ${c.x};padding:${Math.round((tall ? 54 : 40) * (wide ? u : 1))}px 36px;text-align:center}
 .band h1{font:800 ${titleSize}px/1.0 ${c.ft};text-transform:uppercase;letter-spacing:.02em}
+.band .bk{margin-bottom:${Math.round(16 * (wide ? u : 1))}px;font:600 ${Math.round((tall ? 34 : 28) * (wide ? u : 1))}px ${c.fb};letter-spacing:.12em;text-transform:uppercase;color:${c.s}}
+.shade{position:absolute;left:0;right:0;bottom:0;height:${Math.round(H * .38)}px;background:linear-gradient(to top,${rgba(c.p, Math.max(.75, gr))},${rgba(c.p, 0)})}
+.foot,.top{text-shadow:0 2px 12px ${rgba(c.p, .8)}}
 .band small{display:block;margin-top:${Math.round(18 * (wide ? u : 1))}px;font:600 ${Math.round((tall ? 36 : 30) * (wide ? u : 1))}px ${c.fb};letter-spacing:.14em;text-transform:uppercase;color:${c.s}}
 .foot{position:absolute;left:${side}px;right:${side}px;bottom:${bottom}px;text-align:center}
 .foot b{display:block;font:700 ${Math.round((tall ? 54 : 46) * (wide ? u : 1))}px ${c.fb};text-transform:uppercase;letter-spacing:.04em}
 .foot i{display:block;margin-top:12px;font:italic 600 ${Math.round((tall ? 44 : 38) * (wide ? u : 1))}px ${c.fb};color:${c.s}}
 .foot span{display:block;margin-top:10px;font-size:${Math.round((tall ? 36 : 30) * (wide ? u : 1))}px;opacity:.9}</style>
+<div class="shade"></div>
 ${top && shown('top') ? `<div class="top"${attrs('top')}>${text('top', esc(top))}</div>` : ''}
-${shown('band') ? `<div class="band"${attrs('band')}>${shown('title') ? `<h1${attrs('title')}>${text('title', esc(t(d, 'title')))}</h1>` : ''}${shown('dates') ? `<small${attrs('dates')}>${text('dates', esc(dateLabel(d)))}</small>` : ''}</div>` : ''}
+${shown('band') ? `<div class="band"${attrs('band')}>${shown('kicker') && ov('kicker').text ? `<div class="bk"${attrs('kicker')}>${text('kicker', '')}</div>` : ''}${shown('title') ? `<h1${attrs('title')}>${text('title', esc(t(d, 'title')))}</h1>` : ''}${shown('dates') ? `<small${attrs('dates')}>${text('dates', esc(dateLabel(d)))}</small>` : ''}</div>` : ''}
 ${shown('info') ? `<div class="foot"${attrs('info')}>${ov('info').text ? lines2('info') : `<b>${esc(venueLabel(d))}</b>${host ? `<i>${esc(host)}</i>` : `<span>${esc(t(d, 'cta_book') || '')}</span>`}`}</div>` : ''}`;
 
   // --- composition « bannière » (3:1) : une seule ligne
@@ -163,8 +204,8 @@ ${shown('info') ? `<div class="foot"${attrs('info')}>${ov('info').text ? lines2(
 ${shown('info') ? `<div class="info"${attrs('info')}>${ov('info').text ? lines2('info') : `<b>${esc(dateLabel(d))}</b><br>${esc(venueLabel(d))}`}</div>` : ''}
 ${shown('cta') ? `<span class="cta"${attrs('cta')}>${text('cta', esc(t(d, 'cta_book') || 'Book your tickets'))}</span>` : ''}${hasPartners && shown('partners') ? partners.replace('class="partners"', 'class="partners"') : ''}</div>`;
 
-  const editor = edit ? `<script src="/poster-editor.js"></script>` : measure ? `<script>${MEASURE_JS}</script>` : '';
-  return `<!doctype html><html><head><meta charset="utf-8">${print ? `<style>@page{size:${W}px ${H}px;margin:0}html,body{-webkit-print-color-adjust:exact;print-color-adjust:exact}</style>` : ''}</head><body><div class="p" data-w="${W}" data-h="${H}">${bg}<div class="grad"></div>
+  const editor = `<script>${FIT_JS}</script>` + (edit ? `<script src="/poster-editor.js"></script>` : measure ? `<script>${MEASURE_JS}</script>` : '');
+  return `<!doctype html><html><head><meta charset="utf-8">${webFontLink([g.ft, g.fb, d.font_title, d.font_body])}${print ? `<style>@page{size:${W}px ${H}px;margin:0}html,body{-webkit-print-color-adjust:exact;print-color-adjust:exact}</style>` : ''}</head><body><div class="p" data-w="${W}" data-h="${H}">${bg}<div class="grad"></div>
 ${banner ? '' : logo}${banner ? bannerHtml : band ? bandeau : classic}${banner ? '' : partners}
 ${draft ? '<div class="draft">DRAFT — NOT FOR PUBLICATION</div>' : ''}</div>${editor}</body></html>`;
 }
