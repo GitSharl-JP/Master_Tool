@@ -1,5 +1,5 @@
-/* Charte alignée sur le site Acoustiguide Japan (thème acoustiguide-japan) : rouge #B83636, fond #F5F5F5,
-   titres Noto Serif JP, texte Noto Sans JP / Inter. Les valeurs ci-dessous reprennent ses variables. */
+/* Charte de l'interface : Tycho (moodboard 02). Les variables de base ci-dessous sont redéfinies
+   par le bloc « Charte Tycho » en fin de fichier, qui fait foi. */
 :root{
   --acc:#B83636;--acc-dk:#8D2929;--acc-lt:#F6ECEC;
   --ink:#1A1A1A;--charcoal:#2C2C2C;--mute:#888;--line:#EBEBEB;--bg:#F5F5F5;--card:#FFFFFF;
@@ -413,3 +413,103 @@ button.copy{font-size:.85rem;padding:4px 12px}button.copy.done{background:#2e7d3
 .tlb.t-video{background:#8a3d5f}
 .tlrow.new{height:22px;margin:3px 0;border:1px dashed var(--line);border-radius:6px;background:#fcfcfc}
 .tlrow.new .tlnew{display:block;font-size:.7rem;color:var(--mute);padding:3px 10px;font-style:normal;pointer-events:none}
+
+/* ===== Charte Tycho (moodboard 02) : Washi, Sumi, Night, un seul accent Shu, filets Brass =====
+   Titres Cormorant Garamond, étiquettes et chiffres IBM Plex Mono, japonais Shippori Mincho, texte courant Inter.
+   Angles droits, pas d'ombres portées, filets de 1 px. Ce bloc reste en fin de fichier : il prime sur les règles plus haut. */
+:root{
+  --acc:#C3402A;--acc-dk:#8E2E1E;--acc-lt:#F5E3DC;
+  --ink:#1C1B19;--charcoal:#2E2C29;--mute:#5A5650;--line:#DDD4C4;--line-strong:#CFC6B5;--bg:#F2EDE3;--card:#FBF8F2;
+  --night:#0F1B2D;--night-dk:#0B1422;--brass:#A8875A;--washi:#F2EDE3;
+  --ok:#3F6B4A;--ok-lt:#E3EADF;--warn:#9A6316;--warn-lt:#F3E6CF;--err:#C3402A;
+  --radius:0;--radius-lg:0;--shadow:none;--shadow-lg:0 10px 30px rgba(15,27,45,.12);
+  --serif:'Cormorant Garamond','Shippori Mincho',Georgia,serif;
+  --sans:'Inter','Shippori Mincho','Segoe UI','Yu Gothic',system-ui,sans-serif;
+  --mono:'IBM Plex Mono',ui-monospace,Consolas,monospace;
+  --jp:'Shippori Mincho','Yu Mincho',serif;
+}
+body{background:var(--bg);color:var(--ink)}
+::selection{background:var(--acc);color:var(--washi)}
+h1,h2,h3{font-family:var(--serif);font-weight:500;letter-spacing:0}
+h1{font-size:2.3rem;line-height:1.1}h2{font-size:1.5rem;line-height:1.2}h3{font-size:1.2rem}
+:lang(ja){font-family:var(--jp)}
+
+/* En-tête : bandeau Night, wordmark TYCH● */
+header{background:var(--night);border-bottom:1px solid var(--brass);box-shadow:none}
+.brand{color:var(--washi)}
+.brand .mark{display:inline-flex;padding:0;border:0;align-items:center;gap:2px;font-family:var(--serif);font-weight:500;font-size:1.9rem;letter-spacing:.08em;line-height:1;color:var(--washi)}
+.brand .mark i{display:inline-block;width:.62em;height:.62em;border-radius:50%;background:var(--acc);margin-top:.06em}
+.brand span:not(.mark){font-family:var(--mono);font-weight:400;font-size:.72rem;letter-spacing:.16em;text-transform:uppercase;color:var(--brass);border-left-color:rgba(168,135,90,.45)}
+header nav>a,header nav>.dd>.ddb{color:var(--washi)}
+header nav>a:hover,header nav>.dd>.ddb:hover,header nav>.dd:focus-within>.ddb{background:rgba(242,237,227,.08);color:var(--washi)}
+nav form span{color:var(--brass)}
+
+/* Surfaces : cartes papier, filets fins, sans ombre */
+.card,table,.pmenu,.ws,.metabar,.vs-props,.vs-tl,.matitem,.frise li a,.gsteps li,.elpanel{border-radius:0;box-shadow:none;border-color:var(--line)}
+.card,table,.ws,.metabar,.vs-props,.vs-tl,.matitem,.gsteps li{background:var(--card)}
+h2{border-bottom-color:var(--line)}
+.ddm,#caltip,.vpick-box,.guardbox{border-radius:0;background:var(--card);border:1px solid var(--line-strong)}
+.guardbox{color:var(--ink)}
+.guardback,#vpick{background:rgba(15,27,45,.55)}
+
+/* Étiquettes, en-têtes de tableaux, fil d'Ariane, petites mentions : Plex Mono */
+th,.crumb,.tabs .tgroup small,.legend,time,.where,.step,.tag,.savestate,code,
+#tlruler,.tlempty,.frise li a small,.dthumb,.vthumb.vid{font-family:var(--mono)}
+th{font-size:.7rem;letter-spacing:.14em;color:var(--mute)}
+.crumb,.tabs .tgroup small{letter-spacing:.16em;color:var(--brass)}
+code{background:var(--bg);border:1px solid var(--line);border-radius:0}
+
+/* Champs */
+input,textarea,select{border:1px solid var(--line-strong);border-radius:0;background:#FFFDF9;color:var(--ink)}
+input:focus,textarea:focus,select:focus{border-color:var(--acc);box-shadow:0 0 0 2px rgba(195,64,42,.18)}
+
+/* Boutons : plats et rectangulaires, en Shu */
+button,.btn{border-radius:0;background:var(--acc);color:var(--washi);box-shadow:none;letter-spacing:.02em}
+button:hover,.btn:hover{background:var(--acc-dk);color:var(--washi);transform:none;box-shadow:none}
+.mini,.elbtn,.pk{border-radius:0}
+.mini:hover,.elbtn:hover,.pk:hover{color:var(--ink)}
+button.copy.done,.matitem button.on{background:var(--ok);color:var(--washi)}
+.danger,.danger-btn,.etats .ko{color:var(--acc-dk)}.danger-btn{border-color:var(--acc-dk)}
+
+/* Onglets et menus du projet */
+nav a,.ddb,.ddi,.tabs.sub a,.subtabs a,.seg label{border-radius:0}
+.tabs{border-bottom:1px solid var(--line-strong)}
+.tabs a.on{border-color:var(--acc)}
+.tabs.sub a.on,.pmenu .dd.on>.ddb{background:var(--night);border-color:var(--night);color:var(--washi)}
+.pmenu .dd.on>.ddb:hover,.pmenu .dd.on:focus-within>.ddb{background:var(--night-dk);color:var(--washi)}
+.pnav{border-bottom-color:var(--line-strong)}
+.seg label:has(input:checked){background:var(--night);color:var(--washi)}
+
+/* Étapes, frise et parcours : pastilles rondes (le point Tycho), cadres droits */
+.pipe a,.steps a,.typecard,.dropbox,.ws{border-radius:0}
+.pipe b,.steps b{font-family:var(--mono);font-weight:500;background:var(--line);color:var(--ink)}
+.pipe li.done b,.steps li.done b{background:var(--ok);color:var(--washi)}
+.pipe li.next a{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc) inset}.pipe li.next b{background:var(--acc);color:var(--washi)}
+.steps li.here a{box-shadow:0 0 0 1px var(--acc) inset}
+.frise li.done a{border-color:var(--ok);background:var(--ok-lt)}
+.frise li.now a{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc) inset}
+.step{border-radius:0;letter-spacing:.06em}.step.on{background:var(--ok-lt);color:var(--ok)}.step.now{background:var(--acc);color:var(--washi)}
+
+/* Messages et statuts */
+.tag{border-radius:0;font-weight:500;letter-spacing:.08em;text-transform:uppercase;background:var(--line);color:var(--ink)}
+.tag.warn,.tag.st-1{background:var(--warn-lt);color:var(--warn)}.tag.st-2{background:var(--ok-lt);color:var(--ok)}
+.status,.flash,.next,.cover{border-radius:0}
+.status.warn{background:var(--warn-lt);color:#5C3A0B;border-color:var(--warn)}.status.ok{background:var(--ok-lt);color:#22402B;border-color:var(--ok)}
+.checks li.conseil{border-left-color:var(--warn)}
+.savestate{border-radius:0;font-weight:500;background:var(--ok-lt);color:var(--ok)}
+.savestate.dirty{background:var(--warn-lt);color:var(--warn)}
+.savestate.saving{background:#E1E5EC;color:var(--night)}
+.savestate.error{background:var(--acc-lt);color:var(--acc-dk)}
+
+/* Calendrier */
+table.cal td.off{background:var(--bg)}
+.ci{border-radius:0;background:var(--mute)}.ci.s-ok{background:var(--ok)}.ci.s-todo{background:var(--night)}
+
+/* Aperçus et vignettes : fond Night au lieu du gris */
+.preview,.vs-preview,.dthumb,.vthumb{border-radius:0;background:var(--night)}
+.asset .thumb img,.asset .thumb video,.exp img,.lthumb,.jobvideo,.matitem img,.swatches i,.pk img{border-radius:0}
+.vs-tlscroll{border-radius:0;background:var(--bg)}#tlruler{background:var(--card)}
+.tlrow.new{border-radius:0;background:var(--card)}
+
+/* Téléphone : les colonnes du studio peuvent rétrécir sous la largeur de leur contenu (sinon défilement horizontal) */
+.studio>*{min-width:0}
