@@ -41,7 +41,7 @@ export function homePage(editions, activity) {
 <div class="inline"><form method="post" action="/edition/new" class="inline"><input name="label" placeholder="Nom du nouveau projet" required><button>Créer</button></form>
 <form method="post" action="/edition/test" class="inline"><button class="link" title="Crée un projet avec une fiche d'exemple provisoire, pour tester sans risque">+ Projet d’essai</button></form></div>
 ${old.length ? `<details class="card"><summary><b>Projets archivés (${old.length})</b></summary><table class="projects">${head}<tbody>${old.map((e) => row(e, true)).join('')}</tbody></table></details>` : ''}
-<h2>Activité récente</h2><ul class="log">${activity.map((a) => `<li><time>${fr(a.at)}</time> <b>${esc(a.who)}</b> ${esc(a.what)}</li>`).join('') || '<li>Rien pour l’instant.</li>'}</ul>`;
+<details class="card histo"><summary><b>Journal d’activité</b> <small>(${activity.length} dernières actions)</small></summary><ul class="log">${activity.map((a) => `<li><time>${fr(a.at)}</time> <b>${esc(a.who)}</b> ${esc(a.what)}</li>`).join('') || '<li>Rien pour l’instant.</li>'}</ul></details>`;
 }
 
 export function deleteProjectPage(ed, c) {
@@ -110,8 +110,8 @@ ${meta ? metaConnectionCard(ed, meta) : ''}
 <div class="card"><h2>Dupliquer ce projet</h2><form method="post" action="/edition/${ed.id}/duplicate" class="inline">
 <input name="label" placeholder="Nom de la copie" required><button>Dupliquer</button></form>
 <small>La copie repart en brouillon, lieu « à confirmer », sans aucune validation.</small></div>
-<div class="card"><h2>Historique des versions</h2><ul class="log">${versions.map((v) => `<li><time>${fr(v.saved_at)}</time> ${esc(v.saved_by)} · ${esc(v.note || '')}
-<form method="post" action="/edition/${ed.id}/restore/${v.id}" class="inline"><button class="link">Restaurer</button></form></li>`).join('')}</ul></div>`;
+<details class="card histo"><summary><b>Historique des versions de la fiche</b> <small>(${versions.length})</small></summary><ul class="log">${versions.map((v) => `<li><time>${fr(v.saved_at)}</time> ${esc(v.saved_by)} · ${esc(v.note || '')}
+<form method="post" action="/edition/${ed.id}/restore/${v.id}" class="inline"><button class="link">Restaurer</button></form></li>`).join('')}</ul><small>Restaurer remplace la fiche actuelle par cette version ; la version remplacée reste dans cette liste.</small></details>`;
 }
 
 export function settingsPage(users, backups, msg) {
@@ -286,7 +286,7 @@ ${range('zoom', 'Zoom de la photo', 100, 250)}`}
 ${design.ext ? '' : `<label>Police du titre<select name="ft">${fontOpts(design.ft, ed.data.font_title)}</select></label><label>Police du texte<select name="fb">${fontOpts(design.fb, ed.data.font_body)}</select></label>`}
 <label>Position du texte<select name="text_pos">${['haut', 'milieu', 'bas'].map((p) => `<option${p === design.text_pos ? ' selected' : ''}>${p}</option>`).join('')}</select></label>${design.ext ? '</div>' : ''}
 </form>${design.ext && !variant ? `<form id="swapform" method="post" action="/edition/${ed.id}/poster-import"></form><form id="rmform" method="post" action="/edition/${ed.id}/poster-import"><input type="hidden" name="remove" value="1"></form>` : ''}
-<div class="card"><h2>Historique des réglages de ce format</h2><ul class="log hist">${history.map((h) => `<li><time>${fr(h.saved_at)}</time> ${esc(h.saved_by)} · ${esc(h.reason)} <form method="post" action="/edition/${ed.id}/poster/${fmt}/restore/${h.id}${qs}" class="inline"><button class="link">Restaurer</button></form></li>`).join('') || '<li>Aucun enregistrement.</li>'}</ul></div>
+<details class="card histo"><summary><b>Historique des réglages de ce format</b> <small>(${history.length})</small></summary><ul class="log hist">${history.map((h) => `<li><time>${fr(h.saved_at)}</time> ${esc(h.saved_by)} · ${esc(h.reason)} <form method="post" action="/edition/${ed.id}/poster/${fmt}/restore/${h.id}${qs}" class="inline"><button class="link">Restaurer</button></form></li>`).join('') || '<li>Aucun enregistrement.</li>'}</ul></details>
 ${variant ? '' : `<form class="card" method="post" action="/edition/${ed.id}/pack"><h2>Pack campagne par canal</h2>
 <small>Produit d’un coup tous les formats utiles aux canaux cochés, à partir des réglages de chaque format (photo, logo, dégradé repris du dernier format réglé ; positions propres à chaque forme). Un zip classé par canal est créé.</small>
 <div class="chanlist">${Object.entries(CHANNELS).map(([k, c]) => `<label class="check"><input type="checkbox" name="ch_${k}" value="1"> <span><b>${esc(c.label)}</b> <small>${c.uses.map(([fm, use]) => `${esc(use)} ${esc(POSTER_FORMATS[fm].ratio)}`).join(' · ')}</small></span></label>`).join('')}</div>
@@ -355,9 +355,9 @@ export function designsPage(ed, c) {
   const KINDS_L = { projet: 'Design du projet', modele: 'Modèle de contenu', kit: 'Kit graphique' };
   const card = (t) => `<div class="card dcard"><div class="dthumb">${versions[t.id][0]?.thumb ? `<img src="/library/thumb/${versions[t.id][0].id}" alt="">` : t.kind === 'kit' ? `<div class="swatches">${Object.entries(c.brands?.[t.id] || {}).filter(([k, v2]) => /^color_/.test(k) && /^#[0-9a-f]{6}$/i.test(v2)).map(([k, v2]) => `<i style="background:${v2}" title="${esc(v2)}"></i>`).join('')}</div>` : '<span>pas d’aperçu</span>'}</div>
 <div class="dmeta"><h2>${esc(t.name)} <span class="tag">${esc(KINDS_L[t.kind] || 'Design du projet')}</span></h2><small>${t.versions} version(s) · modifié ${fr(t.updated)}${t.parent_id ? ' · copie d’un autre design' : ''}</small>
-<ul class="log">${versions[t.id].map((v) => `<li><b>v${v.version}</b> <time>${fr(v.created)}</time> ${esc(v.created_by)}${v.note ? ' · ' + esc(v.note) : ''}
+${(() => { const vli = (v) => `<li><b>v${v.version}</b> <time>${fr(v.created)}</time> ${esc(v.created_by)}${v.note ? ' · ' + esc(v.note) : ''}
 <span class="inline">${t.kind === 'kit' ? '' : `<a class="btn sm" href="/edition/${ed.id}/variants/new?design=${v.id}">Créer un contenu avec ${t.kind === 'modele' ? 'ce modèle' : 'ce design'}</a> `}<a href="/edition/${ed.id}/designs/apply/${v.id}">${t.kind === 'kit' ? 'Appliquer le kit au projet' : 'Appliquer à tout le projet'}</a>
-<form method="post" action="/edition/${ed.id}/designs/bundle/${v.id}" class="inline"><button class="link">Créer l’archive (.zip)</button></form></span></li>`).join('')}</ul>
+<form method="post" action="/edition/${ed.id}/designs/bundle/${v.id}" class="inline"><button class="link">Créer l’archive (.zip)</button></form></span></li>`; const vs = versions[t.id]; return `<ul class="log">${vs.slice(0, 1).map(vli).join('')}</ul>${vs.length > 1 ? `<details class="histo"><summary>Versions précédentes (${vs.length - 1})</summary><ul class="log">${vs.slice(1).map(vli).join('')}</ul></details>` : ''}`; })()}
 <form method="post" action="/edition/${ed.id}/designs/duplicate/${t.id}" class="inline"><input name="name" placeholder="Nom de la copie (ex. « ${esc(t.name)} — test »)"><button>Dupliquer</button></form></div></div>`;
   return `${tabs(ed, 'designs')}${msg ? `<p class="flash">${esc(msg)}</p>` : ''}
 <div class="card"><h2>Enregistrer dans la bibliothèque</h2>
