@@ -63,6 +63,8 @@ let srv, A, ids = {};
 console.log(`Dossier de test : ${TMP}`);
 const totalStart = Date.now();
 
+const campAll = async (path, who = A) => (await Promise.all(['contenus', 'diffusion', 'resultats', 'brief'].map((v) => who.text(path + (path.includes('?') ? '&' : '?') + 'vue=' + v)))).join('\n');
+const campAll2 = (path) => campAll(path, A2);
 await step('0. Démarrage de l’atelier sur des données vierges', async () => {
   srv = startServer(PORT, DATA);
   check('le serveur démarre', await waitUp(PORT), srv.log().split('\n')[0]);
@@ -150,12 +152,12 @@ await step('3. Campagne Meta reliée à la main (déclarée ACTIVE) — configur
   const r = await A.post('/edition/1/campaigns/new', { name: 'NS27 — Prévente', meta_id: '1200', meta_status: 'active', meta_objective: 'Ventes / billetterie', brief_message: 'Remplir les premières séances' });
   ids.c = Number(/campaigns\/(\d+)/.exec(r.headers.get('location'))[1]);
   await A.post(`/edition/1/campaigns/${ids.c}/adset`, { name: 'Japon 25-45', meta_status: 'active', brief_audience: 'couples, 25-45 ans', brief_languages: 'EN, JA', pl_instagram: '1', pl_tiktok: '1' });
-  let page = await A.text(`/edition/1/campaigns/${ids.c}`);
+  let page = await campAll(`/edition/1/campaigns/${ids.c}`);
   ids.adset = Number(/\/adset\/(\d+)\/meta/.exec(page)[1]);
   check('configuration Meta marquée « saisie à la main » / provisoire', /saisi à la main/.test(page) && /provisoire/.test(page));
   await A.post(`/edition/1/campaigns/${ids.c}/meta`, { name: 'NS27 — Prévente', meta_id: '1200', meta_status: 'active', meta_objective: 'Conversions', meta_budget: '50 €/jour' });
   await A.post(`/edition/1/campaigns/${ids.c}/brief`, { brief_objective: 'Prévente', brief_message: 'Remplir les premières séances', brief_audience: 'couples', brief_budget: '1 500 € prévus' });
-  page = await A.text(`/edition/1/campaigns/${ids.c}`);
+  page = await campAll(`/edition/1/campaigns/${ids.c}`);
   check('objectif Meta ≠ objectif interne, budget configuré ≠ prévu', /value="Conversions"/.test(page) && /value="Prévente"/.test(page) && /value="50 €\/jour"/.test(page) && /value="1 500 € prévus"/.test(page));
   check('campagne active : message « on peut préparer des variantes »', /nouveaux contenus en brouillon/.test(page));
   const ad = await A.post(`/edition/1/campaigns/${ids.c}/adset`, { name: 'Ensemble ajouté pendant que la campagne est active' });
@@ -289,7 +291,7 @@ await step('4d. Points d’entrée libres : affiche reçue (SVG / image) et docu
   const cmp = Number(/campaigns\/(\d+)/.exec(cc.headers.get('location'))?.[1]);
   const lk = await A.post(`/edition/${P}/campaigns/${cmp}/link`, { content_id: String(cid), campaign_id: String(cmp) });
   check('un contenu texte s’associe à une campagne sans export', /Contenu associé/.test(A.loc(lk)), A.loc(lk));
-  const cpage = await A.text(`/edition/${P}/campaigns/${cmp}`);
+  const cpage = await campAll(`/edition/${P}/campaigns/${cmp}`);
   const linkId = Number(/\/links\/(\d+)/.exec(cpage)?.[1]);
   const st = await A.post(`/edition/${P}/links/${linkId}`, { state: 'approuvé' });
   check('…et suit le même parcours de validation que les visuels', /Statut mis à jour/.test(A.loc(st)), A.loc(st));
@@ -423,7 +425,7 @@ await step('4g. Espace de contenu : créer, matériel, création, vérification,
   check('texte approuvé', /approuvé/.test(A.loc(ap)));
   const camp = await A.post('/edition/' + P + '/campaigns/new', { name: 'Campagne des contenus' }), cmp = Number(/campaigns\/(\d+)/.exec(camp.headers.get('location'))?.[1]);
   const lk = await A.post('/edition/' + P + '/texts/' + tid + '/link', { target: 'campaign_id:' + cmp });
-  check('texte associé à une campagne en brouillon', /associé en brouillon/.test(A.loc(lk)) && /Script teaser/.test(await A.text('/edition/' + P + '/campaigns/' + cmp)));
+  check('texte associé à une campagne en brouillon', /associé en brouillon/.test(A.loc(lk)) && /Script teaser/.test(await campAll('/edition/' + P + '/campaigns/' + cmp)));
   const dl = await A.get('/edition/' + P + '/texts/' + tid + '/download');
   check('téléchargement du texte', dl.status === 200 && /Scène 1/.test(await dl.text()));
   const list = await A.text('/edition/' + P + '/variants');
@@ -443,7 +445,7 @@ await step('4h. Campagnes, bibliothèque et calendrier reliés au parcours de co
   check('la connexion Meta (saisie à la main) est dans les Paramètres du projet', /id="connexions"/.test(st) && /name="ad_account"/.test(st) && /non connecté/.test(st));
   const sv = await A.post('/edition/1/campaigns/meta', { ad_account: 'act_42', page_name: 'Page test', from: 'settings' });
   check('enregistrer la connexion ramène aux paramètres, donnée conservée', /\/settings/.test(A.loc(sv)) && /value="act_42"/.test(await A.text('/edition/1/settings')));
-  const cp = await A.text('/edition/1/campaigns/' + ids.c);
+  const cp = await campAll('/edition/1/campaigns/' + ids.c);
   check('page campagne : contenus et avancement avant la configuration Meta', cp.indexOf('Contenus de cette campagne') > 0 && cp.indexOf('Contenus de cette campagne') < cp.indexOf('Configuration Meta') && /Brief interne et lien avec Meta/.test(cp));
   check('page campagne : le fil Brief › Contenus › Validation › Export › Meta, avec le prochain pas', /class="frise"/.test(cp) && ['Brief', 'Contenus', 'Validation', 'Export', 'Meta'].every((w) => cp.includes(`. ${w}</b>`)) && /class="now"/.test(cp));
   const oc = await A.post('/edition/1/variants/new', { type: 'affiche', name: 'Visuel organique' }), ov = Number(/variants\/(\d+)/.exec(A.loc(oc))?.[1]);
@@ -451,7 +453,7 @@ await step('4h. Campagnes, bibliothèque et calendrier reliés au parcours de co
   check('un contenu créé sans campagne va dans « Hors campagne » (créée au premier besoin, une seule fois)', ov > 0 && (lst.match(/campaigns\/\d+">Hors campagne/g) || []).length === 1);
   const ot = await A.post('/edition/1/variants/new', { type: 'texte', name: 'Légende organique' });
   const lst2 = await A.text('/edition/1/campaigns'), offId = Number(/campaigns\/(\d+)">Hors campagne/.exec(lst2)?.[1]);
-  check('un texte créé sans campagne est rattaché à « Hors campagne », sans second « Hors campagne »', /Légende organique/.test(await A.text('/edition/1/campaigns/' + offId)) && (lst2.match(/campaigns\/\d+">Hors campagne/g) || []).length === 1, A.loc(ot));
+  check('un texte créé sans campagne est rattaché à « Hors campagne », sans second « Hors campagne »', /Légende organique/.test(await campAll('/edition/1/campaigns/' + offId)) && (lst2.match(/campaigns\/\d+">Hors campagne/g) || []).length === 1, A.loc(ot));
   check('page campagne : créer un contenu pour cette campagne + associer un contenu existant', new RegExp('variants/new\\?campaign=' + ids.c).test(cp) && /Associer un contenu existant/.test(cp));
   check('page campagne : versions diffusées toujours figées et visibles', /🔒/.test(cp) && /nouveaux contenus en brouillon/.test(cp));
   // ---- créer un contenu pour une campagne : contexte prérempli
@@ -460,9 +462,9 @@ await step('4h. Campagnes, bibliothèque et calendrier reliés au parcours de co
   check('« Créer un contenu » depuis une campagne : la campagne est préremplie', new RegExp('<option value="' + cid + '" selected').test(nf));
   const nc = await A.post('/edition/' + P + '/variants/new', { type: 'affiche', name: 'Pour la campagne', campaign_id: String(cid) });
   const nv = Number(/variants\/(\d+)/.exec(nc.headers.get('location') || '')?.[1]);
-  const cp2 = await A.text('/edition/' + P + '/campaigns/' + cid);
+  const cp2 = await campAll('/edition/' + P + '/campaigns/' + cid);
   check('campagne ACTIVE : on prépare un nouveau contenu en brouillon, il apparaît avec son avancement', !!nv && /Pour la campagne/.test(cp2) && /brouillon/.test(cp2) && /4:5 · brouillon/.test(cp2));
-  const tl = await A.text('/edition/' + P + '/campaigns/' + cid);
+  const tl = await campAll('/edition/' + P + '/campaigns/' + cid);
   check('associer un contenu existant : les textes sont proposés au même titre que les visuels', /Script teaser/.test(tl));
   const li = await A.text('/edition/' + P + '/campaigns');
   check('la liste des campagnes compte les contenus de la campagne', /1 contenu\(s\) à vous/.test(li));
@@ -671,6 +673,9 @@ await step('8. Un changement ne modifie JAMAIS une version approuvée', async ()
   await A.post(`/edition/1/poster/4x5/save?variant=${ids.v1}`, { hero: String(ids.hero), logo: String(ids.logo), partners: '1', style: 'bandeau', gradient: '10', els: JSON.stringify({ title: { dx: 200, dy: 100, s: 150, text: 'TEXTE MODIFIÉ APRÈS APPROBATION' } }) });
   let page = await A.text(`/edition/1/variants/${ids.v1}`);
   check('la variante repasse « à relire » et signale que la v1 est intacte', /modifiée depuis son approbation/.test(page) && />à relire</.test(page));
+  const campOfV1 = /\/campaigns\/(\d+)/.exec(page)?.[1];
+  const campPage = campOfV1 ? await campAll('/edition/1/campaigns/' + campOfV1) : '';
+  check('F-états : une ancienne approbation ne valide pas le brouillon modifié (jalon « Validation » non coché, motif affiché)', !!campOfV1 && /modifié depuis son approbation/.test(campPage) && !/class="done"><a href="[^"]*"><b>3\. Validation/.test(campPage), campOfV1 ? '' : 'campagne du contenu introuvable');
   check('export officiel bloqué tant qu’elle n’est pas réapprouvée', /doit d’abord être approuvé|a changé depuis/.test(A.loc(await A.post(`/edition/1/variants/${ids.v1}/export`, {}))));
   let same = true;
   for (const [id, h] of Object.entries(ids.exp1hash)) { const b = Buffer.from(await (await A.get('/exports/' + id)).arrayBuffer()); if (sha(b) !== h) same = false; }
@@ -687,7 +692,7 @@ await step('8. Un changement ne modifie JAMAIS une version approuvée', async ()
 await step('9. Associer à la campagne ACTIVE : version diffusée figée, nouvelle variante possible', async () => {
   const lk = await A.post(`/edition/1/variants/${ids.v1}/link`, { target: `adset_id:${ids.adset}` });
   check('sorties associées en BROUILLON à la campagne active (non bloqué)', /associée\(s\) en brouillon/.test(A.loc(lk)), A.loc(lk));
-  let page = await A.text(`/edition/1/campaigns/${ids.c}`);
+  let page = await campAll(`/edition/1/campaigns/${ids.c}`);
   const lid = Number(/links\/(\d+)\/confirm\?to=transmis/.exec(page)?.[1] || /links\/(\d+)"/.exec(page)?.[1]);
   const links = [...page.matchAll(/action="\/edition\/1\/links\/(\d+)"/g)].map((m) => Number(m[1]));
   ids.link = links[0];
@@ -710,7 +715,7 @@ await step('9. Associer à la campagne ACTIVE : version diffusée figée, nouvel
   const h2 = /name="confirm_hash" value="([0-9a-f]+)"/.exec(pr)?.[1];
   const pub = await A.post(`/edition/1/links/${ids.link}`, { state: 'publié', confirm_hash: h2 });
   check('publication déclarée après confirmation', /Déclaré « publié »/.test(A.loc(pub)), A.loc(pub));
-  page = await A.text(`/edition/1/campaigns/${ids.c}`);
+  page = await campAll(`/edition/1/campaigns/${ids.c}`);
   check('version diffusée identifiable 🔒', /🔒/.test(page) && /publiée/.test(page));
   const lk2 = await A.post(`/edition/1/variants/${ids.v2}/link`, { target: `adset_id:${ids.adset}` });
   check('on prépare AUSSI une autre variante pour cette même campagne active', /associée\(s\) en brouillon/.test(A.loc(lk2)), A.loc(lk2));
@@ -721,7 +726,7 @@ await step('9. Associer à la campagne ACTIVE : version diffusée figée, nouvel
   await A.post(`/edition/1/poster/4x5/save?variant=${ids.v1}`, { hero: String(ids.hero), logo: String(ids.logo), partners: '1', style: 'classique', gradient: '30', els: JSON.stringify({ title: { dx: 5 } }) });
   await A.post(`/edition/1/variants/${ids.v1}/approve`, { note: 'v2' });
   await A.post(`/edition/1/variants/${ids.v1}/export`, {});
-  const cp = await A.text(`/edition/1/campaigns/${ids.c}`);
+  const cp = await campAll(`/edition/1/campaigns/${ids.c}`);
   check('nouvel export : l’ancienne association reste épinglée, la nouvelle version est signalée', /nouvelle version du contenu disponible/.test(cp) || /variante/.test(cp));
 });
 
@@ -729,7 +734,7 @@ await step('9b. Guide Ads Manager : valeurs à copier, textes de publicité, imp
   const C = `/edition/1/campaigns/${ids.c}`;
   const ad = await A.post(C + '/ad', { adset_id: String(ids.adset), name: 'Annonce guide', copy_primary: 'Une nuit de lumière dans un temple.', copy_headline: 'Night Show 2027', cta: 'Réserver' });
   check('publicité prévue avec ses textes', /Annonce reliée/.test(decodeURIComponent(A.loc(ad))), A.loc(ad));
-  const cp = await A.text(C);
+  const cp = await campAll(C);
   const g = await A.text(C + '/guide');
   check('guide : trois niveaux, boutons Copier, rien envoyé à Meta', /Guide Ads Manager/.test(g) && /class="copy"/.test(g) && /Rien n’est envoyé à Meta/.test(g) && /Ensemble de publicités/.test(g) && /Nom de la publicité/.test(g));
   check('guide : textes de la publicité et bouton repris', /Une nuit de lumière dans un temple\./.test(g) && /Night Show 2027/.test(g) && /Réserver/.test(g));
@@ -748,12 +753,23 @@ await step('9b. Guide Ads Manager : valeurs à copier, textes de publicité, imp
   const payload = /name="payload" value="([^"]+)"/.exec(pv)?.[1].replace(/&quot;/g, '"').replace(/&amp;/g, '&');
   const ap = await A.post(C + '/apply-results', { payload });
   check('import : lignes reconnues enregistrées', /Résultats importés : 1 ligne/.test(decodeURIComponent(A.loc(ap))), A.loc(ap));
-  check('les résultats apparaissent dans la comparaison de la campagne', /12345/.test(await A.text(C)));
+  check('les résultats apparaissent dans la comparaison de la campagne', /12345/.test(await campAll(C)));
   const pv2 = await (await A.post(C + '/import-results', { csv })).text();
   check('même rapport réimporté : déjà enregistré, pas de doublon', /déjà enregistré/.test(pv2));
   const csvEn = 'Ad name,Reporting starts,Reporting ends,Impressions,Link clicks,Amount spent (USD),Results\nAnnonce guide,2027-02-01,2027-02-07,"1,500",30,12.5,2\n';
   const pv3 = await (await A.post(C + '/import-results', { csv: csvEn })).text();
-  check('import : colonnes en anglais et séparateur virgule reconnus', /1500/.test(pv3) && /12\.5/.test(pv3));
+  check('import : « 1,500 » est ambigu : le format est demandé, rien n’est deviné', /ambigu/.test(pv3) && /name="dec"/.test(pv3) && !/Résultats importés/.test(pv3));
+  const pv3b = await (await A.post(C + '/import-results', { csv: csvEn, dec: '.' })).text();
+  check('import : colonnes en anglais et format « point décimal » reconnus', /1500/.test(pv3b) && /12\.5/.test(pv3b));
+  // périodes qui se croisent : jamais additionnées en silence
+  const lk9 = JSON.parse(payload)[0].linkId;
+  await A.post(C + '/result', { link_id: String(lk9), period_from: '2027-01-08', period_to: '2027-01-15', impressions: '1000', clicks: '10', spend: '5' });
+  const cpC = await campAll(C);
+  check('périodes qui se croisent : la page propose de réconcilier (aucun total silencieusement doublé)', /Mesures à réconcilier/.test(cpC) && /reconcile/.test(cpC));
+  const kp = /name="keep" value="(\d+)"><input type="hidden" name="drop" value="(\d+)"/.exec(cpC);
+  const rc = await A.post(C + '/reconcile', { keep: kp?.[1], drop: kp?.[2] });
+  const cpD = await campAll(C);
+  check('réconciliation : une mesure mise de côté (conservée), plus de conflit', /mise de côté/.test(decodeURIComponent(A.loc(rc))) && !/Mesures à réconcilier/.test(cpD), A.loc(rc));
   check('import : fichier sans colonne de publicité refusé avec explication', /Colonne « Nom de la publicité » introuvable/.test(await (await A.post(C + '/import-results', { csv: 'a;b\n1;2\n' })).text()));
   const cpy = await A.post(C + '/adcopy', { ad_id: String(adIdReal), name: 'Annonce guide', copy_primary: 'x'.repeat(200), copy_headline: 'Titre', cta: 'En savoir plus', meta_id: '1234567890' });
   const g3 = await A.text(C + '/guide');
@@ -1025,7 +1041,7 @@ await step('13. Restauration complète dans une installation VIERGE', async () =
   const vp = await A2.text(`/edition/1/variants/${ids.v1}`);
   check('versions approuvées restaurées', /version approuvée : v2/.test(vp), (/version approuvée : v\d+/.exec(vp) || [''])[0]);
   const ds = await A2.text('/edition/1/designs'); check('designs et leurs versions restaurés', /DA Night Show/.test(ds) && /v2/.test(ds));
-  const cm = await A2.text(`/edition/1/campaigns/${ids.c}`); check('campagne, associations figées et configuration Meta restaurées', /🔒/.test(cm) && /Conversions/.test(cm));
+  const cm = await campAll(`/edition/1/campaigns/${ids.c}`, A2); check('campagne, associations figées et configuration Meta restaurées', /🔒/.test(cm) && /Conversions/.test(cm));
   const sp = await A2.text('/edition/1/site');
   check('site du projet restauré (domaine, avancement) mais identifiants NON restaurés', /value="night-show-kyoto\.example"/.test(sp) && /\(2\/9\)/.test(sp) && !/class="tag st-2">enregistré/.test(sp));
   const cal = await A2.text('/edition/1/calendar?month=2027-01'); check('calendrier restauré', /Réunion de lancement/.test(cal));
@@ -1080,6 +1096,30 @@ await step('14. Pages dans un vrai navigateur (assistant, éditeur de variante, 
       seen.push(await br.ev(probe));
     }
     check('taille : l’élément se redimensionne autour de son centre, sa position ne bouge pas', seen.every((p) => Math.abs(p[0] - 456) <= 2 && Math.abs(p[1] - 345) <= 2) && seen[0][2] > seen[2][2] && seen[1][2] < seen[2][2], JSON.stringify(seen));
+    // F01 : une modification non enregistrée n'est jamais perdue en silence
+    const btn = (txt) => br.ev(`(() => { const b = [...document.querySelectorAll('.guardbtns button')].find((x) => x.textContent === ${JSON.stringify(txt)}); if (!b) return false; b.click(); return true; })()`);
+    const stateTxt = () => br.ev(`document.getElementById('savestate').textContent`);
+    check('F01 modification faite : état « Modifications non enregistrées »', (await br.ev('window.__poster.dirty()')) === true && (await stateTxt()) === 'Modifications non enregistrées', await stateTxt());
+    await br.ev(`document.querySelector('.ws a[href*="step=verification"], a[href*="step=verification"]').click()`);
+    await br.sleep(300);
+    check('F01 changer d’étape : une fenêtre propose Enregistrer / Quitter sans enregistrer / Rester', await br.ev(`!!document.querySelector('.guardbox') && ['Enregistrer', 'Quitter sans enregistrer', 'Rester'].every((t) => [...document.querySelectorAll('.guardbtns button')].some((b) => b.textContent === t))`));
+    await btn('Rester'); await br.sleep(200);
+    check('F01 « Rester » : on reste dans l’éditeur, la modification est conservée', await br.ev(`!document.querySelector('.guardbox') && location.href.includes('/poster/4x5') && window.__poster.dirty()`));
+    // conflit : une autre session a enregistré le même design entre-temps
+    const goodRev = await br.ev(`document.querySelector('#pform [name=rev]').value`);
+    await br.ev(`document.querySelector('#pform [name=rev]').value = '1999-01-01T00:00:00.000Z'`);
+    await br.ev(`document.querySelector('a[href*="step=verification"]').click()`); await br.sleep(200);
+    await btn('Enregistrer'); await br.sleep(800);
+    check('F01 conflit de révision : rien n’est écrasé, la page prévient', await br.ev(`!!document.querySelector('.guardbox') && /modifié ailleurs/.test(document.querySelector('.guardbox').innerText) && location.href.includes('/poster/4x5')`));
+    await btn('Rester'); await br.sleep(200);
+    check('F01 conflit : après « Rester », la modification est toujours là', await br.ev('window.__poster.dirty()'));
+    await br.ev(`document.querySelector('#pform [name=rev]').value = ${JSON.stringify(goodRev)}`);
+    await br.ev(`document.querySelector('a[href*="step=verification"]').click()`); await br.sleep(200);
+    await btn('Enregistrer'); await br.sleep(2000);
+    check('F01 « Enregistrer » depuis la fenêtre : la modification est enregistrée puis on change d’étape', await br.ev(`location.href.includes('step=verification')`), await br.ev('location.href'));
+    await br.go(`${U}/edition/1/poster/4x5?variant=${ids.v1}`, `!!document.getElementById('pframe')`);
+    await br.sleep(1200);
+    check('F01 au retour dans l’éditeur : plus de modification en attente et l’élément est resté où il était', await br.ev(`window.__poster.dirty() === false && document.querySelector('#pform [name=els]').value.includes('"title"')`), await br.ev(`document.querySelector('#pform [name=els]').value.slice(0, 120)`));
     await shot('editeur-variante');
     for (const [p, n, re] of [['/edition/1/calendar?month=2027-01', 'calendrier', 'Réunion de lancement'], [`/edition/1/campaigns/${ids.c}`, 'campagne', 'Configuration Meta'], [`/edition/1/campaigns/${ids.c}/guide`, 'guide-meta', 'Guide Ads Manager'], ['/edition/1/variants', 'variantes', 'Tous les contenus'], ['/settings', 'reglages', 'Sauvegardes'], ['/edition/1/contents', 'contenus', 'Associé']]) {
       await br.go(U + p);
@@ -1156,7 +1196,7 @@ await step('14. Pages dans un vrai navigateur (assistant, éditeur de variante, 
     await br.sleep(1800);
     await br.ev("(() => { document.getElementById('t_addtext').click(); const i = document.querySelector('#vprops textarea[data-k=text]'); i.value = 'PERSISTE'; i.dispatchEvent(new Event('input', { bubbles: true })); document.getElementById('vform').requestSubmit(); return true; })()");
     await br.sleep(2500);
-    check('enregistrer : le montage (clips, éléments, positions) est relu tel quel après rechargement', await br.ev("window.__video.tl.els.some((e) => e.type === 'text' && e.text === 'PERSISTE') && window.__video.tl.clips.length >= 1 && document.getElementById('vdirty').hidden"));
+    check('enregistrer : le montage (clips, éléments, positions) est relu tel quel après rechargement', await br.ev("window.__video.tl.els.some((e) => e.type === 'text' && e.text === 'PERSISTE') && window.__video.tl.clips.length >= 1 && window.__video.dirty === false && document.getElementById('vdirty').dataset.state === 'clean'"));
     // clips : réordonner par glisser, rogner un bord, atteindre le 2e clip en cliquant sur la règle
     await br.ev("(() => { document.getElementById('t_addclip').click(); return true; })()");
     await br.ev("(() => { document.querySelector('#vpick-list .pk').click(); return true; })()");
