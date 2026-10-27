@@ -10,7 +10,7 @@ export function layout(title, body, user, flash) {
 <title>${esc(title)} · Atelier</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600;700&family=Shippori+Mincho:wght@400;600&display=swap">
 <link rel="icon" type="image/png" href="/brand/icon.png"><link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script></head><body>
-<header><a class="brand" href="/"><span class="mark" role="img" aria-label="Tycho">TYCH<i></i></span><span>Atelier marketing</span></a>${user ? `<nav><a href="/">Projets</a><a href="/settings">Réglages</a>
+<header><a class="brand" href="/"><span class="mark" aria-label="Tyko">TYK<i>O</i></span><span>Atelier marketing</span></a>${user ? `<nav><a href="/">Projets</a><a href="/settings">Réglages</a>
 <div class="dd"><button type="button" class="ddb">${esc(user.name)}</button><div class="ddm right"><form method="post" action="/logout"><button class="ddi">Se déconnecter</button></form></div></div></nav>` : ''}</header>
 <main>${flash ? `<p class="flash">${esc(flash)}</p>` : ''}${body}</main></body></html>`;
 }
@@ -194,7 +194,7 @@ export function assetsPage(ed, assets, msg, storageInfo = '', filter = {}, expor
   const q = fold(filter.q), isExp = filter.kind === 'exports';
   const shown = isExp ? [] : assets.filter((a) => (!filter.kind || a.kind === filter.kind) && (!filter.status || a.status === filter.status) && (!q || fold(a.label).includes(q) || fold(a.name).includes(q)));
   const exps = isExp || !filter.kind ? exports.filter((e) => !q || fold(e.label).includes(q)) : [];
-  const so = (name, list, cur) => `<select name="${name}" onchange="this.form.submit()" aria-label="${name}">${list.map(([v, l]) => `<option value="${esc(v)}"${v === cur ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
+  const so = (name, list, cur) => `<select name="${name}" data-autosubmit aria-label="${name}">${list.map(([v, l]) => `<option value="${esc(v)}"${v === cur ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
   const n = (k) => assets.filter((a) => a.kind === k).length;
   const folders = [['', 'Tous les fichiers', assets.length + exports.length], ...Object.entries(KIND_NAMES).filter(([k]) => n(k)).map(([k, l]) => [k, l, n(k)]), ['exports', 'Fichiers exportés', exports.length]];
   const href = (k) => `/edition/${ed.id}/assets${k ? '?kind=' + k : ''}`;

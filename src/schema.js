@@ -154,7 +154,7 @@ export function posterNeeds(pairs) {
     const banner = FMT[fmt]?.layout === 'banner', band = g.style === 'bandeau' && !banner;
     need.sections.add('identity'); need.sections.add('brand'); need.provisional = true;
     if (shown('info') || (band && shown('dates'))) need.venue = true;
-    if (banner ? shown('cta') : band ? shown('info') : shown('cta') || shown('host')) need.sections.add('booking');
+    if (banner ? shown('cta') : shown('cta') || shown('host')) need.sections.add('booking');
   }
   if (need.venue) need.sections.add('venue');
   return need;

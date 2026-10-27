@@ -14,7 +14,7 @@ import { db, log, getEdition } from './db.js';
 import { getDesign, saveDesign, getAsset, listAssets, buildPosterHtml, htmlToPng, EXPORT_PATH, designSaveHooks } from './studio.js';
 import { getVideoDesign, saveVideoDesign, getCues, saveCues, planExports } from './video.js';
 import { designFromVersion } from './library.js';
-import { createContent, setContentExport, linkContent, linksOfContent, isFrozenState, OFF_CAMPAIGN } from './campaigns.js';
+import { createContent, setContentExport, linkContent, linksOfContent, isFrozenState, OFF_CAMPAIGN, getCampaign, listAngles, listAdsets, coverage } from './campaigns.js';
 import { posterNeeds, videoNeeds, blockersFor, explainNeeds } from './schema.js';
 import { FORMATS, VIDEO_FORMATS } from './formats.js';
 import { autoFit, aspectOf, posterWarnings, imageWarnings } from './intake.js';
@@ -36,6 +36,15 @@ CREATE TABLE IF NOT EXISTS variants(
 CREATE TABLE IF NOT EXISTS variant_versions(id INTEGER PRIMARY KEY, variant_id INTEGER NOT NULL, version INTEGER NOT NULL, snapshot TEXT NOT NULL, hash TEXT NOT NULL, approved_by TEXT NOT NULL, approved_at TEXT NOT NULL, note TEXT NOT NULL DEFAULT '');
 `);
 try { db.exec("ALTER TABLE variants ADD COLUMN due_date TEXT NOT NULL DEFAULT ''"); } catch { /* colonne déjà présente */ }
+// Bilan de campagne : verdict de la personne sur l'hypothèse (jamais calculé automatiquement).
+try { db.exec("ALTER TABLE variants ADD COLUMN verdict TEXT NOT NULL DEFAULT ''"); } catch { /* colonne déjà présente */ }
+export const VERDICTS = ['confirmée', 'non confirmée', 'pas assez de données'];
+export function setVerdict(id, verdict, who) {
+  const v = db.prepare('SELECT * FROM variants WHERE id=?').get(id);
+  if (!v) return;
+  db.prepare('UPDATE variants SET verdict=? WHERE id=?').run(VERDICTS.includes(verdict) ? verdict : '', id);
+  log(who, `Bilan : hypothèse de « ${v.name} » → ${verdict || 'sans verdict'}`);
+}
 const now = () => new Date().toISOString();
 const txt = (v, n = 300) => String(v ?? '').trim().slice(0, n);
 const norm = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
@@ -168,6 +177,30 @@ export function nextVariantName(v) {
   const taken = new Set(db.prepare('SELECT name FROM variants WHERE project_id=?').all(v.project_id).map((x) => x.name));
   for (const l of 'BCDEFGHIJKLMNOPQRSTUVWXYZ') if (!taken.has(`${base} — ${l}`)) return `${base} — ${l}`;
   return `${base} — copie`;
+}
+
+// « Créer le jeu de contenus » : une variante en brouillon par angle × ensemble choisis (picks = ['<angleId>:<adsetId>', …]),
+// avec l'audience et les langues de l'ensemble, les textes de l'angle et les formats demandés par ses placements.
+// Une paire refusée (quasi-doublon, aucun format…) est sautée et signalée, les autres sont créées.
+export function createSet(pid, cid, picks, who) {
+  const camp = getCampaign(cid);
+  if (!camp || camp.project_id !== pid) return { ok: false, error: 'Campagne introuvable.' };
+  const angles = listAngles(cid), adsets = listAdsets(cid);
+  const made = [], skipped = [];
+  for (const p of picks) {
+    const [aid, sid] = String(p).split(':').map(Number);
+    const a = angles.find((x) => x.id === aid), s = adsets.find((x) => x.id === sid);
+    if (!a || !s) continue;
+    const audience = s.brief_audience || s.name, fmts = coverage(s, []).need;
+    const b = { name: `${a.name} · ${audience}`, intent: 'angle', angle: a.name, audience, language: (s.brief_languages || camp.brief_languages || 'EN').split(/[,;\s]+/)[0],
+      hypothesis: INTENTS.angle.hypothesis.replace('{angle}', a.name), campaign_id: cid, adset_id: sid, msg_title: a.title, msg_tagline: a.tagline, msg_cta: a.cta, owner: who };
+    for (const f of fmts.length ? fmts : ['4x5', '9x16']) b['fmt_' + f] = '1';
+    const o = createVariant(pid, b, who);
+    if (o.ok) made.push(o.id); else skipped.push(`${b.name} : ${o.error}`);
+  }
+  if (!made.length && !skipped.length) return { ok: false, error: 'Cochez au moins une paire angle × ensemble.' };
+  log(who, `Jeu de contenus créé pour « ${camp.name} » : ${made.length} variante(s)`);
+  return { ok: true, made, skipped };
 }
 
 // --- modification des intentions / textes
@@ -520,26 +553,33 @@ export function applyMaterial(id, b, who) {
     reapplyMessages(id, who); done.push('design enregistré appliqué (vos textes sont conservés)');
   }
   if (b.set_formats) {
-    const cur = getVariant(id), want = Object.keys(FORMATS).filter((k) => b['fmt_' + k]), wantVideo = !!b.with_video || (b.with_video === undefined && cur.with_video);
+    const cur = getVariant(id), want = Object.keys(FORMATS).filter((k) => b['fmt_' + k]), wantVideo = !!b.with_video || (b.with_video === undefined && !!cur.with_video);
     if (!want.length && !wantVideo) return { ok: false, error: 'Gardez au moins un format (ou la vidéo).' };
-    const base = cur.formats.length ? getDesign(pid, dkey(id, cur.formats[0])) : null;
-    for (const fmt of want.filter((f) => !cur.formats.includes(f))) {
-      const d = getDesign(pid, `poster_${fmt}`), a = base?.ext ? getAsset(Number(base.ext)) : null;
-      saveDesign(pid, dkey(id, fmt), { ...d, ...(base ? { hero: base.hero, logo: base.logo } : {}), ...(a ? { ext: a.id, fit: autoFit(a, fmt), bgc: base.bgc, posx: 50, posy: 50, zoom: 100 } : {}) }, who, 'Nouveau format');
+    // « Continuer » renvoie aussi les cases inchangées : rien à enregistrer dans ce cas
+    const same = want.length === cur.formats.length && want.every((k) => cur.formats.includes(k)) && wantVideo === !!cur.with_video;
+    if (!same) {
+      const base = cur.formats.length ? getDesign(pid, dkey(id, cur.formats[0])) : null;
+      for (const fmt of want.filter((f) => !cur.formats.includes(f))) {
+        const d = getDesign(pid, `poster_${fmt}`), a = base?.ext ? getAsset(Number(base.ext)) : null;
+        saveDesign(pid, dkey(id, fmt), { ...d, ...(base ? { hero: base.hero, logo: base.logo } : {}), ...(a ? { ext: a.id, fit: autoFit(a, fmt), bgc: base.bgc, posx: 50, posy: 50, zoom: 100 } : {}) }, who, 'Nouveau format');
+      }
+      db.prepare('UPDATE variants SET formats=?, with_video=?, updated=? WHERE id=?').run(JSON.stringify(want), wantVideo ? 1 : 0, now(), id);
+      if (wantVideo && !cur.with_video) {
+        const vd = getVideoDesign(pid);
+        saveVideoDesign(pid, { ...vd, asset: own(b.video_asset)?.kind === 'video' ? String(b.video_asset) : vd.asset }, scope(id), who);
+        saveCues(pid, getCues(pid).cues, who, '', scope(id));
+      }
+      done.push('formats mis à jour');
     }
-    db.prepare('UPDATE variants SET formats=?, with_video=?, updated=? WHERE id=?').run(JSON.stringify(want), wantVideo ? 1 : 0, now(), id);
-    if (wantVideo && !cur.with_video) {
-      const vd = getVideoDesign(pid);
-      saveVideoDesign(pid, { ...vd, asset: own(b.video_asset)?.kind === 'video' ? String(b.video_asset) : vd.asset }, scope(id), who);
-      saveCues(pid, getCues(pid).cues, who, '', scope(id));
-    }
-    done.push('formats mis à jour');
   }
   if (b.set_vformats && getVariant(id).with_video) { // formats de la vidéo : distincts des formats d'affiche (cocher ici ne crée jamais d'affiche)
     const want = VIDEO_FORMATS.filter((k) => b['vfmt_' + k]);
     if (!want.length) return { ok: false, error: 'Gardez au moins un format vidéo.' };
-    saveVideoDesign(pid, { ...getVideoDesign(pid, scope(id)), formats: want }, scope(id), who);
-    done.push(`formats vidéo : ${want.map((k) => FORMATS[k].ratio).join(', ')}`);
+    const vd = getVideoDesign(pid, scope(id)), had = vd.formats?.length ? vd.formats : ['9x16'];
+    if (want.length !== had.length || !want.every((k) => had.includes(k))) {
+      saveVideoDesign(pid, { ...vd, formats: want }, scope(id), who);
+      done.push(`formats vidéo : ${want.map((k) => FORMATS[k].ratio).join(', ')}`);
+    }
   }
   if (b.video_asset && getVariant(id).with_video) {
     const a = own(b.video_asset);

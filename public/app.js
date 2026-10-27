@@ -5,6 +5,10 @@ const $ = (id) => document.getElementById(id);
 const openHash = () => { const t = location.hash && document.getElementById(location.hash.slice(1)); if (t && t.tagName === 'DETAILS') { t.open = true; t.scrollIntoView(); } };
 openHash(); window.addEventListener('hashchange', openHash);
 
+// Listes de tri et de filtre, bouton d'impression : sans gestionnaire écrit dans le HTML (refusé par la politique de sécurité).
+document.addEventListener('change', (e) => { if (e.target.matches?.('select[data-autosubmit]')) e.target.form?.submit(); });
+document.addEventListener('click', (e) => { if (e.target.closest?.('[data-print]')) window.print(); });
+
 // Garde de travail (affiche, vidéo) : état visible, vérification qu'un autre onglet n'a pas modifié le même travail, et aucune navigation
 // qui perdrait des modifications sans le dire. Un brouillon n'est JAMAIS approuvé ni publié par cette garde : elle ne fait qu'enregistrer.
 window.AtelierGuard = (() => {

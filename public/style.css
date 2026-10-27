@@ -1,5 +1,5 @@
-/* Charte de l'interface : Tycho (moodboard 02). Les variables de base ci-dessous sont redéfinies
-   par le bloc « Charte Tycho » en fin de fichier, qui fait foi. */
+/* Charte de l'interface : Tyko (moodboard 02). Les variables de base ci-dessous sont redéfinies
+   par le bloc « Charte Tyko » en fin de fichier, qui fait foi. */
 :root{
   --acc:#B83636;--acc-dk:#8D2929;--acc-lt:#F6ECEC;
   --ink:#1A1A1A;--charcoal:#2C2C2C;--mute:#888;--line:#EBEBEB;--bg:#F5F5F5;--card:#FFFFFF;
@@ -431,7 +431,7 @@ details.histo>summary{cursor:pointer;list-style:revert}
 details.histo[open]>summary{margin-bottom:8px}
 details.card.histo{padding:10px 16px}
 
-/* ===== Charte Tycho (moodboard 02) : Washi, Sumi, Night, un seul accent Shu, filets Brass =====
+/* ===== Charte Tyko (moodboard 02) : Washi, Sumi, Night, un seul accent Shu, filets Brass =====
    Titres Cormorant Garamond, étiquettes et chiffres IBM Plex Mono, japonais Shippori Mincho, texte courant Inter.
    Angles droits, pas d'ombres portées, filets de 1 px. Ce bloc reste en fin de fichier : il prime sur les règles plus haut. */
 :root{
@@ -451,11 +451,11 @@ h1,h2,h3{font-family:var(--serif);font-weight:500;letter-spacing:0}
 h1{font-size:2.3rem;line-height:1.1}h2{font-size:1.5rem;line-height:1.2}h3{font-size:1.2rem}
 :lang(ja){font-family:var(--jp)}
 
-/* En-tête : bandeau Night, wordmark TYCH● */
+/* En-tête : bandeau Night, wordmark TYKO */
 header{background:var(--night);border-bottom:1px solid var(--brass);box-shadow:none}
 .brand{color:var(--washi)}
 .brand .mark{display:inline-flex;padding:0;border:0;align-items:center;gap:2px;font-family:var(--serif);font-weight:500;font-size:1.9rem;letter-spacing:.08em;line-height:1;color:var(--washi)}
-.brand .mark i{display:inline-block;width:.62em;height:.62em;border-radius:50%;background:var(--acc);margin-top:.06em}
+.brand .mark i{font-style:normal;color:var(--acc)}
 .brand span:not(.mark){font-family:var(--mono);font-weight:400;font-size:.72rem;letter-spacing:.16em;text-transform:uppercase;color:var(--brass);border-left-color:rgba(168,135,90,.45)}
 header nav>a,header nav>.dd>.ddb{color:var(--washi)}
 header nav>a:hover,header nav>.dd>.ddb:hover,header nav>.dd:focus-within>.ddb{background:rgba(242,237,227,.08);color:var(--washi)}
@@ -497,7 +497,7 @@ nav a,.ddb,.ddi,.tabs.sub a,.subtabs a,.seg label{border-radius:0}
 .pnav{border-bottom-color:var(--line-strong)}
 .seg label:has(input:checked){background:var(--night);color:var(--washi)}
 
-/* Étapes, frise et parcours : pastilles rondes (le point Tycho), cadres droits */
+/* Étapes, frise et parcours : pastilles rondes (le point Tyko), cadres droits */
 .pipe a,.steps a,.typecard,.dropbox,.ws{border-radius:0}
 .pipe b,.steps b{font-family:var(--mono);font-weight:500;background:var(--line);color:var(--ink)}
 .pipe li.done b,.steps li.done b{background:var(--ok);color:var(--washi)}
@@ -555,7 +555,7 @@ button[disabled]+.why{display:inline-block;margin-left:6px}
   .studio .actions{position:static;margin:0}
 }
 .approve-all.blocked{background:var(--warn-lt);border-left-color:var(--warn)}
-.approve-all .why ul{margin:4px 0 0 18px;padding:0}
+.approve-all .why ul,.approve-all .what ul{margin:4px 0 0 18px;padding:0}
 .ws-dup button{background:var(--card);color:var(--charcoal);border:1px solid var(--line-strong);padding:.4rem .8rem;font-size:.85rem}
 .ws-dup button:hover{border-color:var(--acc);color:var(--acc)}
 
@@ -659,3 +659,20 @@ textarea{font-size:var(--ctl-fs)}
 .finder .folders{align-items:stretch}.finder .folders a{justify-content:flex-start;margin:0}
 #up.dropbox.slim{flex-direction:row;justify-content:flex-start;text-align:left}
 .finder .folders a:hover{background:var(--card);color:var(--ink)}
+
+/* ===== Inspiré du site Tyko (charte, maquette « Landing ») =====
+   En-tête et liens en Plex Mono, grands titres Cormorant, cartes coiffées d'un filet Night de 2 px,
+   le rouge Shu réservé à l'action principale (comme « Contact us »), les autres boutons en Night. */
+header nav>a,header nav>.dd>.ddb,header nav form button{font-family:var(--mono);font-size:.82rem;letter-spacing:.06em}
+h1{font-size:2.8rem;line-height:1.04}
+h2{font-size:1.75rem;line-height:1.15}
+.card{border:1px solid var(--line);border-top:2px solid var(--night)}
+.card.hl,.approve-all{border-top-color:var(--acc)}
+button:where(:not(.link,.elbtn,.ddb,.ddi,.mini,.pk,.ghost,.sm)),.btn:where(:not(.ghost,.sm)){background:var(--night);color:var(--washi);font-family:var(--mono);font-size:.85rem;letter-spacing:.04em}
+button:where(:not(.link,.elbtn,.ddb,.ddi,.mini,.pk,.ghost,.sm)):hover,.btn:where(:not(.ghost,.sm)):hover{background:var(--night-dk);color:var(--washi)}
+button.primary,.btn.primary{background:var(--acc);color:var(--washi)}
+button.primary:hover,.btn.primary:hover{background:var(--acc-dk)}
+.btn.ghost,button.ghost{color:var(--night);border:1px solid var(--night);font-family:var(--mono)}
+.btn.ghost:hover,button.ghost:hover{background:var(--night);color:var(--washi)}
+details>summary{font-family:var(--serif);font-size:1.15rem}
+details.card>summary small,details>summary small{font-family:var(--sans);font-size:.8rem}

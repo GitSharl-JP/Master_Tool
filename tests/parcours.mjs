@@ -228,7 +228,7 @@ await step('4b. Parcours court d’une personne seule : 2 actions de la créatio
   const page2 = await A.text(`/edition/1/variants/${vid}`);
   check('les sorties sont rangées d’office dans leur campagne, en brouillon (plus d’action « associer »)', /rangés dans la campagne/.test(page2) && !/Associer à la campagne/.test(page2));
   const camp = await A.text(`/edition/1/campaigns/${ids.c}?vue=diffusion`);
-  check('association à l’ensemble choisi, sans choisir de niveau, et « Tout approuver pour la campagne » proposé', camp.includes('Dernières places · ') && /Tout approuver pour la campagne/.test(camp));
+  check('association à l’ensemble choisi, sans choisir de niveau, et « Tout approuver pour la campagne » proposé', camp.includes('Dernières places · ') && /pprouver (pour la campagne|« [^»]+ » pour la campagne)/.test(camp));
   const actions = A.posts - before;
   check('2 actions seulement de la création à l’association (hors réglages de design)', actions === 2, `${actions} action(s)`);
   ids.v4 = vid; ids.actionsStandard = actions;
@@ -398,6 +398,13 @@ await step('4g. Espace de contenu : créer, matériel, création, vérification,
   await A.post('/edition/' + P + '/variants/' + v1 + '/material', { poster: 'none' });
   check('retour à la composition de l’atelier', !/class="bgb"/.test(await A.text('/render/poster/' + P + '/9x16?variant=' + v1)));
   const fm = await A.post('/edition/' + P + '/variants/' + v1 + '/material', { set_formats: '1', fmt_4x5: '1', fmt_1x1: '1' });
+  const mt = await A.text('/edition/' + P + '/variants/' + v1 + '?step=materiel');
+  check('« Continuer vers la création » appartient au formulaire des formats (les cases cochées ne sont plus perdues)', /<button class="primary" form="fmts" name="next" value="creation"/.test(mt) && /id="fmts"/.test(mt));
+  const ct = await A.post('/edition/' + P + '/variants/' + v1 + '/material', { set_formats: '1', fmt_4x5: '1', fmt_1x1: '1', fmt_a3: '1', next: 'creation' });
+  check('cocher A3 puis « Continuer » enregistre le format et ouvre la création', /step=creation/.test(A.loc(ct)) && /A3/.test(await A.text('/edition/' + P + '/variants/' + v1 + '?step=creation&all=1')), decodeURIComponent(A.loc(ct)));
+  await A.post('/edition/' + P + '/variants/' + v1 + '/material', { set_formats: '1', fmt_4x5: '1', fmt_1x1: '1' });
+  const ct2 = await A.post('/edition/' + P + '/variants/' + v1 + '/material', { set_formats: '1', fmt_4x5: '1', fmt_1x1: '1', next: 'creation' });
+  check('…« Continuer » sans rien changer ouvre la création sans message inutile', /step=creation/.test(A.loc(ct2)) && !/&m=/.test(A.loc(ct2)), A.loc(ct2));
   const go = await A.get('/edition/' + P + '/variants/' + v1 + '?step=creation');
   check('« Création » d’une affiche ouvre directement l’éditeur du premier format', go.status >= 300 && go.status < 400 && new RegExp('/edition/' + P + '/poster/\\w+\\?variant=' + v1).test(A.loc(go)), A.loc(go));
   const cr = await A.text('/edition/' + P + '/variants/' + v1 + '?step=creation&all=1');
@@ -605,6 +612,10 @@ await step('4j. Retours d’usage (designer) : variante B en un clic, bandeau li
   await A.post(`/edition/1/variants/${vid}/material`, { hero: String(ids.hero), logo: String(ids.logo) });
   await A.post(`/edition/1/poster/4x5/save?variant=${vid}`, { hero: String(ids.hero), logo: String(ids.logo), partners: '0', style: 'bandeau', gradient: '60', text_pos: 'haut', els: JSON.stringify({ kicker: { text: 'Kyoto · Spring 2027' } }) });
   const r = await A.text(`/render/poster/1/4x5?variant=${vid}`);
+  check('bandeau : le bouton de réservation et l’adresse du site sont affichés', /class="cta" data-el="cta"[^>]*>Book your tickets/.test(r) && /data-el="host"[^>]*>tickets\.example\.com/.test(r));
+  const { renderPoster } = await import('../src/render.js');
+  const tba = renderPoster({ data: { title_en: 'X', venue_status: 'à confirmer' } }, '4x5', { style: 'bandeau', gradient: 60, title_scale: 100, text_pos: 'milieu', posx: 50, posy: 50, zoom: 100 }, {});
+  check('bandeau : un lieu non confirmé reste discret (petit), plus en gros caractères', /<b class="tba">Venue to be announced/.test(tba));
   check('bandeau : l’accroche saisie est affichée (plus avalée), pied de page assombri, titre équilibré', /class="bk"[^>]*>Kyoto · Spring 2027/.test(r) && /class="shade"/.test(r) && /text-wrap:balance/.test(r));
   const d = await A.post(`/edition/1/variants/${vid}/duplicate`, { quick: '1' });
   const vb = Number(/variants\/(\d+)/.exec(A.loc(d))?.[1]);
@@ -615,9 +626,11 @@ await step('4j. Retours d’usage (designer) : variante B en un clic, bandeau li
   await A.post(`/edition/1/variants/${vid}/approve-export`, {});
   const cp = await A.text(`/edition/1/campaigns/${cid}?vue=diffusion`);
   check('la sortie exportée est rangée d’office dans sa campagne, en brouillon', cp.includes('Affiche A · 4:5'));
-  check('« Tout approuver pour la campagne » proposé ; un blocage est expliqué AVANT le clic', /Tout approuver pour la campagne \(\d+\)/.test(cp) && (/class="why"/.test(cp) || !/BROUILLON/.test(cp)));
+  check('« Tout approuver pour la campagne » proposé ; un blocage est expliqué AVANT le clic', /pprouver (pour la campagne \(\d+ contenus\)|« [^»]+ » pour la campagne)/.test(cp) && (/class="why"/.test(cp) || !/BROUILLON/.test(cp)));
+  check('« Tout approuver » nomme les contenus et les compte en contenus (une affiche en 2 formats = 1 contenu), pas en fichiers', /<b>Affiche A<\/b>/.test(cp) && !/Tout approuver pour la campagne \(\d+\)</.test(cp));
   const aa = await A.post(`/edition/1/campaigns/${cid}/approve-all`, {});
   check('« Tout approuver » valide en une action ce qui peut l’être et dit ce qui reste bloqué', /contenu\(s\) approuvé\(s\) pour la campagne/.test(decodeURIComponent(A.loc(aa))), decodeURIComponent(A.loc(aa)));
+  check('…et le message nomme les contenus approuvés', /« Affiche A »/.test(decodeURIComponent(A.loc(aa))), decodeURIComponent(A.loc(aa)));
   const t = await A.post('/edition/1/variants/new', { type: 'texte', name: 'Texte pub', campaign_id: String(cid) });
   const tid = Number(/texts\/(\d+)/.exec(A.loc(t))?.[1]);
   await A.post(`/edition/1/texts/${tid}/save`, { title: 'Texte pub', body: 'A night of light in a 1,100-year-old temple.', ad_headline: 'Night of a Thousand Lanterns', ad_description: 'Kyoto, spring 2027' });

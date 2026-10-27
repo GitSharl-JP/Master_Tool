@@ -41,11 +41,17 @@ function addCol(table, col, def) {
 }
 const T = "TEXT NOT NULL DEFAULT ''";
 for (const [c, d] of [['meta_objective', T], ['meta_budget', T], ['meta_start', T], ['meta_end', T], ['meta_synced_at', 'TEXT'], ['meta_source', "TEXT NOT NULL DEFAULT 'manuel'"],
-  ['brief_objective', T], ['brief_message', T], ['brief_audience', T], ['brief_hypothesis', T], ['brief_languages', T], ['brief_budget', T], ['brief_notes', T]]) addCol('campaigns', c, d);
+  ['brief_objective', T], ['brief_message', T], ['brief_audience', T], ['brief_hypothesis', T], ['brief_languages', T], ['brief_budget', T], ['brief_notes', T],
+  ['brief_start', T], ['brief_end', T], ['brief_milestone', T], ['brief_milestone_date', T]]) addCol('campaigns', c, d);
 for (const [c, d] of [['meta_targeting', T], ['meta_placements', "TEXT NOT NULL DEFAULT ''"], ['meta_synced_at', 'TEXT'], ['meta_source', "TEXT NOT NULL DEFAULT 'manuel'"],
   ['brief_audience', T], ['brief_placements', "TEXT NOT NULL DEFAULT '[]'"], ['brief_languages', T], ['brief_hypothesis', T]]) addCol('adsets', c, d);
 for (const [c, d] of [['meta_synced_at', 'TEXT'], ['meta_source', "TEXT NOT NULL DEFAULT 'manuel'"], ['brief_angle', T], ['copy_primary', T], ['copy_headline', T], ['copy_description', T], ['cta', T]]) addCol('ads', c, d);
 addCol('content_links', 'text_version_id', 'INTEGER');
+// Grille de messages (angles d'une campagne) et audiences nommées du projet : listes de référence qui PRÉREMPLISSENT
+// les variantes et les annonces (jamais d'écrasement d'un texte déjà saisi ; les colonnes texte existantes restent la vérité).
+db.exec(`CREATE TABLE IF NOT EXISTS campaign_angles(id INTEGER PRIMARY KEY, campaign_id INTEGER NOT NULL, name TEXT NOT NULL, title TEXT NOT NULL DEFAULT '', tagline TEXT NOT NULL DEFAULT '', cta TEXT NOT NULL DEFAULT '',
+  copy_primary TEXT NOT NULL DEFAULT '', copy_headline TEXT NOT NULL DEFAULT '', copy_description TEXT NOT NULL DEFAULT '', created TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS audiences(id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL, name TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', language TEXT NOT NULL DEFAULT '', created TEXT NOT NULL);`);
 for (const [c, d] of [['superseded_by', 'INTEGER'], ['period_from', T], ['period_to', T], ['currency', T], ['result_type', T], ['clicks_kind', T], ['missing', T]]) addCol('results', c, d);
 for (const [c, d] of [['variant_id', 'INTEGER'], ['variant_version', 'INTEGER'], ['body', T], ['asset_id', 'INTEGER']]) addCol('contents', c, d);
 // texte de publicité : titre et description en plus du texte principal (body), figés avec lui dans chaque version
@@ -122,11 +128,15 @@ export const getAdset = (id) => { const a = db.prepare('SELECT * FROM adsets WHE
 export const listAds = (asid) => db.prepare('SELECT * FROM ads WHERE adset_id=? ORDER BY id').all(asid);
 
 const metaCampFields = (b) => [txt(b.name, 140), txt(b.meta_id, 40), statusOf(b.meta_status), txt(b.meta_objective, 60), txt(b.meta_budget, 120), txt(b.meta_start, 10), txt(b.meta_end, 10)];
-const briefCampFields = (b) => [txt(b.brief_objective, 140), txt(b.brief_message, 800), txt(b.brief_audience, 300), txt(b.brief_hypothesis, 500), txt(b.brief_languages, 80), txt(b.brief_budget, 120), txt(b.brief_notes, 500)];
+// Période visée et jalon commercial : nos dates (≠ dates configurées dans Meta) ; elles servent au calendrier.
+const day = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(v || '') && !Number.isNaN(Date.parse(v)) ? v : '');
+const briefCampFields = (b) => [txt(b.brief_objective, 140), txt(b.brief_message, 800), txt(b.brief_audience, 300), txt(b.brief_hypothesis, 500), txt(b.brief_languages, 80), txt(b.brief_budget, 120), txt(b.brief_notes, 500),
+  day(b.brief_start), day(b.brief_end), txt(b.brief_milestone, 140), day(b.brief_milestone_date)];
+const BRIEF_COLS = 'brief_objective,brief_message,brief_audience,brief_hypothesis,brief_languages,brief_budget,brief_notes,brief_start,brief_end,brief_milestone,brief_milestone_date';
 export function createCampaign(pid, b, who) {
   const name = txt(b.name, 140);
   if (!name) return { ok: false, error: 'Indiquez le nom de la campagne (celui de Meta, idéalement).' };
-  const r = db.prepare('INSERT INTO campaigns(project_id,name,meta_id,meta_status,meta_objective,meta_budget,meta_start,meta_end,brief_objective,brief_message,brief_audience,brief_hypothesis,brief_languages,brief_budget,brief_notes,meta_source,source,created,created_by,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+  const r = db.prepare(`INSERT INTO campaigns(project_id,name,meta_id,meta_status,meta_objective,meta_budget,meta_start,meta_end,${BRIEF_COLS},meta_source,source,created,created_by,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
     .run(pid, ...metaCampFields(b), ...briefCampFields(b), 'manuel', 'manuel', now(), who, now());
   log(who, `Campagne reliée (association manuelle) : ${name}`);
   return { ok: true, id: Number(r.lastInsertRowid) };
@@ -147,9 +157,12 @@ export function updateCampaignMeta(id, b, who) {
 }
 export function updateCampaignBrief(id, b, who) {
   const c = getCampaign(id);
-  if (!c) return;
-  db.prepare('UPDATE campaigns SET brief_objective=?,brief_message=?,brief_audience=?,brief_hypothesis=?,brief_languages=?,brief_budget=?,brief_notes=?,updated=? WHERE id=?').run(...briefCampFields(b), now(), id);
+  if (!c) return { ok: false, error: 'Campagne introuvable.' };
+  const f = briefCampFields(b);
+  if (f[7] && f[8] && f[8] < f[7]) return { ok: false, error: 'La fin de la période visée est avant son début.' };
+  db.prepare(`UPDATE campaigns SET ${BRIEF_COLS.split(',').map((k) => k + '=?').join(',')},updated=? WHERE id=?`).run(...f, now(), id);
   log(who, `Brief interne modifié : ${c.name}`);
+  return { ok: true };
 }
 export function createAdset(cid, b, who) {
   const c = getCampaign(cid);
@@ -176,9 +189,12 @@ export function updateAdsetBrief(id, b, who) {
   log(who, `Ensemble : brief interne modifié : ${a.name}`);
 }
 export function createAd(asid, b, who) {
-  if (!getAdset(asid)) return { ok: false, error: 'Ensemble introuvable.' };
+  const s = getAdset(asid);
+  if (!s) return { ok: false, error: 'Ensemble introuvable.' };
   const name = txt(b.name, 140);
   if (!name) return { ok: false, error: 'Indiquez le nom de l’annonce.' };
+  const ang = angleByName(s.campaign_id, b.brief_angle); // textes de l'angle repris pour les champs laissés vides
+  if (ang) b = { ...b, copy_primary: txt(b.copy_primary) || ang.copy_primary, copy_headline: txt(b.copy_headline) || ang.copy_headline, copy_description: txt(b.copy_description) || ang.copy_description, cta: txt(b.cta) || ang.cta };
   db.prepare('INSERT INTO ads(adset_id,name,meta_id,meta_status,brief_angle,landing,notes,copy_primary,copy_headline,copy_description,cta,created) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)').run(asid, name, txt(b.meta_id, 40), statusOf(b.meta_status), txt(b.brief_angle, 140), txt(b.landing, 300), txt(b.notes, 300), txt(b.copy_primary, 600), txt(b.copy_headline, 200), txt(b.copy_description, 200), txt(b.cta, 60), now());
   log(who, `Annonce reliée : ${name}`);
   return { ok: true };
@@ -291,7 +307,7 @@ export const linksFor = (where, id) => db.prepare(`SELECT l.*, c.title, c.kind, 
   FROM content_links l JOIN contents c ON c.id=l.content_id LEFT JOIN exports e ON e.id=l.export_id WHERE l.${where}=? ORDER BY l.id DESC`).all(id);
 export const linksOfContent = (cid) => db.prepare(`SELECT l.*, ca.name AS campaign_name, s.name AS adset_name, a.name AS ad_name FROM content_links l
   LEFT JOIN campaigns ca ON ca.id=l.campaign_id LEFT JOIN adsets s ON s.id=l.adset_id LEFT JOIN ads a ON a.id=l.ad_id WHERE l.content_id=? ORDER BY l.id DESC`).all(cid);
-export const allLinksOfCampaign = (cid) => db.prepare(`SELECT l.*, c.title, c.format, c.angle, c.audience, c.language FROM content_links l JOIN contents c ON c.id=l.content_id
+export const allLinksOfCampaign = (cid) => db.prepare(`SELECT l.*, c.title, c.kind, c.format, c.angle, c.audience, c.language, c.variant_id FROM content_links l JOIN contents c ON c.id=l.content_id
   WHERE l.campaign_id=? OR l.adset_id IN (SELECT id FROM adsets WHERE campaign_id=?) OR l.ad_id IN (SELECT a.id FROM ads a JOIN adsets s ON s.id=a.adset_id WHERE s.campaign_id=?)`).all(cid, cid, cid);
 
 // Couverture de production d'un ensemble : formats nécessaires selon les placements SOUHAITÉS (brief), et ceux déjà couverts.
@@ -360,6 +376,61 @@ export function compare(campaignId) {
 }
 
 // Lien suivi (UTM) pour une annonce : base = page de destination choisie, sinon URL de réservation de la fiche.
+// --- grille de messages : 1 à MAX_ANGLES angles par campagne ; un angle = un nom (repris tel quel comme « angle » des
+// variantes et des annonces, donc comparable dans les résultats) + les textes de l'affiche et de la publicité.
+export const MAX_ANGLES = 4;
+const ANGLE_COLS = ['name', 'title', 'tagline', 'cta', 'copy_primary', 'copy_headline', 'copy_description'];
+const angleFields = (b) => [txt(b.name, 140), txt(b.title, 200), txt(b.tagline, 200), txt(b.cta, 60), txt(b.copy_primary, 600), txt(b.copy_headline, 200), txt(b.copy_description, 200)];
+export const listAngles = (cid) => db.prepare('SELECT * FROM campaign_angles WHERE campaign_id=? ORDER BY id').all(cid);
+export const getAngle = (id) => db.prepare('SELECT * FROM campaign_angles WHERE id=?').get(id);
+const key = (s) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+export const angleByName = (cid, name) => (key(name) ? listAngles(cid).find((a) => key(a.name) === key(name)) : undefined);
+export function saveAngle(cid, b, who) {
+  const f = angleFields(b);
+  if (!f[0]) return { ok: false, error: 'Donnez un nom à l’angle (ex. « nuit au temple »).' };
+  const id = Number(b.angle_id) || 0, list = listAngles(cid);
+  if (list.some((a) => a.id !== id && key(a.name) === key(f[0]))) return { ok: false, error: `L’angle « ${f[0]} » existe déjà dans cette campagne.` };
+  if (id) {
+    if (!list.some((a) => a.id === id)) return { ok: false, error: 'Angle introuvable.' };
+    db.prepare(`UPDATE campaign_angles SET ${ANGLE_COLS.map((k) => k + '=?').join(',')} WHERE id=?`).run(...f, id);
+  } else {
+    if (list.length >= MAX_ANGLES) return { ok: false, error: `${MAX_ANGLES} angles au plus par campagne : au-delà, les résultats d’un petit budget ne sont plus comparables.` };
+    db.prepare(`INSERT INTO campaign_angles(campaign_id,${ANGLE_COLS.join(',')},created) VALUES(?,?,?,?,?,?,?,?,?)`).run(cid, ...f, now());
+  }
+  log(who, `Grille de messages : angle « ${f[0]} » enregistré`);
+  return { ok: true };
+}
+export const removeAngle = (id, who) => { const a = getAngle(id); if (a) { db.prepare('DELETE FROM campaign_angles WHERE id=?').run(id); log(who, `Grille de messages : angle « ${a.name} » retiré`); } };
+// Préremplit un formulaire de variante depuis un angle (champs vides seulement).
+export function withAngle(b) {
+  const a = getAngle(Number(b.angle_id));
+  if (!a) return b;
+  return { ...b, angle: txt(b.angle) || a.name, msg_title: txt(b.msg_title) || a.title, msg_tagline: txt(b.msg_tagline) || a.tagline, msg_cta: txt(b.msg_cta) || a.cta };
+}
+
+// --- audiences nommées du projet : proposées partout où l'on saisit une audience (le champ reste libre).
+export const listAudiences = (pid) => db.prepare('SELECT * FROM audiences WHERE project_id=? ORDER BY name').all(pid);
+export function saveAudience(pid, b, who) {
+  const name = txt(b.name, 140);
+  if (!name) return { ok: false, error: 'Donnez un nom court à l’audience.' };
+  const id = Number(b.audience_id) || 0;
+  if (listAudiences(pid).some((a) => a.id !== id && key(a.name) === key(name))) return { ok: false, error: `L’audience « ${name} » existe déjà.` };
+  if (id) db.prepare('UPDATE audiences SET name=?,description=?,language=? WHERE id=? AND project_id=?').run(name, txt(b.description, 400), txt(b.language, 40), id, pid);
+  else db.prepare('INSERT INTO audiences(project_id,name,description,language,created) VALUES(?,?,?,?,?)').run(pid, name, txt(b.description, 400), txt(b.language, 40), now());
+  log(who, `Audience « ${name} » enregistrée`);
+  return { ok: true };
+}
+export const removeAudience = (pid, id) => db.prepare('DELETE FROM audiences WHERE id=? AND project_id=?').run(id, pid);
+// Audiences tapées à la main (campagnes, ensembles, variantes) absentes de la liste : à ajouter au cas par cas.
+export function strayAudiences(pid) {
+  const known = new Set(listAudiences(pid).map((a) => key(a.name)));
+  const used = db.prepare(`SELECT brief_audience AS a FROM campaigns WHERE project_id=? UNION SELECT s.brief_audience FROM adsets s JOIN campaigns c ON c.id=s.campaign_id WHERE c.project_id=?
+    UNION SELECT audience FROM variants WHERE project_id=?`).all(pid, pid, pid).map((r) => txt(r.a, 140)).filter(Boolean);
+  const out = new Map();
+  for (const a of used) if (!known.has(key(a)) && !out.has(key(a))) out.set(key(a), a);
+  return [...out.values()];
+}
+
 export function trackedUrl(base, { channel = 'meta', campaign = '', content = '' }) {
   if (!base) return '';
   const slug = (s) => String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');

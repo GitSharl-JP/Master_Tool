@@ -91,7 +91,7 @@ export function pipeline(ed) {
   const blockers = needs.length;
   const approved = n("SELECT COUNT(*) c FROM variants WHERE project_id=? AND approved_version>0", id);
   const exported = n('SELECT COUNT(*) c FROM exports WHERE edition_id=? AND variant_id IS NOT NULL', id);
-  const links = n("SELECT COUNT(*) c FROM content_links l JOIN contents c ON c.id=l.content_id WHERE c.project_id=? AND l.state IN ('approuvé','transmis','publié')", id);
+  const links = n("SELECT COUNT(DISTINCT COALESCE('v' || c.variant_id, 'c' || c.id)) c FROM content_links l JOIN contents c ON c.id=l.content_id WHERE c.project_id=? AND l.state IN ('approuvé','transmis','publié')", id);
   // « Y aller » mène là où l'on peut corriger : la description du spectacle (en haut de page), ou le contenu qui attend une action.
   const waiting = variantsMod.listVariants(id).filter((v) => v.status !== 'archivé').find((v) => { const ns = variantsMod.nextStep(v.id); return ns && (ns.action === 'approve-export' || ns.action === 'export' || /^À corriger/.test(ns.text)); });
   const steps = [

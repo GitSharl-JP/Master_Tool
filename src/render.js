@@ -81,7 +81,7 @@ export const POSTER_ELEMENTS = {
 export const elementsFor = (style, layout = 'portrait') => {
   if (layout === 'banner') return ['logo', 'title', 'info', 'cta', 'partners'];
   return style === 'bandeau'
-    ? ['logo', 'top', 'band', 'kicker', 'title', 'dates', 'info', 'partners']
+    ? ['logo', 'top', 'band', 'kicker', 'title', 'dates', 'info', 'cta', 'host', 'partners']
     : ['logo', 'kicker', 'title', 'info', 'cta', 'host', 'partners'];
 };
 
@@ -173,24 +173,28 @@ ${host && shown('host') ? `<div class="host"${attrs('host')}>${text('host', esc(
 h1{font:700 ${titleSize}px/1.02 ${c.ft};margin-bottom:${Math.round(28 * (wide ? u : 1))}px}</style>
 <div class="txt">${textBlock}</div>`;
 
-  // --- composition « bandeau » : phrase en haut, titre incliné sur fond sombre, lieu + site en bas
+  // --- composition « bandeau » : phrase en haut, titre incliné sur fond sombre, lieu + bouton de réservation + site en bas (lieu non confirmé en petit)
   const bandeau = `
 <style>${css}
 .top{position:absolute;left:${side}px;right:${side}px;top:${safeTop + (logoSrc && shown('logo') ? logoH + 30 * (wide ? u : 1) : 0)}px;text-align:center;font:700 ${Math.round((tall ? 38 : 32) * (wide ? u : 1))}px ${c.fb};letter-spacing:.16em;text-transform:uppercase}
-.band{position:absolute;left:50%;top:${g.text_pos === 'haut' ? (tall ? '32%' : '40%') : g.text_pos === 'bas' ? '58%' : (tall ? '45%' : '48%')};width:${wide ? 70 : 88}%;transform:translate(-50%,-50%) rotate(-5deg);background:${rgba(c.p, .93)};border:4px solid ${c.x};padding:${Math.round((tall ? 54 : 40) * (wide ? u : 1))}px 36px;text-align:center}
+.band{position:absolute;left:50%;top:${g.text_pos === 'haut' ? (tall ? '32%' : '40%') : g.text_pos === 'bas' ? (tall ? '50%' : '56%') : (tall ? '45%' : '48%')};width:${wide ? 70 : 88}%;transform:translate(-50%,-50%) rotate(-5deg);background:${rgba(c.p, .93)};border:4px solid ${c.x};padding:${Math.round((tall ? 54 : 40) * (wide ? u : 1))}px 36px;text-align:center}
 .band h1{font:800 ${titleSize}px/1.0 ${c.ft};text-transform:uppercase;letter-spacing:.02em}
 .band .bk{margin-bottom:${Math.round(16 * (wide ? u : 1))}px;font:600 ${Math.round((tall ? 34 : 28) * (wide ? u : 1))}px ${c.fb};letter-spacing:.12em;text-transform:uppercase;color:${c.s}}
 .shade{position:absolute;left:0;right:0;bottom:0;height:${Math.round(H * .38)}px;background:linear-gradient(to top,${rgba(c.p, Math.max(.75, gr))},${rgba(c.p, 0)})}
 .foot,.top{text-shadow:0 2px 12px ${rgba(c.p, .8)}}
 .band small{display:block;margin-top:${Math.round(18 * (wide ? u : 1))}px;font:600 ${Math.round((tall ? 36 : 30) * (wide ? u : 1))}px ${c.fb};letter-spacing:.14em;text-transform:uppercase;color:${c.s}}
 .foot{position:absolute;left:${side}px;right:${side}px;bottom:${bottom}px;text-align:center}
-.foot b{display:block;font:700 ${Math.round((tall ? 54 : 46) * (wide ? u : 1))}px ${c.fb};text-transform:uppercase;letter-spacing:.04em}
+.foot b{display:block;font:700 ${Math.round((tall ? 46 : 40) * (wide ? u : 1))}px ${c.fb};text-transform:uppercase;letter-spacing:.04em}
+.foot b.tba{font:600 ${Math.round((tall ? 30 : 26) * (wide ? u : 1))}px ${c.fb};letter-spacing:.14em;opacity:.8}
 .foot i{display:block;margin-top:12px;font:italic 600 ${Math.round((tall ? 44 : 38) * (wide ? u : 1))}px ${c.fb};color:${c.s}}
-.foot span{display:block;margin-top:10px;font-size:${Math.round((tall ? 36 : 30) * (wide ? u : 1))}px;opacity:.9}</style>
+.foot .finfo span{display:block;margin-top:10px;font-size:${Math.round((tall ? 36 : 30) * (wide ? u : 1))}px;opacity:.9}
+.foot .finfo{margin-bottom:${Math.round(24 * (wide ? u : 1))}px}.foot .host{margin-top:${Math.round(16 * (wide ? u : 1))}px}.foot .cta{text-shadow:none}</style>
 <div class="shade"></div>
 ${top && shown('top') ? `<div class="top"${attrs('top')}>${text('top', esc(top))}</div>` : ''}
 ${shown('band') ? `<div class="band"${attrs('band')}>${shown('kicker') && ov('kicker').text ? `<div class="bk"${attrs('kicker')}>${text('kicker', '')}</div>` : ''}${shown('title') ? `<h1${attrs('title')}>${text('title', esc(t(d, 'title')))}</h1>` : ''}${shown('dates') ? `<small${attrs('dates')}>${text('dates', esc(dateLabel(d)))}</small>` : ''}</div>` : ''}
-${shown('info') ? `<div class="foot"${attrs('info')}>${ov('info').text ? lines2('info') : `<b>${esc(venueLabel(d))}</b>${host ? `<i>${esc(host)}</i>` : `<span>${esc(t(d, 'cta_book') || '')}</span>`}`}</div>` : ''}`;
+${shown('info') || shown('cta') || (host && shown('host')) ? `<div class="foot">${shown('info') ? `<div class="finfo"${attrs('info')}>${ov('info').text ? lines2('info') : `<b${venueKnown(d) ? '' : ' class="tba"'}>${esc(venueLabel(d))}</b>`}</div>` : ''}
+${shown('cta') ? `<div><span class="cta"${attrs('cta')}>${text('cta', esc(t(d, 'cta_book') || 'Book your tickets'))}</span></div>` : ''}
+${host && shown('host') ? `<div class="host"${attrs('host')}>${text('host', esc(host))}</div>` : ''}</div>` : ''}`;
 
   // --- composition « bannière » (3:1) : une seule ligne
   const bannerHtml = `

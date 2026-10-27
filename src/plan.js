@@ -39,6 +39,38 @@ export function planVariant(variantId, publishDate, who, opts = {}) {
   syncVariant(variantId);
   return { ok: true };
 }
+// Jalon commercial du brief (ex. ouverture des préventes) : UNE tâche « jalon » par campagne (auto=2), tenue à jour
+// à chaque enregistrement du brief ; supprimée si le brief n'a plus de date de jalon.
+export function syncCampaignMilestone(campaignId, who) {
+  const c = db.prepare('SELECT * FROM campaigns WHERE id=?').get(campaignId);
+  if (!c) return;
+  const it = db.prepare("SELECT * FROM plan_items WHERE campaign_id=? AND kind='jalon' AND auto=2").get(campaignId);
+  if (!validDate(c.brief_milestone_date)) { if (it) db.prepare('DELETE FROM plan_items WHERE id=?').run(it.id); return; }
+  const title = `${txt(c.brief_milestone) || 'Jalon'} — ${c.name}`;
+  if (it) db.prepare('UPDATE plan_items SET title=?, due_date=? WHERE id=?').run(title, c.brief_milestone_date, it.id);
+  else db.prepare('INSERT INTO plan_items(project_id,campaign_id,kind,title,due_date,owner,status,auto,created,created_by) VALUES(?,?,?,?,?,?,?,?,?,?)')
+    .run(c.project_id, c.id, 'jalon', title, c.brief_milestone_date, who, 'à faire', 2, now(), who);
+}
+
+// « Planifier la campagne » : planifie à rebours chaque contenu de la campagne qui ne l'est pas encore.
+// Date de diffusion = début de la période visée (ou la date choisie) ; les relances (intention « relance ») à la fin.
+// Si la première étape (J-10) tombe déjà dans le passé, rien n'est créé sans l'accord explicite de la personne (force).
+export const unplannedCount = (campaignId) => db.prepare("SELECT COUNT(*) AS n FROM variants WHERE campaign_id=? AND status<>'archivé' AND id NOT IN (SELECT variant_id FROM plan_items WHERE variant_id IS NOT NULL AND auto=1)").get(campaignId).n;
+export function planCampaign(campaignId, who, opts = {}) {
+  const c = db.prepare('SELECT * FROM campaigns WHERE id=?').get(campaignId);
+  if (!c) return { ok: false, error: 'Campagne introuvable.' };
+  const start = validDate(opts.publish) ? opts.publish : c.brief_start;
+  if (!validDate(start)) return { ok: false, error: 'Indiquez la date de diffusion, ou la période visée dans le brief.' };
+  const end = validDate(c.brief_end) && c.brief_end >= start ? c.brief_end : start;
+  const todo = db.prepare("SELECT * FROM variants WHERE campaign_id=? AND status<>'archivé' AND id NOT IN (SELECT variant_id FROM plan_items WHERE variant_id IS NOT NULL AND auto=1) ORDER BY id").all(campaignId);
+  if (!todo.length) return { ok: false, error: 'Tous les contenus de cette campagne sont déjà planifiés (ou la campagne n’a aucun contenu).' };
+  const dateOf = (v) => (v.intent === 'relance' ? end : start);
+  const late = todo.filter((v) => addDays(dateOf(v), -STEPS[0][2]) < today());
+  if (late.length && !opts.force) return { ok: false, late: late.map((v) => v.name), error: `${late.length} contenu${late.length > 1 ? 's' : ''} n’aurai${late.length > 1 ? 'ent' : 't'} pas les 10 jours de préparation prévus (${late.map((v) => v.name).join(', ')}). Choisissez une date plus tardive, ou cochez « Planifier quand même » : les premières étapes seront alors déjà en retard.` };
+  for (const v of todo) planVariant(v.id, dateOf(v), who, opts);
+  log(who, `Campagne « ${c.name} » planifiée : ${todo.length} contenu(s)`);
+  return { ok: true, count: todo.length };
+}
 export function addItem(pid, b, who) {
   if (!txt(b.title)) return { ok: false, error: 'Donnez un titre à la tâche.' };
   if (!validDate(b.due_date)) return { ok: false, error: 'Indiquez une date.' };

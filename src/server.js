@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import * as db from './db.js';
 import { setSecret, clearSecret, SECRET_DEFS, PROJECT_DEFS } from './secrets.js';
@@ -18,7 +19,7 @@ import * as plan from './plan.js';
 import * as backup from './backup.js';
 import * as todo from './todo.js';
 import * as siteMod from './site.js';
-import { contentNewPage, textPage, projectHomePage, variantsPage, variantNewPage, variantPage, calendarPage, todoCard, sitePage, contentsPage, campaignsPage, campaignPage, metaGuidePage, transitionPage, backupCard } from './views_flow.js';
+import { contentNewPage, textPage, projectHomePage, variantsPage, variantNewPage, variantPage, calendarPage, todoCard, sitePage, contentsPage, campaignsPage, campaignPage, groupByContent, metaGuidePage, transitionPage, backupCard, bilanPage } from './views_flow.js';
 import * as campaigns from './campaigns.js';
 import { probe, ffmpegReady, toSrt } from './media.js';
 import { renderPoster, renderImportedPoster, renderSite, SITE_PAGES, FIT_CSP } from './render.js';
@@ -30,6 +31,8 @@ const DOC_OK = 'Document importé : le texte est dans la bibliothèque de conten
 const DOC_UNREAD = 'Contenu créé : le texte n’a pas pu être lu automatiquement, le fichier d’origine est joint.';
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || '127.0.0.1'; // local uniquement ; passer HOST=0.0.0.0 lors d'une migration serveur
+const NO_LOGIN = process.env.ATELIER_SANS_CONNEXION === '1';
+if (NO_LOGIN && !['127.0.0.1', 'localhost', '::1'].includes(HOST)) { console.error('ATELIER_SANS_CONNEXION refusé : le serveur écoute hors de cet ordinateur (HOST).'); process.exit(1); }
 let lastBackup = '';
 
 const cookies = (req) => Object.fromEntries((req.headers.cookie || '').split(';').map((c) => c.trim().split('=')).filter((p) => p[0]));
@@ -103,6 +106,13 @@ const server = createServer(async (req, res) => {
     const sid = cookies(req).sid;
     const user = db.sessionUser(sid);
     const page = (title, body, flash) => send(res, 200, layout(title, body, user, flash));
+
+    // Mode sans connexion (ATELIER_SANS_CONNEXION=1), refusé hors de cet ordinateur : ouvre une session sur le premier compte,
+    // créé au besoin avec un mot de passe aléatoire jamais affiché (« node src/comptes.js reset <nom> » pour en choisir un).
+    if (!user && NO_LOGIN) {
+      if (!db.userCount()) db.createUser('Charles', randomBytes(24).toString('hex'));
+      return redirect(res, req.method === 'GET' ? req.url : '/', setCookie(db.newSession(db.listUsers()[0].id), 7 * 86400));
+    }
 
     if (db.userCount() === 0) {
       if (path === '/setup' && req.method === 'POST') {
@@ -438,11 +448,11 @@ const server = createServer(async (req, res) => {
     }
 
     // ---------- campagnes (créées dans Meta, reliées ici)
-    if ((r = path.match(/^\/edition\/(\d+)\/campaigns(?:\/(meta|new|(\d+)(?:\/(meta|brief|adset|ad|link|result|guide|adcopy|import-results|apply-results|reconcile|approve-all)|\/adset\/(\d+)\/(meta|brief))?))?$/))) {
+    if ((r = path.match(/^\/edition\/(\d+)\/campaigns(?:\/(meta|new|(\d+)(?:\/(meta|brief|plan|angle|angle-remove|audience|audience-remove|set|verdict|bilan|adset|ad|link|result|guide|adcopy|import-results|apply-results|reconcile|approve-all)|\/adset\/(\d+)\/(meta|brief))?))?$/))) {
       const ed = db.getEdition(Number(r[1]));
       if (!ed) return send(res, 404, layout('Introuvable', '<h1>Projet introuvable</h1>', user));
       // on revient sur la vue de la campagne où l'action a été faite (diffusion, résultats, brief)
-      const VUE = { 'approve-all': 'diffusion', adset: 'diffusion', ad: 'diffusion', link: 'diffusion', result: 'resultats', reconcile: 'resultats', brief: 'brief', meta: 'brief' };
+      const VUE = { 'approve-all': 'diffusion', adset: 'diffusion', ad: 'diffusion', link: 'diffusion', result: 'resultats', reconcile: 'resultats', brief: 'brief', meta: 'brief', plan: 'contenus', angle: 'brief', 'angle-remove': 'brief', audience: 'brief', 'audience-remove': 'brief', set: 'contenus' };
       const back = (m, cid) => { const v = cid ? (r[6] ? 'diffusion' : VUE[r[4]] || '') : ''; return redirect(res, `/edition/${ed.id}/campaigns${cid ? '/' + cid : ''}?${v ? 'vue=' + v + '&' : ''}m=${encodeURIComponent(m)}`); };
       if (req.method === 'GET' && !r[2]) {
         const list = campaigns.listCampaigns(ed.id);
@@ -456,6 +466,11 @@ const server = createServer(async (req, res) => {
         variants.syncProject(ed.id, user.name);
         return page('Guide Ads Manager', metaGuidePage(ed, guideData(camp)));
       }
+      if (req.method === 'GET' && r[3] && r[4] === 'bilan') {
+        const camp = campaigns.getCampaign(Number(r[3]));
+        if (!camp || camp.project_id !== ed.id) return send(res, 404, layout('Introuvable', '<h1>Campagne introuvable</h1>', user));
+        return page(`Bilan — ${camp.name}`, bilanPage(ed, { camp, compare: campaigns.compare(camp.id), variants: variants.listVariants(ed.id, camp.id).filter((v) => v.status !== 'archivé'), msg: msgOf() }));
+      }
       if (req.method === 'GET' && r[3] && !r[4] && !r[5]) {
         const camp = campaigns.getCampaign(Number(r[3]));
         if (!camp || camp.project_id !== ed.id) return send(res, 404, layout('Introuvable', '<h1>Campagne introuvable</h1>', user));
@@ -463,7 +478,7 @@ const server = createServer(async (req, res) => {
         const sp = url.searchParams, gallery = (cid) => { const filter = { q: (sp.get('q') || '').trim(), type: sp.get('type') || '', status: sp.get('status') || '', sort: sp.get('sort') || '' }; return { filter, gallery: projects.allWork(ed.id, { ...filter, campaign: cid }), campaignsList: campaigns.listCampaigns(ed.id) }; };
         const why = (ls) => ls.map((l) => ({ ...l, why: ['brouillon', 'à relire'].includes(l.state) ? campaigns.transitionRecap(l.id, 'approuvé')?.errors[0] || '' : '' }));
         const adsets = campaigns.listAdsets(camp.id).map((s) => ({ ...s, links: why(campaigns.linksFor('adset_id', s.id)), ads: campaigns.listAds(s.id).map((a) => ({ ...a, links: why(campaigns.linksFor('ad_id', a.id)) })) }));
-        return page(camp.name, campaignPage(ed, { camp, adsets, pending: why(campaigns.allLinksOfCampaign(camp.id).filter((l) => ['brouillon', 'à relire'].includes(l.state))), texts: db.db.prepare("SELECT DISTINCT c.* FROM contents c JOIN content_links l ON l.content_id=c.id WHERE c.kind='texte' AND c.status<>'archivé' AND (l.campaign_id=? OR l.adset_id IN (SELECT id FROM adsets WHERE campaign_id=?) OR l.ad_id IN (SELECT a.id FROM ads a JOIN adsets s ON s.id=a.adset_id WHERE s.campaign_id=?)) ORDER BY c.id DESC").all(camp.id, camp.id, camp.id), contents: campaigns.listContents(ed.id).filter((x) => (x.export_id || x.kind === 'texte') && x.status !== 'archivé'), campLinks: why(campaigns.linksFor('campaign_id', camp.id)), allLinks: campaigns.allLinksOfCampaign(camp.id), compare: campaigns.compare(camp.id), conflicts: campaigns.resultConflicts(camp.id), vue: url.searchParams.get('vue') || '', variants: variants.listVariants(ed.id, camp.id).filter((v) => v.status !== 'archivé').map((v) => ({ ...v, pristine: variants.isPristine(v) })), outputs: Object.fromEntries(variants.listVariants(ed.id, camp.id).map((v) => [v.id, variants.outputsOf(v.id)])), nexts: Object.fromEntries(variants.listVariants(ed.id, camp.id).map((v) => [v.id, variants.nextStep(v.id)?.text || ''])), users: db.listUsers().map((u) => u.name), ...gallery(camp.id) }), msgOf());
+        return page(camp.name, campaignPage(ed, { camp, adsets, pending: why(campaigns.allLinksOfCampaign(camp.id).filter((l) => ['brouillon', 'à relire'].includes(l.state))), texts: db.db.prepare("SELECT DISTINCT c.* FROM contents c JOIN content_links l ON l.content_id=c.id WHERE c.kind='texte' AND c.status<>'archivé' AND (l.campaign_id=? OR l.adset_id IN (SELECT id FROM adsets WHERE campaign_id=?) OR l.ad_id IN (SELECT a.id FROM ads a JOIN adsets s ON s.id=a.adset_id WHERE s.campaign_id=?)) ORDER BY c.id DESC").all(camp.id, camp.id, camp.id), contents: campaigns.listContents(ed.id).filter((x) => (x.export_id || x.kind === 'texte') && x.status !== 'archivé'), campLinks: why(campaigns.linksFor('campaign_id', camp.id)), allLinks: campaigns.allLinksOfCampaign(camp.id), compare: campaigns.compare(camp.id), conflicts: campaigns.resultConflicts(camp.id), vue: url.searchParams.get('vue') || '', variants: variants.listVariants(ed.id, camp.id).filter((v) => v.status !== 'archivé').map((v) => ({ ...v, pristine: variants.isPristine(v) })), outputs: Object.fromEntries(variants.listVariants(ed.id, camp.id).map((v) => [v.id, variants.outputsOf(v.id)])), nexts: Object.fromEntries(variants.listVariants(ed.id, camp.id).map((v) => [v.id, variants.nextStep(v.id)?.text || ''])), unplanned: plan.unplannedCount(camp.id), angles: campaigns.listAngles(camp.id), audiences: campaigns.listAudiences(ed.id), stray: campaigns.strayAudiences(ed.id), users: db.listUsers().map((u) => u.name), ...gallery(camp.id) }), msgOf());
       }
       if (req.method === 'POST') {
         const b = await readBody(req);
@@ -478,13 +493,20 @@ const server = createServer(async (req, res) => {
           return back(r[6] === 'meta' ? 'Configuration Meta de l’ensemble enregistrée (saisie manuelle).' : 'Brief de l’ensemble enregistré.', camp.id);
         }
         if (r[4] === 'meta') { campaigns.updateCampaignMeta(camp.id, b, user.name); return back('Configuration Meta enregistrée (saisie manuelle, non vérifiée).', camp.id); }
-        if (r[4] === 'brief') { campaigns.updateCampaignBrief(camp.id, b, user.name); return back('Brief interne enregistré.', camp.id); }
+        if (r[4] === 'brief') { const o = campaigns.updateCampaignBrief(camp.id, b, user.name); if (o.ok) plan.syncCampaignMilestone(camp.id, user.name); return back(o.ok ? 'Brief interne enregistré.' : o.error, camp.id); }
+        if (r[4] === 'angle') { const o = campaigns.saveAngle(camp.id, b, user.name); return back(o.ok ? 'Angle enregistré dans la grille de messages.' : o.error, camp.id); }
+        if (r[4] === 'angle-remove') { const a = campaigns.getAngle(Number(b.angle_id)); if (a && a.campaign_id === camp.id) campaigns.removeAngle(a.id, user.name); return back('Angle retiré (les contenus déjà créés gardent leurs textes).', camp.id); }
+        if (r[4] === 'audience') { const o = campaigns.saveAudience(ed.id, b, user.name); return back(o.ok ? 'Audience enregistrée.' : o.error, camp.id); }
+        if (r[4] === 'audience-remove') { campaigns.removeAudience(ed.id, Number(b.audience_id)); return back('Audience retirée de la liste (les textes déjà saisis restent).', camp.id); }
+        if (r[4] === 'set') { const o = variants.createSet(ed.id, camp.id, Object.keys(b).filter((k) => k.startsWith('pair_')).map((k) => k.slice(5)), user.name); return back(o.ok ? `${o.made.length} contenu${o.made.length > 1 ? 's' : ''} créé${o.made.length > 1 ? 's' : ''} en brouillon.${o.skipped.length ? ' Non créés : ' + o.skipped.join(' · ') : ''}` : o.error, camp.id); }
+        if (r[4] === 'verdict') { const v = variants.getVariant(Number(b.variant_id)); if (v && v.campaign_id === camp.id) variants.setVerdict(v.id, b.verdict, user.name); return redirect(res, `/edition/${ed.id}/campaigns/${camp.id}/bilan?m=${encodeURIComponent('Verdict enregistré.')}`); }
+        if (r[4] === 'plan') { const o = plan.planCampaign(camp.id, user.name, { publish: b.publish, force: b.force === '1' }); return back(o.ok ? `${o.count} contenu${o.count > 1 ? 's' : ''} planifié${o.count > 1 ? 's' : ''} à rebours : voir le calendrier.` : o.error, camp.id); }
         if (r[4] === 'approve-all') { // valide pour la campagne tout ce qui peut l'être ; dit précisément ce qui reste bloqué et pourquoi
           const todo = campaigns.allLinksOfCampaign(camp.id).filter((l) => ['brouillon', 'à relire'].includes(l.state));
-          const ko = []; let ok = 0;
-          for (const l of todo) { const o = campaigns.setLinkState(l.id, 'approuvé', user.name); if (o.ok) ok++; else ko.push(o.error); }
-          const reasons = [...new Set(ko)];
-          return back(`${ok} contenu(s) approuvé(s) pour la campagne.${ko.length ? ` ${ko.length} restent en brouillon : ${reasons.join(' ; ')}` : ''}`, camp.id);
+          const ok = [], ko = [];
+          for (const l of todo) { const o = campaigns.setLinkState(l.id, 'approuvé', user.name); if (o.ok) ok.push(l); else ko.push({ ...l, why: o.error }); }
+          const vs = variants.listVariants(ed.id), okG = groupByContent(ok, vs), koG = groupByContent(ko, vs), names = (gs) => gs.map((g) => `« ${g.name} »`).join(', ');
+          return back(`${okG.length} contenu(s) approuvé(s) pour la campagne${okG.length ? ` : ${names(okG)}` : ''}.${koG.length ? ` ${koG.length} contenu(s) restent en brouillon : ${koG.map((g) => `« ${g.name} » (${g.why.join(' ; ')})`).join(', ')}` : ''}`, camp.id);
         }
         if (r[4] === 'adset') { const o = campaigns.createAdset(camp.id, b, user.name); return back(o.ok ? 'Ensemble relié.' : o.error, camp.id); }
         if (r[4] === 'ad') { const o = campaigns.createAd(Number(b.adset_id), b, user.name); return back(o.ok ? 'Annonce reliée.' : o.error, camp.id); }
@@ -559,17 +581,18 @@ const server = createServer(async (req, res) => {
       const adsets = camps.flatMap((c) => campaigns.listAdsets(c.id).map((a) => ({ ...a, campaign_name: c.name })));
       const templates = library.listTemplates().filter((t) => t.kind !== 'kit').map((t) => ({ name: t.name, version: t.last_version, version_id: library.listVersions(t.id)[0]?.id })).filter((t) => t.version_id);
       const srcContent = campaigns.getContent(Number(url.searchParams.get('content'))), prefill = srcContent && srcContent.project_id === ed.id ? { name: srcContent.title, angle: srcContent.angle, audience: srcContent.audience, language: srcContent.language, source_text: srcContent.body, source_title: srcContent.title } : {};
-      const newForm = (values = {}, error = '') => page('Test détaillé', variantNewPage(ed, { prefill, campaigns: camps, adsets, assets: studio.listAssets(ed.id), templates, users, values, error, who: user.name, solo: false, preset: { campaign_id: Number(url.searchParams.get('campaign')) || '', adset_id: Number(url.searchParams.get('adset')) || '', formats: (url.searchParams.get('formats') || '').split(',').filter((k) => studio.POSTER_FORMATS[k]).length ? (url.searchParams.get('formats') || '').split(',').filter((k) => studio.POSTER_FORMATS[k]) : undefined } }));
+      const presetCamp = Number(url.searchParams.get('campaign')) || 0, angles = presetCamp ? campaigns.listAngles(presetCamp) : [], audiences = campaigns.listAudiences(ed.id);
+      const newForm = (values = {}, error = '') => page('Test détaillé', variantNewPage(ed, { angles, audiences, prefill, campaigns: camps, adsets, assets: studio.listAssets(ed.id), templates, users, values, error, who: user.name, solo: false, preset: { campaign_id: Number(url.searchParams.get('campaign')) || '', adset_id: Number(url.searchParams.get('adset')) || '', formats: (url.searchParams.get('formats') || '').split(',').filter((k) => studio.POSTER_FORMATS[k]).length ? (url.searchParams.get('formats') || '').split(',').filter((k) => studio.POSTER_FORMATS[k]) : undefined } }));
       const presetL = { campaign_id: Number(url.searchParams.get('campaign')) || '', adset_id: Number(url.searchParams.get('adset')) || '', formats: (url.searchParams.get('formats') || '').split(',').filter((k) => studio.POSTER_FORMATS[k]) };
       const fromAsset = studio.getAsset(Number(url.searchParams.get('asset'))), fromDesign = Number(url.searchParams.get('design')) || '';
       const from = { asset: fromAsset && fromAsset.edition_id === ed.id ? fromAsset : null, design_version: fromDesign, type: fromAsset?.edition_id === ed.id ? (fromAsset.kind === 'video' ? 'video' : fromAsset.kind === 'image' ? 'affiche' : 'texte') : '' };
       const dv = fromDesign && !templates.some((t) => String(t.version_id) === String(fromDesign)) ? library.getVersion(fromDesign) : null; // version précise demandée, même si ce n'est pas la dernière
       const templatesL = dv ? [...templates, { name: library.getTemplate(dv.template_id).name, version: dv.version, version_id: dv.id }] : templates;
-      const light = (values = {}, error = '') => page('Créer un contenu', contentNewPage(ed, { videoReady: ffmpegReady(), from, templates: templatesL, campaigns: camps, variants: variants.listVariants(ed.id).filter((x) => x.status !== 'archivé'), values, error, prefill, preset: presetL }));
+      const light = (values = {}, error = '') => page('Créer un contenu', contentNewPage(ed, { angles, videoReady: ffmpegReady(), from, templates: templatesL, campaigns: camps, variants: variants.listVariants(ed.id).filter((x) => x.status !== 'archivé'), values, error, prefill, preset: presetL }));
       if (r[2] === 'new') {
         if (req.method === 'GET') return url.searchParams.get('mode') === 'test' ? newForm() : light();
         if (req.method === 'POST') {
-          const b = await readBody(req);
+          const b = campaigns.withAngle(await readBody(req)); // textes de l'angle choisi (grille de messages) pour les champs vides
           if (b.type) { // « Ajouter un contenu » : type, nom, campagne (par défaut « Hors campagne »), point de départ
             if (!Number(b.campaign_id)) b.campaign_id = String(campaigns.ensureOffCampaign(ed.id, user.name));
             if (b.type === 'texte') {
@@ -612,7 +635,11 @@ const server = createServer(async (req, res) => {
         if (req.method === 'POST') {
           const b = await readBody(req);
           if (r[4] === 'save-model') { const o = await library.saveModel(ed, v, b, user.name); return redirect(res, `/edition/${ed.id}/variants/${v.id}?step=creation&all=1&m=${encodeURIComponent(o.ok ? `Modèle enregistré (version ${o.version}). Vous le retrouvez dans « Créer un contenu » et dans Bibliothèque › Designs et modèles.` : o.error)}`); }
-          if (r[4] === 'material') { const o = variants.applyMaterial(v.id, b, user.name); return redirect(res, `/edition/${ed.id}/variants/${v.id}?step=materiel&m=${encodeURIComponent(o.ok ? o.msg : o.error)}`); }
+          if (r[4] === 'material') { // « Continuer vers la création » enregistre d'abord les formats cochés
+            const o = variants.applyMaterial(v.id, b, user.name), step = o.ok && b.next === 'creation' ? 'creation' : 'materiel';
+            const m = o.ok ? (step === 'creation' && o.msg === 'Rien à changer.' ? '' : o.msg) : o.error;
+            return redirect(res, `/edition/${ed.id}/variants/${v.id}?step=${step}${m ? '&m=' + encodeURIComponent(m) : ''}`);
+          }
           if (r[4] === 'update') { variants.updateVariant(v.id, b, user.name); return back('Intention enregistrée.'); }
           if (r[4] === 'messages') { variants.updateMessages(v.id, b, user.name); return redirect(res, `/edition/${ed.id}/variants/${v.id}?step=creation&all=1&m=${encodeURIComponent('Textes appliqués aux formats : voir les aperçus ci-dessous.')}#textes`); }
           if (r[4] === 'assign') { const o = variants.assign(v.id, b, user.name); return back(o.ok ? 'Responsable, relecteur et échéance enregistrés.' : o.error); }
