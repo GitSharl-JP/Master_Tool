@@ -112,8 +112,8 @@ await step('1. Projet prêt : fiche approuvée, assets originaux', async () => {
   const fiche = { title_en: 'NIGHT SHOW', tagline_en: 'An after-dark walk through light and sound', top_line_en: 'Every evening from sunset', cta_book_en: 'Book your tickets', venue_status: 'confirmé', venue_name_en: 'Temple (test)', venue_city_en: 'Kyoto', date_start: '2027-03-02', date_end: '2027-05-20', timezone: 'Asia/Tokyo', color_primary: '#1b1b2f', color_secondary: '#c8a24a', color_text: '#f5f1e8', font_title: 'Georgia', font_body: 'Segoe UI', booking_url: 'https://tickets.example.com/night-show' };
   for (const s of ['identity', 'venue', 'brand', 'booking', 'experience', 'tickets', 'faq', 'site']) fiche['status_' + s] = 'approuvé';
   await A.post('/edition/1/save', fiche);
-  const page = await A.text('/edition/1/settings');
-  check('fiche prête : aucune publication bloquée', /Fiche prête/.test(page), (/Publication externe bloquée[^<]*/.exec(page) || [''])[0].slice(0, 160));
+  const page = await A.text('/edition/1/site');
+  check('fiche prête : aucune publication bloquée', /prête pour la mise en ligne/.test(page), (/Avant la mise en ligne[^]*?<\/ul>/.exec(page) || [''])[0].slice(0, 300));
   for (const fmt of ['4x5', '9x16', '1x1']) await A.post(`/edition/1/poster/${fmt}/save`, { hero: String(ids.hero), logo: String(ids.logo), partners: '1', style: 'classique', gradient: '65' });
 });
 
@@ -140,13 +140,13 @@ await step('1b. Polices par format et « Uniformiser » : un format réglé se r
 
 await step('1c. Bibliothèque : un seul dispositif d’ajout, aperçus, filtres, nom affiché distinct du fichier d’origine', async () => {
   const lib = await A.text('/edition/1/assets');
-  check('un seul bloc d’ajout en haut, aide repliée', /Ajouter des fichiers/.test(lib) && !/class="card upx"/.test(lib) && /<details><summary>Aide : formats acceptés/.test(lib));
-  check('chaque fichier propose « Créer un contenu avec ce fichier »', /Créer un contenu avec ce fichier/.test(lib));
+  check('un seul bloc d’ajout en haut, aide repliée', /Glissez-déposez/.test(lib) && !/class="card upx"/.test(lib) && /Formats acceptés et stockage/.test(lib));
+  check('chaque fichier propose « Créer un contenu »', />Créer un contenu</.test(lib));
   await A.post('/assets/' + ids.hero + '/update', { label: 'Photo salle principale', role: 'hero', status: 'approuvé', rights: '' });
   const l2 = await A.text('/edition/1/assets');
-  check('nom affiché lisible, fichier d’origine conservé', /Photo salle principale/.test(l2) && /Fichier d’origine conservé/.test(l2));
-  check('recherche par nom affiché', /Photo salle principale/.test(await A.text('/edition/1/assets?q=salle')) && /Aucun fichier ne correspond/.test(await A.text('/edition/1/assets?q=zzzzintrouvable')));
-  check('filtre par type', /Aucun fichier ne correspond/.test(await A.text('/edition/1/assets?kind=video&q=salle')));
+  check('nom affiché lisible, fichier d’origine conservé', /Photo salle principale/.test(l2) && /title="[^"]+\.\w{3,4}"/.test(l2));
+  check('recherche par nom affiché', /Photo salle principale/.test(await A.text('/edition/1/assets?q=salle')) && /Aucun fichier ici/.test(await A.text('/edition/1/assets?q=zzzzintrouvable')));
+  check('filtre par type', /Aucun fichier ici/.test(await A.text('/edition/1/assets?kind=video&q=salle')));
 });
 
 await step('2. Design : enregistrer, modifier, retrouver l’ancien', async () => {
@@ -192,9 +192,13 @@ await step('4. Variantes guidées : intention obligatoire, pas de quasi-doublon'
   ids.v2 = Number(/variants\/(\d+)/.exec(r2.headers.get('location') || '')?.[1]);
   check('variante 2 créée (audience familles)', !!ids.v2);
   const list = await A.text('/edition/1/variants');
-  check('liste unique des contenus : noms, types, statuts, filtres', /Tous les contenus/.test(list) && /Émerveillement/.test(list) && /brouillon/.test(list) && /name="q"/.test(list) && /name="campaign"/.test(list));
+  check('liste unique des contenus : noms, types, statuts, filtres', /Tous les contenus/.test(list) && /Émerveillement/.test(list) && /brouillon/.test(list) && /name="q"/.test(list) && /variants\?campaign=/.test(list));
   check('filtre par nom : trouve ou dit qu’il n’y a rien', /Aucun contenu ne correspond/.test(await A.text('/edition/1/variants?q=zzzintrouvable')) && /Émerveillement/.test(await A.text('/edition/1/variants?q=emerveillement')));
   check('filtre par type : les textes ne montrent pas les affiches', !/Émerveillement/.test(await A.text('/edition/1/variants?type=texte')) && /Émerveillement/.test(await A.text('/edition/1/variants?type=affiche')));
+  const byName = [...(await A.text('/edition/1/variants?sort=nom')).matchAll(/class="tname">([^<]*)/g)].map((m) => m[1]);
+  check('galerie : vignettes sélectionnables, tri par nom', /id="batchform"/.test(list) && /name="ids" value="v\d+"/.test(list) && byName.length > 1 && byName.join('|') === [...byName].sort((a, b) => a.localeCompare(b, 'fr')).join('|'), byName.join(' | '));
+  const bad = await A.post('/edition/1/variants/batch', { ids: 'v' + ids.v2, action: 'move', target: '999999', back: '/edition/1/variants' });
+  check('action groupée : une destination invalide est refusée, rien ne bouge', /Choisissez la campagne de destination/.test(decodeURIComponent(A.loc(bad))));
 });
 
 await step('4b. Parcours court d’une personne seule : 2 actions de la création à l’association', async () => {
@@ -232,7 +236,7 @@ await step('4b. Parcours court d’une personne seule : 2 actions de la créatio
 
 await step('4c. Le site du projet : un site, son domaine, ses identifiants', async () => {
   const pg = await A.text('/edition/1/site');
-  check('page « Site web » du projet', /son propre site WordPress/.test(pg) && /propre domaine/.test(pg));
+  check('page « Site web » du projet : aperçu d’abord, puis plan de construction', /name="sitepv"/.test(pg) && pg.indexOf('sitepv') < pg.indexOf('Plan de construction') && /name="domain"/.test(pg));
   await A.post('/edition/1/site/save', { domain: 'https://Night-Show-Kyoto.example/', environment: 'staging', status: 'en construction' });
   await A.post('/edition/1/site/secret', { key: 'WP_URL', value: 'https://night-show-kyoto.example' });
   await A.post('/edition/1/site/secret', { key: 'WP_APP_PASSWORD', value: 'mot-de-passe-secret-1234' });
@@ -240,7 +244,7 @@ await step('4c. Le site du projet : un site, son domaine, ses identifiants', asy
   const after = await A.text('/edition/1/site');
   check('domaine normalisé et enregistré', /value="night-show-kyoto\.example"/.test(after));
   check('adresse du site affichée, mot de passe d’application JAMAIS réaffiché', /https:\/\/night-show-kyoto\.example/.test(after) && !/mot-de-passe-secret-1234/.test(after) && /enregistré/.test(after));
-  check('avancement du plan de construction', /\(2\/9\)/.test(after));
+  check('avancement du plan de construction', />2\/9</.test(after));
   await A.post('/edition/new', { label: 'Autre spectacle' });
   const other = await A.text('/edition/2/site');
   check('un autre projet n’hérite ni du domaine ni des identifiants (un site par projet)', !/night-show-kyoto/.test(other) && !/mot-de-passe-secret/.test(other));
@@ -270,7 +274,7 @@ await step('4d. Points d’entrée libres : affiche reçue (SVG / image) et docu
   const pv = Number(/variants\/(\d+)/.exec(vr.headers.get('location') || '')?.[1]);
   check('variante créée à partir de l’affiche reçue (sans photo, sans titre de fiche)', !!pv, A.loc(vr));
   const vp = await A.text(`/edition/${P}/variants/${pv}`);
-  check('contrôles : pas de blocage ; avertissements SVG affichés (texte vivant)', !/🔴/.test(vp) && /🟡/.test(vp) && /texte « vivant »/.test(vp));
+  check('contrôles : pas de blocage ; avertissements SVG affichés (texte vivant)', !/<b>À corriger<\/b>/.test(vp) && /<b>À savoir<\/b>/.test(vp) && /texte « vivant »/.test(vp));
   const ae = await A.post(`/edition/${P}/variants/${pv}/approve-export`, {});
   check('approuver et exporter fonctionne sur une affiche reçue', /Approuvée \(v1\) et exportée/.test(A.loc(ae)), A.loc(ae));
   const vp2 = await A.text(`/edition/${P}/variants/${pv}`);
@@ -321,7 +325,7 @@ await step('4e. Gestionnaire de projets : essai, renommer, archiver, supprimer',
   const t = await A.post('/edition/test'); const T = Number(/edition\/(\d+)/.exec(t.headers.get('location'))?.[1]);
   check('projet d’essai créé avec une fiche d’exemple provisoire', !!T && /provisoire/.test(await A.text('/')) && /TEST SHOW/.test(await A.text(`/edition/${T}/settings`)));
   const hp = await A.text(`/edition/${T}`);
-  check('« Y aller » mène aux paramètres, section concernée (pas à l’accueil lui-même)', new RegExp(`href="/edition/${T}/settings#sec-[a-z]+"[^>]*>Continuer`).test(hp), (/home-actions[^]*?Continuer/.exec(hp) || [''])[0].slice(-200));
+  check('« Continuer » mène à la description du spectacle, en haut de page (pas à l’accueil lui-même)', new RegExp(`href="/edition/${T}/settings"[^>]*>Continuer : Description du spectacle`).test(hp), (/home-actions[^]*?Continuer/.exec(hp) || [''])[0].slice(-200));
   const aid = await A.up(T, 'hero', 'essai.png', png(300, 300, 1));
   const ex = await A.post(`/edition/${T}/poster/4x5/export`, { hero: String(aid), partners: '0', style: 'classique', gradient: '50' });
   check('un export existe dans le projet d’essai', /export/i.test(A.loc(ex)));
@@ -347,15 +351,15 @@ await step('4e. Gestionnaire de projets : essai, renommer, archiver, supprimer',
 
 await step('4f. Navigation simplifiée : Accueil de travail, cinq destinations, paramètres à part', async () => {
   const h = await A.text('/edition/1');
-  check('cinq destinations + Paramètres du projet (plus de « Contenus » à part : un contenu naît dans une campagne)', ['Accueil', 'Campagnes', 'Calendrier', 'Site web', 'Bibliothèque', 'Paramètres du projet'].every((w) => h.includes(`>${w}<`)) && !h.includes('>Contenus<'));
+  check('cinq destinations + Description du spectacle (plus de « Contenus » à part : un contenu naît dans une campagne)', ['Accueil', 'Campagnes', 'Calendrier', 'Site web', 'Bibliothèque', 'Description du spectacle'].every((w) => h.includes(`>${w}<`)) && !h.includes('>Contenus<'));
   check('l’Accueil mène aux campagnes et au calendrier ; pas de création de contenu hors campagne', /Mes campagnes/.test(h) && />Calendrier</.test(h) && !/\+ Créer un contenu/.test(h));
   check('l’Accueil n’est plus la fiche (pas de formulaire de fiche)', !/name="title_en"/.test(h) && !/Dupliquer ce projet/.test(h));
   check('l’Accueil distingue production à reprendre, validations, échéances, suivi et configuration', ['Production à reprendre', 'Validations attendues', 'Prochaines échéances', 'Suivi et configuration'].every((w) => h.includes(w)));
   check('un contenu n’apparaît qu’une fois sur l’Accueil', ((h.match(/Émerveillement/g) || []).length) <= 2);
   const s = await A.text('/edition/1/settings');
-  check('la fiche du spectacle est dans Paramètres du projet', /name="title_en"/.test(s) && /Gérer ce projet/.test(s) && /Dupliquer ce projet/.test(s));
+  check('la fiche du spectacle est dans Paramètres du projet', /name="title_en"/.test(s) && /Gérer ce projet/.test(s) && />Dupliquer</.test(s));
   const bib = await A.text('/edition/1/assets'), cal = await A.text('/edition/1/calendar');
-  check('Bibliothèque : fichiers sources et designs ; Calendrier depuis l’Accueil', /Fichiers sources/.test(bib) && /Designs et modèles/.test(bib) && /Calendrier/.test(cal));
+  check('Bibliothèque : fichiers sources et designs ; Calendrier depuis l’Accueil', /Tous les fichiers/.test(bib) && /Designs et modèles/.test(bib) && /Calendrier/.test(cal));
   check('le formulaire de la fiche enregistre depuis les paramètres', s.includes('action="/edition/1/save"'));
 });
 
@@ -461,8 +465,8 @@ await step('4h. Campagnes, bibliothèque et calendrier reliés au parcours de co
   const sv = await A.post('/edition/1/campaigns/meta', { ad_account: 'act_42', page_name: 'Page test', from: 'settings' });
   check('enregistrer la connexion ramène aux paramètres, donnée conservée', /\/settings/.test(A.loc(sv)) && /value="act_42"/.test(await A.text('/edition/1/settings')));
   const cp = await campAll('/edition/1/campaigns/' + ids.c);
-  check('page campagne : contenus et avancement avant la configuration Meta', cp.indexOf('Contenus de cette campagne') > 0 && cp.indexOf('Contenus de cette campagne') < cp.indexOf('Configuration Meta') && cp.indexOf('Brief interne') < cp.lastIndexOf('Configuration Meta'));
-  check('page campagne : le fil Brief › Contenus › Validation › Export › Meta, avec le prochain pas', /class="frise"/.test(cp) && ['Brief', 'Contenus', 'Validation', 'Export', 'Meta'].every((w) => cp.includes(`. ${w}</b>`)) && /class="now"/.test(cp));
+  check('page campagne : contenus et avancement avant la configuration Meta', cp.indexOf('class="tiles"') > 0 && cp.indexOf('class="tiles"') < cp.indexOf('Configuration Meta') && cp.indexOf('Brief interne') < cp.lastIndexOf('Configuration Meta'));
+  check('page campagne : le fil Brief › Contenus › Validation › Export › Meta, avec le prochain pas', /class="stepline"/.test(cp) && ['Brief', 'Contenus', 'Validation', 'Export', 'Meta'].every((w) => cp.includes(`<span>${w}</span>`)) && /class=" ?now"/.test(cp));
   const oc = await A.post('/edition/1/variants/new', { type: 'affiche', name: 'Visuel organique' }), ov = Number(/variants\/(\d+)/.exec(A.loc(oc))?.[1]);
   const lst = await A.text('/edition/1/campaigns');
   check('un contenu créé sans campagne va dans « Hors campagne » (créée au premier besoin, une seule fois)', ov > 0 && (lst.match(/campaigns\/\d+">Hors campagne/g) || []).length === 1);
@@ -470,7 +474,7 @@ await step('4h. Campagnes, bibliothèque et calendrier reliés au parcours de co
   const lst2 = await A.text('/edition/1/campaigns'), offId = Number(/campaigns\/(\d+)">Hors campagne/.exec(lst2)?.[1]);
   check('un texte créé sans campagne est rattaché à « Hors campagne », sans second « Hors campagne »', /Légende organique/.test(await campAll('/edition/1/campaigns/' + offId)) && (lst2.match(/campaigns\/\d+">Hors campagne/g) || []).length === 1, A.loc(ot));
   check('page campagne : créer un contenu pour cette campagne + associer un contenu existant', new RegExp('variants/new\\?campaign=' + ids.c).test(cp) && /Associer un contenu existant/.test(cp));
-  check('page campagne : versions diffusées toujours figées et visibles', /🔒/.test(cp) && /nouveaux contenus en brouillon/.test(cp));
+  check('page campagne : versions diffusées toujours figées et visibles', /figée/.test(cp) && /nouveaux contenus en brouillon/.test(cp));
   // ---- créer un contenu pour une campagne : contexte prérempli
   const camp = await A.post('/edition/' + P + '/campaigns/new', { name: 'Campagne d’avancement', meta_status: 'active', brief_message: 'Test' }), cid = Number(/campaigns\/(\d+)/.exec(camp.headers.get('location'))?.[1]);
   const nf = await A.text('/edition/' + P + '/variants/new?campaign=' + cid);
@@ -478,7 +482,7 @@ await step('4h. Campagnes, bibliothèque et calendrier reliés au parcours de co
   const nc = await A.post('/edition/' + P + '/variants/new', { type: 'affiche', name: 'Pour la campagne', campaign_id: String(cid) });
   const nv = Number(/variants\/(\d+)/.exec(nc.headers.get('location') || '')?.[1]);
   const cp2 = await campAll('/edition/' + P + '/campaigns/' + cid);
-  check('campagne ACTIVE : on prépare un nouveau contenu en brouillon, il apparaît avec son avancement', !!nv && /Pour la campagne/.test(cp2) && /brouillon/.test(cp2) && /4:5 · brouillon/.test(cp2));
+  check('campagne ACTIVE : on prépare un nouveau contenu en brouillon, il apparaît avec son avancement', !!nv && /Pour la campagne/.test(cp2) && /brouillon/.test(cp2) && /class="tnext"/.test(cp2));
   const tl = await campAll('/edition/' + P + '/campaigns/' + cid);
   check('associer un contenu existant : les textes sont proposés au même titre que les visuels', /Script teaser/.test(tl));
   const li = await A.text('/edition/' + P + '/campaigns');
@@ -518,8 +522,8 @@ await step('4i. Validations ciblées, modèles de contenu et kit graphique', asy
   const fiche = { title_en: 'CIBLE', tagline_en: 'Only what is shown matters', top_line_en: 'Every evening', cta_book_en: 'Book now', venue_status: 'confirmé', venue_name_en: 'Temple', venue_city_en: 'Kyoto', date_start: '2027-03-02', date_end: '2027-05-20', timezone: 'Asia/Tokyo', color_primary: '#102030', color_secondary: '#c8a24a', color_text: '#f5f1e8', font_title: 'Georgia', font_body: 'Segoe UI', booking_url: 'https://tickets.example.com/x' };
   for (const s of ['identity', 'venue', 'brand', 'booking']) fiche['status_' + s] = 'approuvé';
   await A.post('/edition/' + Q + '/save', fiche);
-  const st = await A.text('/edition/' + Q + '/settings');
-  check('le site, lui, garde son exigence large (FAQ, tarifs, options non approuvés)', /Pour publier le site/.test(st) && /Section « FAQ » non approuvée/.test(st) && /id="sec-faq"/.test(st));
+  const st = await A.text('/edition/' + Q + '/site');
+  check('le site, lui, garde son exigence large (FAQ, tarifs, options non approuvés), annoncée sur sa page', /Avant la mise en ligne/.test(st) && /Section « FAQ » non approuvée/.test(st) && /id="sec-faq"/.test(await A.text('/edition/' + Q + '/settings')));
   const hero = await A.up(Q, 'hero', 'fond.png', png(900, 1100, 1)); await A.post('/assets/' + hero + '/update', { role: 'hero', status: 'approuvé', rights: 'OK (test)' });
   const c1 = await A.post('/edition/' + Q + '/variants/new', { type: 'affiche', name: 'Affiche ciblée', asset: String(hero) });
   const v1 = Number(/variants\/(\d+)/.exec(c1.headers.get('location') || '')?.[1]);
@@ -607,7 +611,7 @@ await step('4j. Retours d’usage (designer) : variante B en un clic, bandeau li
   check('« Créer une variante » en un clic : nommée « … — B », ouverte dans la création', !!vb && vb !== vid && /Affiche A — B/.test(decodeURIComponent(A.loc(d))) && /step=creation/.test(A.loc(d)), decodeURIComponent(A.loc(d)));
   check('la variante B garde TOUT, y compris le texte retouché du format', /Kyoto · Spring 2027/.test(await A.text(`/render/poster/1/4x5?variant=${vb}`)) && /Kyoto · Spring 2027/.test(await A.text(`/render/poster/1/4x5?variant=${vid}`)));
   const ws = await A.text(`/edition/1/variants/${vb}?step=verification`);
-  check('fil d’Ariane Campagnes › campagne › contenu, et bouton « Créer une variante » sur chaque étape', /class="crumbs"/.test(ws) && ws.includes('>Campagnes</a> › <a href="/edition/1/campaigns/' + cid + '"') && /⧉ Créer une variante/.test(ws));
+  check('fil d’Ariane Campagnes › campagne › contenu, et bouton « Créer une variante » sur chaque étape', /class="crumbs"/.test(ws) && ws.includes('>Campagnes</a> › <a href="/edition/1/campaigns/' + cid + '"') && />Créer une variante</.test(ws));
   await A.post(`/edition/1/variants/${vid}/approve-export`, {});
   const cp = await A.text(`/edition/1/campaigns/${cid}?vue=diffusion`);
   check('la sortie exportée est rangée d’office dans sa campagne, en brouillon', cp.includes('Affiche A · 4:5'));
@@ -771,7 +775,7 @@ await step('9. Associer à la campagne ACTIVE : version diffusée figée, nouvel
   const pub = await A.post(`/edition/1/links/${ids.link}`, { state: 'publié', confirm_hash: h2 });
   check('publication déclarée après confirmation', /Déclaré « publié »/.test(A.loc(pub)), A.loc(pub));
   page = await campAll(`/edition/1/campaigns/${ids.c}`);
-  check('version diffusée identifiable 🔒', /🔒/.test(page) && /publiée/.test(page));
+  check('version diffusée identifiable (figée)', /figée/.test(page) && /publiée/.test(page));
   const lk2 = await A.post(`/edition/1/variants/${ids.v2}/link`, { target: `adset_id:${ids.adset}` });
   check('on prépare AUSSI une autre variante pour cette même campagne active', /associée\(s\) en brouillon/.test(A.loc(lk2)), A.loc(lk2));
   const v1page = await A.text(`/edition/1/variants/${ids.v1}`);
@@ -1096,9 +1100,9 @@ await step('13. Restauration complète dans une installation VIERGE', async () =
   const vp = await A2.text(`/edition/1/variants/${ids.v1}`);
   check('versions approuvées restaurées', /version approuvée : v2/.test(vp), (/version approuvée : v\d+/.exec(vp) || [''])[0]);
   const ds = await A2.text('/edition/1/designs'); check('designs et leurs versions restaurés', /DA Night Show/.test(ds) && /v2/.test(ds));
-  const cm = await campAll(`/edition/1/campaigns/${ids.c}`, A2); check('campagne, associations figées et configuration Meta restaurées', /🔒/.test(cm) && /Conversions/.test(cm));
+  const cm = await campAll(`/edition/1/campaigns/${ids.c}`, A2); check('campagne, associations figées et configuration Meta restaurées', /figée/.test(cm) && /Conversions/.test(cm));
   const sp = await A2.text('/edition/1/site');
-  check('site du projet restauré (domaine, avancement) mais identifiants NON restaurés', /value="night-show-kyoto\.example"/.test(sp) && /\(2\/9\)/.test(sp) && !/class="tag st-2">enregistré/.test(sp));
+  check('site du projet restauré (domaine, avancement) mais identifiants NON restaurés', /value="night-show-kyoto\.example"/.test(sp) && />2\/9</.test(sp) && !/class="tag st-2">enregistré/.test(sp));
   const cal = await A2.text('/edition/1/calendar?month=2027-01'); check('calendrier restauré', /Réunion de lancement/.test(cal));
   // empreintes : originaux et exports approuvés identiques octet pour octet
   let same = 0, total = 0;
@@ -1128,11 +1132,11 @@ await step('14. Pages dans un vrai navigateur (assistant, éditeur de variante, 
     await shot('assistant');
     await br.go(`${U}/edition/1/variants/${ids.v1}`);
     check('page variante : un aperçu par format', (await br.ev(`document.querySelectorAll('.vthumb iframe').length`)) >= 2);
-    check('page variante : parcours exporté → transmis → publié visible', await br.ev(`document.querySelectorAll('.stepper').length >= 2 && document.body.innerText.includes('exporté') && document.body.innerText.includes('transmis') && document.body.innerText.includes('publié')`));
+    check('page variante : parcours exporté → transmis → publié visible', await br.ev(`document.querySelectorAll('.stepper[title*="exporté › transmis › publié"]').length >= 2`));
     await shot('variante');
     await br.go(`${U}/edition/1/poster/4x5?variant=${ids.v1}`, `!!document.getElementById('pframe')`);
     await br.sleep(1500);
-    check('éditeur : bandeau « variante » et aperçu de la variante', await br.ev(`document.body.innerText.includes('Émerveillement') && !!document.querySelector('.ws .steps') && document.getElementById('pframe').src.includes('variant=${ids.v1}')`));
+    check('éditeur : bandeau « variante » et aperçu de la variante', await br.ev(`document.body.innerText.includes('Émerveillement') && !!document.querySelector('.ws .stepline') && document.getElementById('pframe').src.includes('variant=${ids.v1}')`));
     check('éditeur : le formulaire édite bien la variante', await br.ev(`document.getElementById('pform').dataset.variant === '${ids.v1}' && document.getElementById('pform').action.includes('variant=${ids.v1}')`));
     await br.ev(String.raw`document.getElementById('pframe').contentWindow.postMessage({ type: 'select', id: 'title' }, location.origin)`);
     await br.sleep(600);
@@ -1176,15 +1180,15 @@ await step('14. Pages dans un vrai navigateur (assistant, éditeur de variante, 
     await br.sleep(1200);
     check('F01 au retour dans l’éditeur : plus de modification en attente et l’élément est resté où il était', await br.ev(`window.__poster.dirty() === false && document.querySelector('#pform [name=els]').value.includes('"title"')`), await br.ev(`document.querySelector('#pform [name=els]').value.slice(0, 120)`));
     await shot('editeur-variante');
-    for (const [p, n, re] of [['/edition/1/calendar?month=2027-01', 'calendrier', 'Réunion de lancement'], [`/edition/1/campaigns/${ids.c}`, 'campagne', 'Contenus de cette campagne'], [`/edition/1/campaigns/${ids.c}/guide`, 'guide-meta', 'Guide Ads Manager'], ['/edition/1/variants', 'variantes', 'Tous les contenus'], ['/settings', 'reglages', 'Sauvegardes'], ['/edition/1/contents', 'contenus', 'Associé']]) {
+    for (const [p, n, re] of [['/edition/1/calendar?month=2027-01', 'calendrier', 'Réunion de lancement'], [`/edition/1/campaigns/${ids.c}`, 'campagne', 'Ajouter un contenu'], [`/edition/1/campaigns/${ids.c}/guide`, 'guide-meta', 'Guide Ads Manager'], ['/edition/1/variants', 'variantes', 'Tous les contenus'], ['/settings', 'reglages', 'Sauvegardes'], ['/edition/1/contents', 'contenus', 'Associé']]) {
       await br.go(U + p);
       check(`page ${n} s’affiche`, await br.ev(`document.body.innerText.includes(${JSON.stringify(re)})`));
       await shot(n);
     }
-    for (const [p, n, re] of [['/edition/1', 'accueil', 'Production à reprendre'], ['/edition/1/settings', 'parametres', 'Paramètres du projet'], ['/edition/1/assets', 'bibliotheque', 'Fichiers sources'], ['/edition/3/poster/4x5', 'affiche-recue', 'Affiche'],
+    for (const [p, n, re] of [['/edition/1', 'accueil', 'Production à reprendre'], ['/edition/1/settings', 'parametres', 'Description du spectacle'], ['/edition/1/assets', 'bibliotheque', 'Tous les fichiers'], ['/edition/3/poster/4x5', 'affiche-recue', 'Affiche'],
       ['/edition/3/variants/new', 'creer-contenu', 'Ajouter un contenu'], [`/edition/3/variants/${ids.w.v1}?step=materiel`, 'ws-materiel', 'Ajouter un fichier'], [`/edition/3/variants/${ids.w.v1}?step=creation&all=1`, 'ws-creation', 'Modifier ce format'],
       [`/edition/3/variants/${ids.w.v1}`, 'ws-verification', 'Contrôles automatiques'], [`/edition/3/variants/${ids.w.v1}?step=diffusion`, 'ws-diffusion', 'Télécharger uniquement'],
-      [`/edition/3/poster/1x1?variant=${ids.w.v1}`, 'ws-editeur-affiche', 'Création'], [`/edition/3/video?variant=${ids.w.v2}`, 'ws-editeur-video', 'Création'], [`/edition/3/texts/${ids.w.tid}?step=creation`, 'ws-texte', 'Rédaction'], ['/edition/3/variants', 'contenus-liste', 'Script teaser'], ['/edition/1/campaigns', 'campagnes-liste', 'Meta :'], [`/edition/1/campaigns/${ids.c}`, 'campagne-detail', 'Contenus de cette campagne'], ['/edition/1/settings#connexions', 'connexions', 'Connexions du projet'], ['/edition/1/designs', 'designs-liste', 'Kit graphique du projet']]) {
+      [`/edition/3/poster/1x1?variant=${ids.w.v1}`, 'ws-editeur-affiche', 'Création'], [`/edition/3/video?variant=${ids.w.v2}`, 'ws-editeur-video', 'Création'], [`/edition/3/texts/${ids.w.tid}?step=creation`, 'ws-texte', 'Rédaction'], ['/edition/3/variants', 'contenus-liste', 'Script teaser'], ['/edition/1/campaigns', 'campagnes-liste', 'Meta :'], [`/edition/1/campaigns/${ids.c}`, 'campagne-detail', 'Ajouter un contenu'], ['/edition/1/settings#connexions', 'connexions', 'Connexions'], ['/edition/1/designs', 'designs-liste', 'Kit graphique du projet']]) {
       await br.go(U + p);
       check(`page ${n} s’affiche`, await br.ev(`document.body.innerText.includes(${JSON.stringify(re)})`));
       check(`page ${n} : pas de défilement horizontal (bureau)`, await br.ev('document.documentElement.scrollWidth <= window.innerWidth + 1'));

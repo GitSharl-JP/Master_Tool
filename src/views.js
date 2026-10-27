@@ -1,4 +1,5 @@
-import { SECTIONS, LANGS, VALIDATION, publishBlockers } from './schema.js';
+import { SECTIONS, VALIDATION, LANGS } from './schema.js';
+const LANG_COUNT = LANGS.length;
 import { SECRET_DEFS, isSet, preview } from './secrets.js';
 
 export const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -23,12 +24,11 @@ ${err ? `<p class="err">${esc(err)}</p>` : ''}<form method="post" action="/setup
 <label>Votre prénom<input name="name" required></label>
 <label>Mot de passe (10 caractères minimum)<input type="password" name="password" minlength="10" required></label><button>Créer le compte</button></form>`;
 
-// Gestionnaire de projets : ouvrir, renommer, archiver (récupérable), supprimer (définitif, nom à retaper).
+// Gestionnaire de projets : ouvrir, archiver (récupérable), supprimer (définitif, nom à retaper). On renomme depuis le projet (Description du spectacle).
 export function homePage(editions, activity) {
   const row = (e, archived) => {
     const approved = SECTIONS.filter((s) => e.validation[s.id]?.status === 'approuvé').length;
-    return `<tr><td><a href="/edition/${e.id}"><b>${esc(e.label)}</b></a>${e.data.provisional === '1' ? ' <span class="tag warn">provisoire</span>' : ''}
-<details class="mini"><summary>Renommer</summary><form method="post" action="/edition/${e.id}/rename" class="inline"><input type="hidden" name="from" value="home"><input name="label" value="${esc(e.label)}" required><button>OK</button></form></details></td>
+    return `<tr><td><a href="/edition/${e.id}"><b>${esc(e.label)}</b></a>${e.data.provisional === '1' ? ' <span class="tag warn">provisoire</span>' : ''}</td>
 <td>${esc(e.data.venue_status)}</td><td>${approved}/${SECTIONS.length}</td><td>${fr(e.updated)}</td>
 <td class="acts"><a class="btn sm" href="/edition/${e.id}">Ouvrir</a>
 <form method="post" action="/edition/${e.id}/${archived ? 'unarchive' : 'archive'}" class="inline"><button class="link">${archived ? 'Remettre dans la liste' : 'Archiver'}</button></form>
@@ -55,20 +55,22 @@ ${c.diffused ? `<p class="status warn"><b>${c.diffused} association(s) déjà «
 <form method="post" action="/edition/${ed.id}/archive" class="inline"><button class="link">Archiver à la place</button></form></div>`;
 }
 
+// Un champ = une ligne : libellé au-dessus, aide éventuelle en exemple grisé dans le champ (pas de mode d'emploi sous chaque champ).
 function fieldHtml(f, v) {
   const id = `f_${f.key}`;
-  const help = f.help ? `<small>${esc(f.help)}</small>` : '';
+  const ph = f.help ? ` placeholder="${esc(f.help)}"` : '';
   let input;
-  if (f.type === 'textarea') input = `<textarea id="${id}" name="${f.key}" rows="3">${esc(v)}</textarea>`;
+  if (f.type === 'textarea') input = `<textarea id="${id}" name="${f.key}" rows="2"${ph}>${esc(v)}</textarea>`;
   else if (f.type === 'select') input = `<select id="${id}" name="${f.key}">${f.options.map((o) => `<option${o === v ? ' selected' : ''}>${esc(o)}</option>`).join('')}</select>`;
   else if (f.type === 'checkbox') return `<label class="check" for="${id}"><input id="${id}" type="checkbox" name="${f.key}" value="1"${v === '1' ? ' checked' : ''}> ${esc(f.label)}</label>`;
-  else if (f.type === 'font') input = `<input id="${id}" name="${f.key}" list="fontlist" value="${esc(v)}" autocomplete="off">${v && !fontAvailable(v) ? '<small class="why">⚠ Police absente de cet ordinateur : l’export utilisera une police de remplacement.</small>' : ''}`;
-  else input = `<input id="${id}" name="${f.key}" type="${f.type}" value="${esc(v)}">`;
-  return `<label for="${id}">${esc(f.label)}${input}${help}</label>`;
+  else if (f.type === 'font') input = `<input id="${id}" name="${f.key}" list="fontlist" value="${esc(v)}" autocomplete="off">${v && !fontAvailable(v) ? '<small class="why">Police absente de cet ordinateur : l’export utilisera une police de remplacement.</small>' : ''}`;
+  else if (f.type === 'color') input = `<input id="${id}" name="${f.key}" type="color" value="${esc(v)}">`;
+  else input = `<input id="${id}" name="${f.key}" type="${f.type}" value="${esc(v)}"${ph}>`;
+  return `<label for="${id}">${esc(LANG_COUNT > 1 ? f.label : f.label.replace(/ \([A-Z]{2}\)$/, ''))}${input}</label>`;
 }
 
 // Connexions du projet : la configuration Meta (saisie à la main) vit ici, la page Campagnes n'en garde qu'un indicateur.
-const metaConnectionCard = (ed, meta) => `<div class="card" id="connexions"><h2>Connexions du projet</h2>
+const metaConnectionCard = (ed, meta) => `<div>
 <h3>Meta <span class="tag warn">non connecté — saisie à la main</span></h3>
 <p class="status warn">Aucune synchronisation n’a eu lieu (${meta.synced_at ? 'dernière : ' + fr(meta.synced_at) : 'jamais'}). Ce qui est saisi ici est <b>non vérifié</b>. Rien n’est envoyé à Meta, rien n’y est modifié. <b>L’absence de connexion ne bloque aucun travail de production.</b></p>
 <form method="post" action="/edition/${ed.id}/campaigns/meta" class="grid"><input type="hidden" name="from" value="settings">
@@ -83,37 +85,39 @@ const metaConnectionCard = (ed, meta) => `<div class="card" id="connexions"><h2>
 <small>Accès (source officielle Meta, à reconfirmer à la mise en place) : l’accès « standard » aux permissions <code>ads_read</code> et <code>ads_management</code> suffit pour gérer <b>ses propres</b> comptes publicitaires ; l’accès avancé (avec examen de l’application) concerne les comptes d’<b>autres</b> personnes. La vérification d’entreprise n’est pas établie comme obligatoire pour notre cas.</small></details>
 <h3>Site WordPress</h3><p>Le domaine et les identifiants du site de ce projet se règlent dans <a href="/edition/${ed.id}/site">Site web</a>.</p></div>`;
 
+// Description du spectacle : une colonne, sans mode d'emploi, on arrive en haut. D'abord ce que montrent les affiches et vidéos,
+// puis, replié, ce qui ne sert qu'au site. Les identifiants techniques (non affichés) sont conservés tels quels.
+const SITE_ONLY = ['experience', 'tickets', 'faq', 'site'];
+const KEPT_AS_IS = ['show_code', 'edition_code'];
+// Les petits champs de même nature (dates, heures, couleurs, nombres) se rangent côte à côte ; tout le reste, un par ligne.
+const SHORT = ['color', 'date', 'time', 'number'];
+const rows = (fs) => fs.reduce((out, f) => { const last = out[out.length - 1]; if (last && SHORT.includes(f.type) && last[0].type === f.type) last.push(f); else out.push([f]); return out; }, []);
 export function editionPage(ed, fieldsBySection, versions, top = '', meta = null) {
-  const blockers = publishBlockers(ed);
-  const sections = SECTIONS.map((s) => {
+  const section = (s) => {
     const val = ed.validation[s.id] || { status: 'brouillon' };
-    const fields = fieldsBySection[s.id].map((f) => fieldHtml(f, ed.data[f.key] ?? '')).join('');
+    const fs = fieldsBySection[s.id].filter((f) => !KEPT_AS_IS.includes(f.key));
     const opts = VALIDATION.map((o) => `<option${o === val.status ? ' selected' : ''}>${o}</option>`).join('');
-    return `<section class="card" id="sec-${s.id}"><h2>${esc(s.title)} <span class="tag st-${VALIDATION.indexOf(val.status)}">${esc(val.status)}</span></h2>
-<div class="grid">${fields}</div>
-<div class="validate">${val.by ? `<small>Dernier statut : ${esc(val.by)}, ${fr(val.at)}</small>` : ''}
-<label>Statut de cette section<select name="status_${s.id}">${opts}</select></label></div></section>`;
-  }).join('');
+    return `<section class="card fiche-sec" id="sec-${s.id}"><div class="fiche-head"><h2>${esc(s.title)}</h2>
+<select name="status_${s.id}" aria-label="Statut de la section ${esc(s.title)}" title="${val.by ? `Dernier statut : ${esc(val.by)}, ${fr(val.at)}` : 'Statut de la section'}">${opts}</select></div>
+<div class="fiche-fields">${rows(fs).map((r) => (r.length > 1 ? `<div class="fiche-row">${r.map((f) => fieldHtml(f, ed.data[f.key] ?? '')).join('')}</div>` : fieldHtml(r[0], ed.data[r[0].key] ?? ''))).join('')}</div></section>`;
+  };
+  const hidden = KEPT_AS_IS.map((k) => `<input type="hidden" name="${k}" value="${esc(ed.data[k] ?? '')}">`).join('');
   const prov = ed.data.provisional === '1';
   return `${tabs(ed, 'fiche')}${top}
 <datalist id="fontlist">${Object.keys(availableFonts()).map((n) => `<option value="${esc(n)}">`).join('')}</datalist>
-<p class="lead"><b>Paramètres du projet</b> — les informations du spectacle (titre, dates, lieu, billets, charte). Elles alimentent les affiches, les vidéos et le site ; on y revient rarement.</p>
-<p class="status ${blockers.length ? 'warn' : 'ok'}">${blockers.length
-    ? `<b>Pour publier le site</b>, il reste : ${blockers.map(esc).join(' ')}<br><small>Une affiche ou une vidéo n’a besoin que des informations qu’elle affiche : elle n’est pas bloquée par le reste (voir les contrôles du contenu).</small>`
-    : '<b>Fiche prête</b> : aucun blocage pour la publication.'}</p>
-<form method="post" action="/edition/${ed.id}/save">
-<label class="check"><input type="checkbox" name="provisional" value="1"${prov ? ' checked' : ''}> Contenu provisoire (à décocher quand les vrais textes sont en place)</label>
-${sections}
-<button class="primary">Enregistrer</button>
-<small>Modifier une section déjà approuvée la repasse automatiquement « à relire ». Langues actives : ${LANGS.join(', ').toUpperCase()}.</small></form>
-${meta ? metaConnectionCard(ed, meta) : ''}
-<div class="card"><h2>Gérer ce projet</h2><form method="post" action="/edition/${ed.id}/rename" class="inline"><input name="label" value="${esc(ed.label)}" required><button>Renommer</button></form>
-<form method="post" action="/edition/${ed.id}/archive" class="inline"><button class="link">Archiver</button></form> · <a class="danger" href="/edition/${ed.id}/delete">Supprimer…</a></div>
-<div class="card"><h2>Dupliquer ce projet</h2><form method="post" action="/edition/${ed.id}/duplicate" class="inline">
-<input name="label" placeholder="Nom de la copie" required><button>Dupliquer</button></form>
-<small>La copie repart en brouillon, lieu « à confirmer », sans aucune validation.</small></div>
-<details class="card histo"><summary><b>Historique des versions de la fiche</b> <small>(${versions.length})</small></summary><ul class="log">${versions.map((v) => `<li><time>${fr(v.saved_at)}</time> ${esc(v.saved_by)} · ${esc(v.note || '')}
-<form method="post" action="/edition/${ed.id}/restore/${v.id}" class="inline"><button class="link">Restaurer</button></form></li>`).join('')}</ul><small>Restaurer remplace la fiche actuelle par cette version ; la version remplacée reste dans cette liste.</small></details>`;
+<form method="post" action="/edition/${ed.id}/save" class="fiche">${hidden}
+${SECTIONS.filter((s) => !SITE_ONLY.includes(s.id)).map(section).join('')}
+<details class="card fiche-site"><summary><b>Pour le site web</b> <small>visite, séances et tarifs, FAQ, options d’affichage</small></summary>
+${SECTIONS.filter((s) => SITE_ONLY.includes(s.id)).map(section).join('')}</details>
+<div class="fiche-save"><label class="check"><input type="checkbox" name="provisional" value="1"${prov ? ' checked' : ''}> Textes provisoires (exemples à remplacer)</label>
+<button class="primary">Enregistrer</button></div></form>
+<details class="card"><summary><b>Gérer ce projet</b> <small>renommer, dupliquer, archiver, supprimer</small></summary>
+<form method="post" action="/edition/${ed.id}/rename" class="inline"><input name="label" value="${esc(ed.label)}" required aria-label="Nom du projet"><button>Renommer</button></form>
+<form method="post" action="/edition/${ed.id}/duplicate" class="inline"><input name="label" placeholder="Nom de la copie" required aria-label="Nom de la copie"><button>Dupliquer</button></form>
+<p class="inline"><form method="post" action="/edition/${ed.id}/archive" class="inline"><button class="link">Archiver</button></form> <a class="danger" href="/edition/${ed.id}/delete">Supprimer…</a></p></details>
+${meta ? `<details class="card" id="connexions"><summary><b>Connexions</b> <small>Meta, WordPress</small></summary>${metaConnectionCard(ed, meta)}</details>` : ''}
+<details class="card histo"><summary><b>Historique des versions</b> <small>(${versions.length})</small></summary><ul class="log">${versions.map((v) => `<li><time>${fr(v.saved_at)}</time> ${esc(v.saved_by)} · ${esc(v.note || '')}
+<form method="post" action="/edition/${ed.id}/restore/${v.id}" class="inline"><button class="link">Restaurer</button></form></li>`).join('')}</ul></details>`;
 }
 
 export function settingsPage(users, backups, msg) {
@@ -151,8 +155,8 @@ const SECTIONS_NAV = [
   ['biblio', 'Bibliothèque', (id) => `/edition/${id}/assets`, ['assets', 'designs']],
 ];
 const SUBTABS = {
-  campagnes: (id) => [['campagnes', 'Mes campagnes', `/edition/${id}/campaigns`], ['variantes', 'Tous les contenus', `/edition/${id}/variants`], ['contenus', 'Textes et fichiers prêts', `/edition/${id}/contents`]],
-  biblio: (id) => [['assets', 'Fichiers sources', `/edition/${id}/assets`], ['designs', 'Designs et modèles', `/edition/${id}/designs`]],
+  campagnes: (id) => [['campagnes', 'Campagnes', `/edition/${id}/campaigns`], ['variantes', 'Contenus', `/edition/${id}/variants`]],
+  biblio: (id) => [['assets', 'Fichiers', `/edition/${id}/assets`], ['designs', 'Designs et modèles', `/edition/${id}/designs`]],
 };
 export const tabs = (ed, active) => {
   const sec = SECTIONS_NAV.find((x) => x[3].includes(active));
@@ -161,7 +165,7 @@ export const tabs = (ed, active) => {
   const subActive = sub && sub.find(([k]) => k === active);
   return `<h1>${esc(ed.label)} <small class="crumb">projet</small></h1>
 <div class="pnav"><div class="pnav-main">${SECTIONS_NAV.map(([k, n, href]) => `<a href="${href(ed.id)}"${sec && sec[0] === k ? ' class="on" aria-current="page"' : ''}>${n}</a>`).join('')}</div>
-<a href="/edition/${ed.id}/settings" class="pnav-set${params ? ' on' : ''}">Paramètres du projet</a></div>
+<a href="/edition/${ed.id}/settings" class="pnav-set${params ? ' on' : ''}">Description du spectacle</a></div>
 ${sub ? `<div class="subtabs">${sub.map(([k, n, href]) => `<a href="${href}"${subActive && subActive[0] === k ? ' class="on"' : ''}>${n}</a>`).join('')}</div>` : ''}`;
 };
 
@@ -184,42 +188,44 @@ export const entryCards = (ed, start = 'svg') => {
 const kb = (n) => (n > 1048576 ? `${(n / 1048576).toFixed(1)} Mo` : `${Math.max(1, Math.round(n / 1024))} Ko`);
 
 const KIND_NAMES = { image: 'Images', video: 'Vidéos', audio: 'Audio', document: 'Documents', text: 'Textes / sous-titres', source: 'Fichiers sources' };
-export function assetsPage(ed, assets, msg, storageInfo = '', filter = {}) {
-  const active = filter.q || filter.kind || filter.role || filter.status;
-  const fold = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
-  const shown = assets.filter((a) => (!filter.kind || a.kind === filter.kind) && (!filter.role || a.role === filter.role) && (!filter.status || a.status === filter.status)
-    && (!filter.q || fold(a.label).includes(fold(filter.q)) || fold(a.name).includes(fold(filter.q))));
-  const so = (name, list, cur) => `<select name="${name}" onchange="this.form.submit()">${list.map(([v, l]) => `<option value="${esc(v)}"${v === cur ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
-  const card = (a) => `<form method="post" action="/assets/${a.id}/update" class="card asset">
-<div class="thumb">${a.kind === 'image' ? `<img src="/files/${a.id}" alt="" loading="lazy">${a.warn ? `<small class="why">⚠ ${esc(a.warn)}</small>` : ''}`
-    : a.kind === 'video' ? `<video src="/files/${a.id}#t=0.5" preload="metadata" controls></video>`
-      : a.kind === 'audio' ? `<audio src="/files/${a.id}" preload="none" controls></audio>`
-        : `<span>${esc(KIND_NAMES[a.kind] || a.kind)}</span>`}<a href="/files/${a.id}" target="_blank"><small>Ouvrir</small></a></div>
-<div class="meta"><b>${esc(a.label || a.name)}</b>
-<p><span class="tag">${esc(ROLES[a.role] || a.role)}</span> <span class="tag ${a.status === 'approuvé' ? 'st-2' : ''}">${esc(a.status)}</span>${a.provisional ? ' <span class="tag warn">provisoire</span>' : ''} <small>${kb(a.size)} · ${fr(a.created)}</small></p>
-<p><a class="btn sm primary" href="/edition/${ed.id}/variants/new?asset=${a.id}" title="Crée un contenu qui utilise déjà ce fichier">Créer un contenu avec ce fichier</a>${a.kind === 'image' ? ` <button formaction="/assets/${a.id}/use-poster" title="Remplace l’affiche de chaque format par ce fichier">Utiliser comme affiche reçue</button>` : ''}${['document', 'text', 'source'].includes(a.kind) ? ` <button formaction="/assets/${a.id}/to-content" title="Crée un contenu texte dans la bibliothèque">Créer un contenu texte</button>` : ''}</p>
-<details><summary>Modifier le nom, le rôle, le statut, les droits</summary><div class="grid">
+// Bibliothèque façon Finder : tous les fichiers du projet (sources reçues et fichiers exportés), rangés par type, en vignettes.
+export function assetsPage(ed, assets, msg, storageInfo = '', filter = {}, exports = []) {
+  const fold = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const q = fold(filter.q), isExp = filter.kind === 'exports';
+  const shown = isExp ? [] : assets.filter((a) => (!filter.kind || a.kind === filter.kind) && (!filter.status || a.status === filter.status) && (!q || fold(a.label).includes(q) || fold(a.name).includes(q)));
+  const exps = isExp || !filter.kind ? exports.filter((e) => !q || fold(e.label).includes(q)) : [];
+  const so = (name, list, cur) => `<select name="${name}" onchange="this.form.submit()" aria-label="${name}">${list.map(([v, l]) => `<option value="${esc(v)}"${v === cur ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
+  const n = (k) => assets.filter((a) => a.kind === k).length;
+  const folders = [['', 'Tous les fichiers', assets.length + exports.length], ...Object.entries(KIND_NAMES).filter(([k]) => n(k)).map(([k, l]) => [k, l, n(k)]), ['exports', 'Fichiers exportés', exports.length]];
+  const href = (k) => `/edition/${ed.id}/assets${k ? '?kind=' + k : ''}`;
+  const tile = (a) => `<div class="tile"><a href="/files/${a.id}" target="_blank"><div class="tthumb">${a.kind === 'image' ? `<img src="/files/${a.id}" alt="" loading="lazy">`
+    : a.kind === 'video' ? `<video src="/files/${a.id}#t=0.5" preload="metadata" muted></video>` : `<span class="ext">${esc((a.name.split('.').pop() || a.kind).toUpperCase())}</span>`}</div>
+<span class="tname" title="${esc(a.name)}">${esc(a.label || a.name)}</span></a>
+<span class="tmeta"><span class="tag">${esc(ROLES[a.role] || a.role)}</span>${a.provisional ? ' <span class="tag warn">provisoire</span>' : ''}${a.warn ? ` <span class="tag warn" title="${esc(a.warn)}">à vérifier</span>` : ''}</span>
+<details class="tedit"><summary>Modifier</summary><form method="post" action="/assets/${a.id}/update" class="fiche-fields">
 <label>Nom affiché<input name="label" value="${esc(a.label || '')}" placeholder="${esc(a.name)}"></label>
 <label>Rôle<select name="role">${Object.entries(ROLES).map(([k, v]) => `<option value="${k}"${k === a.role ? ' selected' : ''}>${esc(v)}</option>`).join('')}</select></label>
 <label>Statut<select name="status">${VALIDATION.map((s) => `<option${s === a.status ? ' selected' : ''}>${s}</option>`).join('')}</select></label>
-<label>Droits / autorisation<input name="rights" value="${esc(a.rights)}" placeholder="Ex. Orfeo, usage promo OK jusqu'en 2028"></label></div>
-<label class="check"><input type="checkbox" name="provisional" value="1"${a.provisional ? ' checked' : ''}> Provisoire (à remplacer par le visuel final)</label>
-<small>Fichier d’origine conservé : ${esc(a.name)} · envoyé par ${esc(a.uploaded_by)}.</small> <button>Enregistrer</button></details></div></form>`;
+<label>Droits<input name="rights" value="${esc(a.rights)}" placeholder="Ex. usage promo OK jusqu’en 2028"></label>
+<label class="check"><input type="checkbox" name="provisional" value="1"${a.provisional ? ' checked' : ''}> Provisoire</label>
+<small>${kb(a.size)} · ${fr(a.created)} · ${esc(a.uploaded_by)}</small>
+<div class="inline"><button>Enregistrer</button><a class="btn sm ghost" href="/edition/${ed.id}/variants/new?asset=${a.id}">Créer un contenu</a>${a.kind === 'image' ? `<button class="link" formaction="/assets/${a.id}/use-poster">Utiliser comme affiche reçue</button>` : ''}${['document', 'text', 'source'].includes(a.kind) ? `<button class="link" formaction="/assets/${a.id}/to-content">Créer un contenu texte</button>` : ''}</div></form></details></div>`;
+  const etile = (e) => `<div class="tile"><a href="/exports/${e.id}" target="_blank"><div class="tthumb">${e.kind === 'affiche' ? `<img src="/exports/${e.id}" alt="" loading="lazy">` : e.kind === 'video' ? `<video src="/exports/${e.id}#t=0.5" preload="metadata" muted></video>` : `<span class="ext">${esc((e.file.split('.').pop() || e.kind).toUpperCase())}</span>`}</div>
+<span class="tname" title="${esc(e.label)}">${esc(e.label)}</span></a>
+<span class="tmeta"><span class="tag">export</span>${e.draft ? ' <span class="tag warn">brouillon</span>' : ''} <a href="/exports/${e.id}?dl=1">Télécharger</a></span></div>`;
   return `${tabs(ed, 'assets')}${msg ? `<p class="flash">${esc(msg)}</p>` : ''}
-<div class="card"><h2>Ajouter des fichiers</h2>
-<form id="up" data-edition="${ed.id}" class="dropbox"><p><b>Glissez-déposez vos fichiers ici</b>, un seul ou plusieurs</p>
+<form id="up" data-edition="${ed.id}" class="dropbox slim"><p><b>Glissez-déposez vos fichiers ici</b> ou</p>
 <label class="btn primary filebtn">Choisir des fichiers<input type="file" id="upfile" multiple hidden></label></form><p id="upmsg"></p>
-<small>Le type (photo, logo, vidéo, document…) est reconnu automatiquement à l’ajout ; vous pouvez le corriger ensuite dans la liste (« Modifier le nom, le rôle… »).</small>
-<details><summary>Aide : formats acceptés, affiche déjà faite, stockage</summary>
-<small>Photos (JPG, PNG, WebP, GIF), vidéos (MP4, MOV, WebM), audio (MP3, WAV, M4A), sous-titres (SRT, VTT) et fichiers sources du graphiste (PSD, AI, PDF, ZIP, FIG), SVG, documents Word / OpenDocument / Markdown. Stockage actuel : ${esc(storageInfo)}.
-Une affiche déjà faite (rôle « Affiche reçue ») ne permet pas de déplacer ses éléments : seuls le cadrage et les formats se règlent ; pour tout recomposer, demandez les fichiers sources. Un .ai s’exporte en SVG depuis Illustrator (Fichier › Exporter › Exporter sous… › SVG).</small></details></div>
-<form method="get" class="filters inline"><input type="search" name="q" value="${esc(filter.q || '')}" placeholder="Rechercher par nom">
-${so('kind', [['', 'Tous les types'], ...Object.entries(KIND_NAMES)], filter.kind || '')}
-${so('status', [['', 'Tous les statuts'], ...VALIDATION.map((s) => [s, s])], filter.status || '')}
-<button>Filtrer</button>${active ? ` <a href="/edition/${ed.id}/assets">Tout afficher</a>` : ''}</form>
-<p><small>${shown.length} fichier(s)${active ? ` sur ${assets.length}` : ''}.</small></p>
-${shown.map(card).join('') || (active ? '<p>Aucun fichier ne correspond à ces filtres.</p>' : '<p>Aucun fichier pour l’instant. Tant qu’aucune photo n’est ajoutée, les affiches et le site utilisent une image « PLACEHOLDER ».</p>')}`;
+<div class="finder"><nav class="folders" aria-label="Dossiers">${folders.map(([k, l, c]) => `<a href="${href(k)}"${(filter.kind || '') === k ? ' class="on"' : ''}><span class="fold"></span>${esc(l)} <small>${c}</small></a>`).join('')}</nav>
+<div class="fmain"><form method="get" class="ftools">${filter.kind ? `<input type="hidden" name="kind" value="${esc(filter.kind)}">` : ''}<input type="search" name="q" value="${esc(filter.q || '')}" placeholder="Rechercher" aria-label="Rechercher par nom">
+${isExp ? '' : so('status', [['', 'Tous les statuts'], ...VALIDATION.map((s) => [s, s])], filter.status || '')}<noscript><button>Filtrer</button></noscript></form>
+<div class="tiles">${shown.map(tile).join('')}${exps.map(etile).join('')}</div>
+${shown.length || exps.length ? '' : '<p class="empty">Aucun fichier ici.</p>'}
+<details class="libhelp"><summary><small>Formats acceptés et stockage</small></summary><small>Photos (JPG, PNG, WebP, GIF), vidéos (MP4, MOV, WebM), audio, sous-titres (SRT, VTT), sources (PSD, AI, PDF, ZIP, FIG), SVG, documents. Le type est reconnu à l’ajout. Un .ai s’exporte en SVG depuis Illustrator. Stockage : ${esc(storageInfo)}.</small></details></div></div>`;
 }
+
+// Une ligne d'étapes : pastilles reliées, cochées au fur et à mesure, un titre court sous chacune (le détail au survol).
+export const stepLine = (steps) => `<ol class="stepline">${steps.map((st) => `<li class="${st.done ? 'done' : ''}${st.now ? ' now' : ''}"><a href="${esc(st.href)}"${st.hint ? ` title="${esc(st.hint)}"` : ''}><i aria-hidden="true"></i><span>${esc(st.label)}</span>${st.hint ? `<small>${esc(st.hint)}</small>` : ''}</a></li>`).join('')}</ol>`;
 
 // En-tête de l'espace de travail d'un contenu : le même sur chaque étape et dans chaque éditeur.
 // Matériel → Création → Vérification et exports → Diffusion ; on peut revenir à n'importe quelle étape.
@@ -227,9 +233,9 @@ const wsChip = (st) => `<span class="tag ${st === 'approuvé' ? 'st-2' : st === 
 export function workspaceHeader(ed, w) {
   // fil d'Ariane : Campagnes › campagne › contenu (on sait toujours où l'on est et on remonte d'un clic)
   const crumbs = `<p class="crumbs" role="navigation" aria-label="Vous êtes ici"><a href="/edition/${ed.id}/campaigns">Campagnes</a> › ${w.campName ? `<a href="${w.backHref}">${esc(w.campName)}</a> › ` : ''}</p>`;
-  const dup = w.dup ? `<form method="post" action="${w.dup}" class="ws-dup"><input type="hidden" name="quick" value="1"><button class="sm" title="Copie complète : formats, photos, cadrages et textes. Idéal pour un test A/B.">⧉ Créer une variante</button></form>` : '';
+  const dup = w.dup ? `<form method="post" action="${w.dup}" class="ws-dup"><input type="hidden" name="quick" value="1"><button class="sm" title="Copie complète : formats, photos, cadrages et textes. Idéal pour un test A/B.">Créer une variante</button></form>` : '';
   return `<div class="ws"><div class="ws-top">${crumbs}<b>${esc(w.name)}</b> <span class="tag">${esc(w.type)}</span> ${wsChip(w.status)}${w.version ? ` <span class="tag">version ${w.version} approuvée</span>` : ''}${dup}</div>
-<ol class="steps">${w.steps.map((st, i) => `<li class="${st.done ? 'done' : ''}${st.key === w.step ? ' here' : ''}"><a href="${w.base}?step=${st.key}"><b>${st.done ? '✓' : i + 1}</b><span>${esc(st.label)}${st.note ? `<small>${esc(st.note)}</small>` : ''}</span></a></li>`).join('')}</ol>
+${stepLine(w.steps.map((st) => ({ label: st.label, done: st.done, now: st.key === w.step, href: `${w.base}?step=${st.key}`, hint: st.note })))}
 ${w.summary ? `<p class="ws-sum">${esc(w.summary)}</p>` : ''}${w.note ? `<small class="ws-note">${esc(w.note)}</small>` : ''}${w.overview ? `<small class="ws-note"><a href="${w.base}?step=creation&all=1">Textes communs à tous les formats, vidéo, enregistrer comme modèle</a></small>` : ''}</div>`;
 }
 

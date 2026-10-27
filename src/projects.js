@@ -92,11 +92,10 @@ export function pipeline(ed) {
   const approved = n("SELECT COUNT(*) c FROM variants WHERE project_id=? AND approved_version>0", id);
   const exported = n('SELECT COUNT(*) c FROM exports WHERE edition_id=? AND variant_id IS NOT NULL', id);
   const links = n("SELECT COUNT(*) c FROM content_links l JOIN contents c ON c.id=l.content_id WHERE c.project_id=? AND l.state IN ('approuvé','transmis','publié')", id);
-  // « Y aller » doit mener là où l'on peut corriger : la première section des paramètres qui bloque, ou le contenu qui attend une action.
-  const sec = needs[0]?.section || SECTIONS.find((s) => ed.validation[s.id]?.status !== 'approuvé')?.id;
+  // « Y aller » mène là où l'on peut corriger : la description du spectacle (en haut de page), ou le contenu qui attend une action.
   const waiting = variantsMod.listVariants(id).filter((v) => v.status !== 'archivé').find((v) => { const ns = variantsMod.nextStep(v.id); return ns && (ns.action === 'approve-export' || ns.action === 'export' || /^À corriger/.test(ns.text)); });
   const steps = [
-    { n: 1, label: 'Décrire le spectacle', page: ['fiche'], done: blockers === 0, hint: blockers ? `${blockers} point(s) pour sortir les affiches du BROUILLON` : 'Infos prêtes pour les affiches', href: `/edition/${id}/settings${sec ? '#sec-' + sec : ''}` },
+    { n: 1, label: 'Description du spectacle', page: ['fiche'], done: blockers === 0, hint: blockers ? `${blockers} point(s) pour sortir les affiches du BROUILLON` : 'Infos prêtes pour les affiches', href: `/edition/${id}/settings` },
     { n: 2, label: 'Ajouter le matériel', page: ['assets', 'designs', 'contenus'], done: c.assets > 0, hint: c.assets ? `${c.assets} fichier(s)` : 'Photos, affiche reçue ou document', href: `/edition/${id}/assets` },
     { n: 3, label: 'Créer une campagne et ses contenus', page: ['variantes', 'affiches', 'videos'], done: c.variants > 0, hint: c.variants ? `${c.variants} contenu(s)` : 'Une campagne, puis son premier contenu', href: `/edition/${id}/campaigns` },
     { n: 4, label: 'Approuver et exporter', page: [], done: approved > 0 && exported > 0, hint: exported ? `${exported} fichier(s) exporté(s)` : 'Un clic sur le contenu', href: waiting ? `/edition/${id}/variants/${waiting.id}?step=verification` : `/edition/${id}/variants` },
@@ -115,21 +114,30 @@ import { nextActions } from './todo.js';
 // Liste unique des contenus (affiches, vidéos, textes) avec filtres : type, statut, campagne, recherche par nom.
 // Les formats, versions et fichiers restent rattachés au contenu d'origine (un seul lien vers sa page de travail).
 const fold = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+const STATUS_ORDER = ['à relire', 'brouillon', 'approuvé', 'archivé'];
+export const SORTS = {
+  recent: (a, b) => String(b.updated).localeCompare(String(a.updated)),
+  nom: (a, b) => a.name.localeCompare(b.name, 'fr'),
+  statut: (a, b) => STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status) || a.name.localeCompare(b.name, 'fr'),
+  type: (a, b) => a.type.localeCompare(b.type, 'fr') || a.name.localeCompare(b.name, 'fr'),
+};
 export function allWork(pid, f = {}) {
   const rows = [
     ...variantsMod.listVariants(pid).map((v) => {
       const live = v.status !== 'archivé', es = live ? variantsMod.exportStatus(v.id) : null;
       return { kind: 'variant', id: v.id, type: variantsMod.variantType(v), name: v.name, status: v.status, updated: v.updated, href: `/edition/${pid}/variants/${v.id}`,
-        campaigns: v.campaign_id ? [v.campaign_id] : [], files: es && es.total ? `${es.have}/${es.total} fichiers${es.errors.length ? ' · erreur' : ''}` : '', next: live ? variantsMod.nextStep(v.id)?.text || '' : '' };
+        campaigns: v.campaign_id ? [v.campaign_id] : [], files: es && es.total ? `${es.have}/${es.total} fichiers${es.errors.length ? ' · erreur' : ''}` : '', next: live ? variantsMod.nextStep(v.id)?.text || '' : '',
+        fmt: v.formats[0] || '', video: !!v.with_video };
     }),
     ...campaignsMod.listContents(pid).filter((c) => c.kind === 'texte').map((c) => ({ kind: 'texte', id: c.id, type: 'Texte', name: c.title, status: c.status, updated: c.updated, href: `/edition/${pid}/texts/${c.id}`,
-      campaigns: [...new Set(campaignsMod.linksOfContent(c.id).map((l) => l.campaign_id).filter(Boolean))], files: c.asset_id ? 'fichier joint' : '', next: c.status === 'approuvé' || c.status === 'archivé' ? '' : 'À relire et approuver' })),
+      campaigns: [...new Set(campaignsMod.linksOfContent(c.id).map((l) => l.campaign_id).filter(Boolean))], files: c.asset_id ? 'fichier joint' : '', next: c.status === 'approuvé' || c.status === 'archivé' ? '' : 'À relire et approuver',
+      excerpt: String(c.body || '').slice(0, 220) })),
   ];
   const q = fold(f.q);
   return rows.filter((r) => (f.status ? r.status === f.status : r.status !== 'archivé')
     && (!f.type || (f.type === 'texte' ? r.kind === 'texte' : f.type === 'affiche' ? /^Affiche/.test(r.type) : f.type === 'video' ? /Vidéo/.test(r.type) : true))
     && (!f.campaign || r.campaigns.includes(Number(f.campaign)))
-    && (!q || fold(r.name).includes(q))).sort((a, b) => String(b.updated).localeCompare(String(a.updated)));
+    && (!q || fold(r.name).includes(q))).sort(SORTS[f.sort] || SORTS.recent);
 }
 
 const plusDays = (iso, k) => { const d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + k); return d.toISOString().slice(0, 10); };
@@ -147,4 +155,75 @@ export function homeData(ed) {
     late: planMod.listItems(pid, { to: plusDays(planMod.today(), -1) }).filter((i) => i.status !== 'fait').length,
     todo: nextActions(pid, 6, { skipVariants: true, skipPlan: true }), counts: { work: asWork.length, campaigns: campaignsMod.listCampaigns(pid).length },
   };
+}
+
+// Actions groupées sur une sélection de contenus (galerie) : déplacer vers une campagne, archiver, créer une variante.
+// ids : « v12 » (affiche/vidéo) ou « t3 » (texte). Les associations déjà transmises ou publiées ne sont jamais touchées.
+export function batchContents(pid, ids, action, target, who) {
+  let n = 0;
+  const camp = Number(target) || null;
+  if (action === 'move' && !(camp && campaignsMod.getCampaign(camp)?.project_id === pid)) return { ok: false, error: 'Choisissez la campagne de destination.' };
+  for (const raw of ids) {
+    const id = Number(String(raw).slice(1));
+    if (raw[0] === 'v') {
+      const v = variantsMod.getVariant(id);
+      if (!v || v.project_id !== pid) continue;
+      if (action === 'move') { variantsMod.updateVariant(id, { ...v, campaign_id: camp, adset_id: v.campaign_id === camp ? v.adset_id : null }, who); n++; }
+      else if (action === 'archive' && v.status !== 'archivé') { variantsMod.archive(id, who); n++; }
+      else if (action === 'variant' && v.status !== 'archivé') { if (variantsMod.duplicateVariant(id, { simple: '1', name: variantsMod.nextVariantName(v) }, who).ok) n++; }
+    } else if (raw[0] === 't') {
+      const c = campaignsMod.getContent(id);
+      if (!c || c.project_id !== pid || c.kind !== 'texte') continue;
+      if (action === 'move') {
+        const links = campaignsMod.linksOfContent(id);
+        if (!links.some((l) => l.campaign_id === camp)) campaignsMod.linkContent(id, { campaign_id: camp }, who);
+        for (const l of links) if (l.campaign_id && l.campaign_id !== camp && l.state === 'brouillon') campaignsMod.unlink(l.id, who);
+        n++;
+      } else if (action === 'archive' && c.status !== 'archivé') { campaignsMod.updateContent(id, { ...c, status: 'archivé' }, who); n++; }
+    }
+  }
+  return { ok: true, n };
+}
+
+// Suppression définitive d'une sélection de contenus (copie de la base juste avant ; les fichiers exportés sont effacés).
+// Refusée pour un contenu dont une version a été transmise ou publiée dans Meta, ou dont un export vidéo tourne : on l'archive alors.
+export function deleteContents(pid, ids, who) {
+  const frozen = (where, id) => db.prepare(`SELECT COUNT(*) c FROM content_links l JOIN contents c ON c.id=l.content_id WHERE ${where} AND l.state IN ('transmis','publié')`).get(id).c;
+  const plan = [], kept = [];
+  for (const raw of ids) {
+    const id = Number(String(raw).slice(1));
+    if (raw[0] === 'v') {
+      const v = variantsMod.getVariant(id);
+      if (!v || v.project_id !== pid) continue;
+      if (frozen('c.variant_id=?', id) || db.prepare("SELECT COUNT(*) c FROM jobs WHERE variant_id=? AND status IN ('queued','running')").get(id).c) kept.push(v.name); else plan.push({ kind: 'v', id, name: v.name });
+    } else if (raw[0] === 't') {
+      const c = campaignsMod.getContent(id);
+      if (!c || c.project_id !== pid || c.kind !== 'texte') continue;
+      if (frozen('c.id=?', id)) kept.push(c.title); else plan.push({ kind: 't', id, name: c.title });
+    }
+  }
+  if (!plan.length) return { ok: true, n: 0, kept };
+  backup();
+  const files = [];
+  db.exec('BEGIN');
+  try {
+    for (const x of plan) {
+      const ct = x.kind === 'v' ? '(SELECT id FROM contents WHERE variant_id=?)' : '(?)';
+      db.prepare(`DELETE FROM results WHERE link_id IN (SELECT id FROM content_links WHERE content_id IN ${ct})`).run(x.id);
+      db.prepare(`DELETE FROM content_links WHERE content_id IN ${ct}`).run(x.id);
+      if (x.kind === 't') { db.prepare('DELETE FROM text_versions WHERE content_id=?').run(x.id); db.prepare('DELETE FROM contents WHERE id=?').run(x.id); continue; }
+      files.push(...db.prepare('SELECT file FROM exports WHERE variant_id=?').all(x.id).map((r) => r.file));
+      for (const sql of ['DELETE FROM contents WHERE variant_id=?', 'DELETE FROM exports WHERE variant_id=?', 'DELETE FROM variant_versions WHERE variant_id=?', 'DELETE FROM export_errors WHERE variant_id=?',
+        'DELETE FROM plan_items WHERE variant_id=?', 'DELETE FROM jobs WHERE variant_id=?']) db.prepare(sql).run(x.id);
+      const keys = `(key LIKE 'v${x.id}\\_%' ESCAPE '\\' OR key='video_v${x.id}')`;
+      db.prepare(`DELETE FROM designs WHERE edition_id=? AND ${keys}`).run(pid);
+      db.prepare(`DELETE FROM design_history WHERE edition_id=? AND ${keys}`).run(pid);
+      db.prepare('DELETE FROM subtitles2 WHERE edition_id=? AND scope=?').run(pid, 'v' + x.id);
+      db.prepare('DELETE FROM variants WHERE id=?').run(x.id);
+    }
+    db.exec('COMMIT');
+  } catch (e) { db.exec('ROLLBACK'); return { ok: false, error: 'Suppression annulée (erreur interne) : ' + e.message }; }
+  for (const f of files) { try { if (existsSync(EXPORT_PATH + f)) unlinkSync(EXPORT_PATH + f); } catch { /* déjà absent */ } }
+  log(who, `Contenu(s) supprimé(s) : ${plan.map((x) => `« ${x.name} »`).join(', ')}`);
+  return { ok: true, n: plan.length, kept };
 }

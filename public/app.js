@@ -1,6 +1,10 @@
 // Envoi de fichiers et studio d'affiche (panneau d'éléments + aperçu éditable).
 const $ = (id) => document.getElementById(id);
 
+// Un lien vers une partie repliée de la page (#connexions…) l'ouvre.
+const openHash = () => { const t = location.hash && document.getElementById(location.hash.slice(1)); if (t && t.tagName === 'DETAILS') { t.open = true; t.scrollIntoView(); } };
+openHash(); window.addEventListener('hashchange', openHash);
+
 // Garde de travail (affiche, vidéo) : état visible, vérification qu'un autre onglet n'a pas modifié le même travail, et aucune navigation
 // qui perdrait des modifications sans le dire. Un brouillon n'est JAMAIS approuvé ni publié par cette garde : elle ne fait qu'enregistrer.
 window.AtelierGuard = (() => {
@@ -122,7 +126,7 @@ if (up) {
     if (!files || !files.length) return;
     const { ok, bad, warn } = await sendFiles(files, { edition: up.dataset.edition, msg });
     if (!ok.length) { msg.textContent = 'Erreur : ' + bad.join(' ; '); return; }
-    location.href = `/edition/${up.dataset.edition}/assets?m=` + encodeURIComponent(`${plural(ok.length, 'fichier ajouté', 'fichiers ajoutés')}.${bad.length ? ' Refusé : ' + bad.join(' ; ') : ''}${warn.length ? ' ⚠ ' + warn.join(' ') : ''}`);
+    location.href = `/edition/${up.dataset.edition}/assets?m=` + encodeURIComponent(`${plural(ok.length, 'fichier ajouté', 'fichiers ajoutés')}.${bad.length ? ' Refusé : ' + bad.join(' ; ') : ''}${warn.length ? ' ' + warn.join(' ') : ''}`);
   };
   up.addEventListener('submit', (e) => { e.preventDefault(); run(input.files); });
   input.addEventListener('change', () => run(input.files));
@@ -169,7 +173,7 @@ document.querySelectorAll('form.upm').forEach((form) => {
       if (!ok.length) { msg0.textContent = 'Erreur : ' + bad.join(' ; '); return; }
       const base = `/edition/${form.dataset.edition}/variants/${form.dataset.variant}?step=materiel&m=`;
       location.href = ok.length === 1 && !bad.length && last?.url ? last.url
-        : base + encodeURIComponent(`${plural(ok.length, 'fichier ajouté', 'fichiers ajoutés')} : choisissez ci-dessous où les utiliser (photo de fond, logo, affiche reçue).${bad.length ? ' Refusé : ' + bad.join(' ; ') : ''}${warn.length ? ' ⚠ ' + warn.join(' ') : ''}`);
+        : base + encodeURIComponent(`${plural(ok.length, 'fichier ajouté', 'fichiers ajoutés')} : choisissez ci-dessous où les utiliser (photo de fond, logo, affiche reçue).${bad.length ? ' Refusé : ' + bad.join(' ; ') : ''}${warn.length ? ' ' + warn.join(' ') : ''}`);
     };
     form.addEventListener('submit', (e) => { e.preventDefault(); run(input.files); });
     input.addEventListener('change', () => run(input.files));
@@ -427,4 +431,28 @@ if (csvfile) csvfile.addEventListener('change', async () => { const f = csvfile.
     el.addEventListener('mouseleave', () => { tip.hidden = true; });
     el.addEventListener('blur', () => { tip.hidden = true; });
   });
+})();
+
+// Aperçu du site : l'onglet de la page affichée reste marqué.
+document.querySelectorAll('.site-pages a').forEach((a) => a.addEventListener('click', () => {
+  a.parentElement.querySelectorAll('a').forEach((x) => x.classList.toggle('on', x === a));
+}));
+
+// Galerie : la barre d'actions groupées apparaît dès qu'un contenu est coché.
+(() => {
+  const f = document.getElementById('batchform');
+  if (!f) return;
+  const bar = f.querySelector('.batchbar'), count = f.querySelector('.bcount'), action = f.querySelector('[name=action]'), target = f.querySelector('[name=target]');
+  const sync = () => {
+    const n = f.querySelectorAll('input[name=ids]:checked').length;
+    bar.hidden = !n; count.textContent = `${n} sélectionné${n > 1 ? 's' : ''}`;
+    target.hidden = action.value !== 'move';
+  };
+  f.addEventListener('change', sync);
+  f.addEventListener('submit', (e) => {
+    const n = f.querySelectorAll('input[name=ids]:checked').length;
+    if (action.value === 'delete' && !confirm(`Supprimer définitivement ${n} contenu(s) ? Leurs versions, exports et associations en brouillon seront effacés. Un contenu déjà transmis à Meta n’est jamais supprimé.`)) e.preventDefault();
+  });
+  f.querySelector('.bclear').addEventListener('click', () => { f.querySelectorAll('input[name=ids]').forEach((x) => { x.checked = false; }); sync(); });
+  sync();
 })();

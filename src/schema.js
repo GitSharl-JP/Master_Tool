@@ -6,7 +6,7 @@ export const VALIDATION = ['brouillon', 'à relire', 'approuvé'];
 // perLang: le champ est décliné par langue (clé: title_en, title_ja…)
 export const SECTIONS = [
   {
-    id: 'identity', title: 'Identité',
+    id: 'identity', title: 'Le spectacle',
     fields: [
       { key: 'show_code', label: 'Identifiant spectacle', type: 'text', help: 'Court, sans espaces (ex. nightshow)' },
       { key: 'edition_code', label: 'Identifiant édition', type: 'text', help: 'Ex. 2027' },
@@ -52,7 +52,7 @@ export const SECTIONS = [
     ],
   },
   {
-    id: 'experience', title: 'Expérience et parcours',
+    id: 'experience', title: 'La visite',
     fields: [
       { key: 'hero_title', label: 'Titre d’accueil du site', type: 'text', perLang: true },
       { key: 'highlights', label: 'Points forts', type: 'textarea', perLang: true, help: 'Un par ligne (3 à 5 recommandés).' },

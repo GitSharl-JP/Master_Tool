@@ -33,10 +33,11 @@ const HOST = process.env.HOST || '127.0.0.1'; // local uniquement ; passer HOST=
 let lastBackup = '';
 
 const cookies = (req) => Object.fromEntries((req.headers.cookie || '').split(';').map((c) => c.trim().split('=')).filter((p) => p[0]));
-const readBody = (req) => new Promise((res) => {
+// multi : champs répétés (cases à cocher de même nom) rendus en tableau
+const readBody = (req, { multi = [] } = {}) => new Promise((res) => {
   let b = '';
   req.on('data', (c) => { b += c; if (b.length > 1e6) req.destroy(); });
-  req.on('end', () => res(Object.fromEntries(new URLSearchParams(b))));
+  req.on('end', () => { const p = new URLSearchParams(b), o = Object.fromEntries(p); for (const k of multi) o[k] = p.getAll(k); res(o); });
 });
 const sendJson = (res, code, o) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(o)); };
 const STALE_MSG = 'Ce travail a été modifié ailleurs (autre onglet ou autre personne) depuis que vous l’avez ouvert : rien n’a été écrasé. Rechargez la page pour voir la version enregistrée.';
@@ -154,7 +155,7 @@ const server = createServer(async (req, res) => {
       const ed = db.getEdition(Number(r[1]));
       if (!ed) return send(res, 404, layout('Introuvable', '<h1>Projet introuvable</h1>', user));
       const sp = url.searchParams;
-      return page('Assets', assetsPage(ed, studio.listAssets(ed.id).map((a) => ({ ...a, warn: intake.imageWarnings(a)[0] || '' })), msgOf(), `${storage.driver} — ${storage.location}`, { q: (sp.get('q') || '').trim(), kind: sp.get('kind') || '', status: sp.get('status') || '' }));
+      return page('Assets', assetsPage(ed, studio.listAssets(ed.id).map((a) => ({ ...a, warn: intake.imageWarnings(a)[0] || '' })), msgOf(), `${storage.driver} — ${storage.location}`, { q: (sp.get('q') || '').trim(), kind: sp.get('kind') || '', status: sp.get('status') || '' }, studio.listExports(ed.id)));
     }
     if (path === '/assets/upload' && req.method === 'POST') {
       const ed = db.getEdition(Number(url.searchParams.get('edition')));
@@ -169,7 +170,7 @@ const server = createServer(async (req, res) => {
           const key = isVideo ? 'video_asset' : { hero: 'hero', logo: 'logo', poster: 'poster', video: 'video_asset' }[what];
           const o = key ? variants.applyMaterial(vId, { [key]: String(id) }, user.name) : { ok: true, msg: 'Fichier ajouté : choisissez ci-dessous où l’utiliser (photo de fond, logo, affiche reçue).' };
           const warn = intake.imageWarnings(studio.getAsset(id))[0];
-          return json(200, { id, url: `/edition/${ed.id}/variants/${vId}?step=materiel&m=${encodeURIComponent((o.ok ? o.msg : o.error) + (warn ? ' ⚠ ' + warn : ''))}` });
+          return json(200, { id, url: `/edition/${ed.id}/variants/${vId}?step=materiel&m=${encodeURIComponent((o.ok ? o.msg : o.error) + (warn ? ' ' + warn : ''))}` });
         }
         if (tId && what === 'doc') { // document importé dans un contenu texte
           const o = intake.importIntoContent(ed.id, tId, id, user.name);
@@ -459,9 +460,10 @@ const server = createServer(async (req, res) => {
         const camp = campaigns.getCampaign(Number(r[3]));
         if (!camp || camp.project_id !== ed.id) return send(res, 404, layout('Introuvable', '<h1>Campagne introuvable</h1>', user));
         variants.syncProject(ed.id, user.name);
+        const sp = url.searchParams, gallery = (cid) => { const filter = { q: (sp.get('q') || '').trim(), type: sp.get('type') || '', status: sp.get('status') || '', sort: sp.get('sort') || '' }; return { filter, gallery: projects.allWork(ed.id, { ...filter, campaign: cid }), campaignsList: campaigns.listCampaigns(ed.id) }; };
         const why = (ls) => ls.map((l) => ({ ...l, why: ['brouillon', 'à relire'].includes(l.state) ? campaigns.transitionRecap(l.id, 'approuvé')?.errors[0] || '' : '' }));
         const adsets = campaigns.listAdsets(camp.id).map((s) => ({ ...s, links: why(campaigns.linksFor('adset_id', s.id)), ads: campaigns.listAds(s.id).map((a) => ({ ...a, links: why(campaigns.linksFor('ad_id', a.id)) })) }));
-        return page(camp.name, campaignPage(ed, { camp, adsets, pending: why(campaigns.allLinksOfCampaign(camp.id).filter((l) => ['brouillon', 'à relire'].includes(l.state))), texts: db.db.prepare("SELECT DISTINCT c.* FROM contents c JOIN content_links l ON l.content_id=c.id WHERE c.kind='texte' AND c.status<>'archivé' AND (l.campaign_id=? OR l.adset_id IN (SELECT id FROM adsets WHERE campaign_id=?) OR l.ad_id IN (SELECT a.id FROM ads a JOIN adsets s ON s.id=a.adset_id WHERE s.campaign_id=?)) ORDER BY c.id DESC").all(camp.id, camp.id, camp.id), contents: campaigns.listContents(ed.id).filter((x) => (x.export_id || x.kind === 'texte') && x.status !== 'archivé'), campLinks: why(campaigns.linksFor('campaign_id', camp.id)), allLinks: campaigns.allLinksOfCampaign(camp.id), compare: campaigns.compare(camp.id), conflicts: campaigns.resultConflicts(camp.id), vue: url.searchParams.get('vue') || '', variants: variants.listVariants(ed.id, camp.id).filter((v) => v.status !== 'archivé').map((v) => ({ ...v, pristine: variants.isPristine(v) })), outputs: Object.fromEntries(variants.listVariants(ed.id, camp.id).map((v) => [v.id, variants.outputsOf(v.id)])), nexts: Object.fromEntries(variants.listVariants(ed.id, camp.id).map((v) => [v.id, variants.nextStep(v.id)?.text || ''])), users: db.listUsers().map((u) => u.name) }), msgOf());
+        return page(camp.name, campaignPage(ed, { camp, adsets, pending: why(campaigns.allLinksOfCampaign(camp.id).filter((l) => ['brouillon', 'à relire'].includes(l.state))), texts: db.db.prepare("SELECT DISTINCT c.* FROM contents c JOIN content_links l ON l.content_id=c.id WHERE c.kind='texte' AND c.status<>'archivé' AND (l.campaign_id=? OR l.adset_id IN (SELECT id FROM adsets WHERE campaign_id=?) OR l.ad_id IN (SELECT a.id FROM ads a JOIN adsets s ON s.id=a.adset_id WHERE s.campaign_id=?)) ORDER BY c.id DESC").all(camp.id, camp.id, camp.id), contents: campaigns.listContents(ed.id).filter((x) => (x.export_id || x.kind === 'texte') && x.status !== 'archivé'), campLinks: why(campaigns.linksFor('campaign_id', camp.id)), allLinks: campaigns.allLinksOfCampaign(camp.id), compare: campaigns.compare(camp.id), conflicts: campaigns.resultConflicts(camp.id), vue: url.searchParams.get('vue') || '', variants: variants.listVariants(ed.id, camp.id).filter((v) => v.status !== 'archivé').map((v) => ({ ...v, pristine: variants.isPristine(v) })), outputs: Object.fromEntries(variants.listVariants(ed.id, camp.id).map((v) => [v.id, variants.outputsOf(v.id)])), nexts: Object.fromEntries(variants.listVariants(ed.id, camp.id).map((v) => [v.id, variants.nextStep(v.id)?.text || ''])), users: db.listUsers().map((u) => u.name), ...gallery(camp.id) }), msgOf());
       }
       if (req.method === 'POST') {
         const b = await readBody(req);
@@ -540,6 +542,16 @@ const server = createServer(async (req, res) => {
     }
 
     // ---------- variantes guidées
+    if ((r = path.match(/^\/edition\/(\d+)\/variants\/batch$/)) && req.method === 'POST') { // galerie : action groupée sur la sélection
+      const ed = db.getEdition(Number(r[1]));
+      if (!ed) return send(res, 404, layout('Introuvable', '<h1>Projet introuvable</h1>', user));
+      const b = await readBody(req, { multi: ['ids'] });
+      const ids = [].concat(b.ids || []).filter((x) => /^[vt]\d+$/.test(x));
+      const o = b.action === 'delete' ? projects.deleteContents(ed.id, ids, user.name) : projects.batchContents(ed.id, ids, b.action, b.target, user.name);
+      const back = /^\/edition\/\d+\/(variants|campaigns\/\d+)(\?[\w=&%-]*)?$/.test(b.back || '') ? b.back : `/edition/${ed.id}/variants`;
+      const done = { move: `${o.n} contenu(s) déplacé(s).`, archive: `${o.n} contenu(s) archivé(s).`, variant: `${o.n} variante(s) créée(s).`, delete: `${o.n} contenu(s) supprimé(s) définitivement.${o.kept?.length ? ` Non supprimé(s), déjà transmis à Meta ou export en cours (archivez-les) : ${o.kept.join(', ')}.` : ''}` }[b.action] || `${o.n} contenu(s) traité(s).`;
+      return redirect(res, `${back}${back.includes('?') ? '&' : '?'}m=${encodeURIComponent(o.ok ? done : o.error)}`);
+    }
     if ((r = path.match(/^\/edition\/(\d+)\/variants(?:\/(new)|\/(\d+)(?:\/(update|messages|review|assign|approve-export|approve|restore|export|link|plan|duplicate|archive|material|save-model))?)?$/))) {
       const ed = db.getEdition(Number(r[1]));
       if (!ed) return send(res, 404, layout('Introuvable', '<h1>Projet introuvable</h1>', user));
@@ -583,8 +595,9 @@ const server = createServer(async (req, res) => {
         }
       }
       if (!r[3] && req.method === 'GET') {
-        const sp = url.searchParams, filter = { q: (sp.get('q') || '').trim(), type: sp.get('type') || '', status: sp.get('status') || '', campaign: Number(sp.get('campaign')) || '' };
-        return page('Contenus', variantsPage(ed, { rows: projects.allWork(ed.id, filter), total: projects.allWork(ed.id, {}).length, campaigns: camps, filter }), msgOf());
+        const sp = url.searchParams, filter = { q: (sp.get('q') || '').trim(), type: sp.get('type') || '', status: sp.get('status') || '', campaign: Number(sp.get('campaign')) || '', sort: sp.get('sort') || '' };
+        const all = projects.allWork(ed.id, {}), counts = Object.fromEntries(camps.map((x) => [x.id, all.filter((w) => w.campaigns.includes(x.id)).length]));
+        return page('Contenus', variantsPage(ed, { rows: projects.allWork(ed.id, filter), total: all.length, campaigns: camps, filter, counts }), msgOf());
       }
       if (r[3]) {
         const v = variants.getVariant(Number(r[3]));
